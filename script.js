@@ -168,20 +168,6 @@ const LAYER_REGISTRY = [
     { id:'transit_stops',label:'Transit stops',     hint:'Bus, tram & rail stops',      color:'#444444', defaultOn:false, type:'point', radius:2.5,
       overpassQuery:(b)=>`node["public_transport"~"stop_position|platform"](${b});node["highway"="bus_stop"](${b});node["railway"~"station|halt|tram_stop"](${b});` },
   ]},
-  { group: 'Points of interest', layers: [
-    { id:'poi_amenity',  label:'Amenities',         hint:'Cafes, restaurants, bars',    color:'#bf3b1e', defaultOn:false, type:'point', radius:2,
-      overpassQuery:(b)=>`node["amenity"~"cafe|restaurant|bar|pub|fast_food"](${b});` },
-    { id:'poi_tourism',  label:'Tourism',           hint:'Attractions, museums, hotels',color:'#1e5cbf', defaultOn:false, type:'point', radius:2.5,
-      overpassQuery:(b)=>`node["tourism"](${b});` },
-    { id:'poi_shops',    label:'Shops',             hint:'Retail & supermarkets',       color:'#b05020', defaultOn:false, type:'point', radius:2,
-      overpassQuery:(b)=>`node["shop"](${b});` },
-  ]},
-  { group: 'Land use', layers: [
-    { id:'landuse_residential', label:'Residential zones', hint:'Residential land use', color:'#e8dfc8', defaultOn:false, type:'area', fillOpacity:0.4, strokeWidth:0.2,
-      overpassQuery:(b)=>`way["landuse"="residential"](${b});relation["landuse"="residential"](${b});` },
-    { id:'landuse_industrial',  label:'Industrial zones',  hint:'Industrial & commercial',color:'#c8b8d4',defaultOn:false, type:'area', fillOpacity:0.45, strokeWidth:0.2,
-      overpassQuery:(b)=>`way["landuse"~"industrial|commercial|retail"](${b});` },
-  ]},
   { group: 'Labels', layers: [
     { id:'water_labels', label:'Water & park names', hint:'Rivers, lakes, parks',       color:'#1a3a6a', defaultOn:true,  type:'feature_labels',
       overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});relation["natural"="water"]["name"](${b});way["natural"="water"]["name"](${b});way["leisure"~"park|garden"]["name"](${b});relation["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});` },
@@ -288,12 +274,12 @@ function renderLabelToggles() {
   const wrap = document.getElementById('label-toggles');
   wrap.innerHTML = '';
   const cats = ['motorway','primary','secondary','tertiary','residential','cycleway'];
-  const shortNames = {motorway:'Mwy',primary:'Pri',secondary:'Sec',tertiary:'Ter',residential:'Res',cycleway:'Cyc'};
+  const fullNames = {motorway:'Motorway',primary:'Primary',secondary:'Secondary',tertiary:'Tertiary',residential:'Residential',cycleway:'Cycleway'};
   cats.forEach(cat => {
     const id = `lbl-${cat}`;
     const label = document.createElement('label');
     label.style.cssText='display:flex;align-items:center;gap:3px;font-size:9px;color:var(--muted);cursor:pointer;white-space:nowrap';
-    label.innerHTML = `<input type="checkbox" id="${id}" ${LABEL_VISIBILITY[cat]?'checked':''} style="width:10px;height:10px;accent-color:var(--accent2)"> ${shortNames[cat]}`;
+    label.innerHTML = `<input type="checkbox" id="${id}" ${LABEL_VISIBILITY[cat]?'checked':''} style="width:10px;height:10px;accent-color:var(--accent2)"> ${fullNames[cat]}`;
     label.querySelector('input').addEventListener('change', e => { LABEL_VISIBILITY[cat] = e.target.checked; scheduleLivePreview(); });
     wrap.appendChild(label);
   });
@@ -1192,8 +1178,14 @@ function saveHistory(b, preset, W, filename, mb, elements) {
 function renderHistory() {
   try {
     const list=document.getElementById('history-list');
+    const header=document.getElementById('history-header');
     const items=JSON.parse(localStorage.getItem('mapexport_history')||'[]');
-    if (!items.length) { list.innerHTML='<div id="no-history">No exports yet</div>'; return; }
+    if (!items.length) {
+      list.innerHTML='<div id="no-history">No exports yet</div>';
+      if (header) header.style.display='none';
+      return;
+    }
+    if (header) header.style.display='flex';
     list.innerHTML='';
     items.forEach(entry=>{
       const div=document.createElement('div');
@@ -1316,6 +1308,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderLayers();
   renderLabelToggles();
   renderHistory();
+
+  // Delete-all history button
+  document.getElementById('btn-history-clear').addEventListener('click', () => {
+    localStorage.removeItem('mapexport_history');
+    renderHistory();
+  });
 
   if (location.protocol==='file:') {
     const warn=document.createElement('div');
