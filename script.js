@@ -1304,7 +1304,6 @@ function hideProgress(){document.getElementById('progress-overlay').classList.re
 // ════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded',()=>{
   initMap();
-  renderPresets();
   renderLayers();
   renderLabelToggles();
   renderHistory();
