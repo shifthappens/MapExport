@@ -28,7 +28,7 @@
 
       <!-- Search -->
       <div class="panel">
-        <div class="panel-label">&#9906; Find a city</div>
+        <div class="panel-label">&#9906; Find a city <button class="help-btn" data-help="search">?</button></div>
         <div id="search-wrap">
           <input type="text" id="search-input" placeholder="e.g. Amsterdam, Utrecht…" autocomplete="off">
           <button id="btn-search">Go</button>
@@ -41,7 +41,7 @@
 
       <!-- Step 1: Area -->
       <div class="panel">
-        <div class="panel-label"><span class="step-num">1</span>Select export area</div>
+        <div class="panel-label"><span class="step-num">1</span>Select export area <button class="help-btn" data-help="step1">?</button></div>
         <button id="btn-draw">&#9634; Draw rectangle</button>
         <div id="bbox-display"><div>No area selected yet</div></div>
         <div id="size-warning">
@@ -52,19 +52,19 @@
 
       <!-- Step 2: Style preset -->
       <div class="panel">
-        <div class="panel-label"><span class="step-num">2</span>Map style</div>
+        <div class="panel-label"><span class="step-num">2</span>Map style <button class="help-btn" data-help="step2">?</button></div>
         <div class="preset-grid" id="preset-grid"></div>
       </div>
 
       <!-- Step 3: Layers -->
       <div class="panel">
-        <div class="panel-label"><span class="step-num">3</span>Map layers</div>
+        <div class="panel-label"><span class="step-num">3</span>Map layers <button class="help-btn" data-help="step3">?</button></div>
         <div id="layers-list"></div>
       </div>
 
       <!-- Step 4: Export options -->
       <div class="panel" id="format-wrap">
-        <div class="panel-label"><span class="step-num">4</span>Export options</div>
+        <div class="panel-label"><span class="step-num">4</span>Export options <button class="help-btn" data-help="step4">?</button></div>
         <select id="format-select">
           <option value="svg">SVG — Illustrator / Inkscape</option>
         </select>
@@ -95,7 +95,7 @@
 
       <!-- History -->
       <div class="panel">
-        <div class="panel-label">&#9203; Recent exports</div>
+        <div class="panel-label">&#9203; Recent exports <button class="help-btn" data-help="history">?</button></div>
         <div id="history-list"><div id="no-history">No exports yet</div></div>
       </div>
 
@@ -123,6 +123,16 @@
         <button id="btn-dl">↓ Download</button>
       </div>
     </div>
+  </div>
+</div>
+
+<div id="help-modal">
+  <div id="help-modal-box">
+    <div id="help-modal-header">
+      <span id="help-modal-title"></span>
+      <button id="help-modal-close">✕</button>
+    </div>
+    <div id="help-modal-body"></div>
   </div>
 </div>
 

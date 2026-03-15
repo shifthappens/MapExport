@@ -1,6 +1,91 @@
 'use strict';
 
 // ════════════════════════════════════════════════════════════════
+//  HELP CONTENT
+// ════════════════════════════════════════════════════════════════
+const HELP = {
+  search: {
+    title: 'Find a city',
+    content: `
+      <p>Type a city, neighbourhood, or address and press <strong>Go</strong> to search. Select a result to fly the map to that location.</p>
+      <p><strong>Use admin boundary</strong> draws the official administrative boundary of the matched area as a polygon on the map — useful as a visual reference frame.</p>
+      <div class="tip">The boundary outline is shown on the map but is <em>not</em> included in the SVG export.</div>
+    `
+  },
+  step1: {
+    title: 'Select export area',
+    content: `
+      <p>Click <strong>Draw rectangle</strong>, then drag a box on the map to define what gets exported. The bounding box coordinates (N/S/E/W) are shown after drawing.</p>
+      <p>You can redraw at any time — the new selection replaces the old one.</p>
+      <ul>
+        <li>Small areas (a few city blocks) export in seconds</li>
+        <li>Large city areas can take 30+ seconds</li>
+        <li>Very large areas may time out on the OSM API</li>
+      </ul>
+      <div class="tip">A warning appears automatically when the selected area is very large. Consider splitting large exports into smaller sections.</div>
+    `
+  },
+  step2: {
+    title: 'Map style',
+    content: `
+      <p>Choose a colour theme for your exported SVG. This affects road colours, water, parks, and buildings.</p>
+      <ul>
+        <li><strong>Light</strong> — warm paper tones, good for editorial and print</li>
+        <li><strong>Dark</strong> — dark background with muted tones, suits digital use</li>
+        <li><strong>Minimal</strong> — greyscale, clean and neutral</li>
+        <li><strong>Print</strong> — optimised for black-and-white printing</li>
+      </ul>
+      <div class="tip">Style only affects colours in the SVG — you can always re-colour individual layers in Illustrator or Inkscape after export.</div>
+    `
+  },
+  step3: {
+    title: 'Map layers',
+    content: `
+      <p>Toggle which types of features appear in the exported SVG. Unchecked layers are skipped entirely, making exports faster and files smaller.</p>
+      <p>Each layer becomes a <strong>separate named group</strong> in the SVG — you can show, hide, lock, or re-style them individually in Illustrator or Inkscape.</p>
+      <ul>
+        <li><strong>Roads</strong> — all road types from motorways to footpaths</li>
+        <li><strong>Water</strong> — rivers, lakes, and coastlines</li>
+        <li><strong>Parks & green</strong> — parks, forests, and natural areas</li>
+        <li><strong>Buildings</strong> — building footprints</li>
+        <li><strong>Labels</strong> — road name text (per road type)</li>
+      </ul>
+      <div class="tip">Disable layers you don't need. Buildings in particular can add thousands of paths and slow down the export significantly.</div>
+    `
+  },
+  step4: {
+    title: 'Export options',
+    content: `
+      <p><strong>Format:</strong> SVG — compatible with Adobe Illustrator and Inkscape. All paths are editable vectors.</p>
+      <p><strong>Print size:</strong> Sets the SVG canvas dimensions. A3 @ 300dpi is a good default for print work. Use Custom px for specific pixel dimensions.</p>
+      <p><strong>Simplify:</strong> Reduces the number of points on paths. Higher values create smaller, simpler files — useful for large areas where fine detail isn't needed.</p>
+      <p><strong>Labels on:</strong> Control which road types include name labels. More labels means a larger file and slower rendering in Illustrator.</p>
+      <div class="tip">For large areas, try Simplify 3–4 and disable building labels to keep file sizes manageable.</div>
+    `
+  },
+  history: {
+    title: 'Recent exports',
+    content: `
+      <p>Shows your recent exports with the area name and timestamp. Click any item to <strong>re-run that export</strong> with the same bounding box and current settings.</p>
+      <p>Use the <strong>✕</strong> button on an item to remove it from the list.</p>
+      <div class="tip">History is stored in your browser's local storage. Clearing your browser's site data will erase it.</div>
+    `
+  }
+};
+
+function showHelp(key) {
+  const h = HELP[key];
+  if (!h) return;
+  document.getElementById('help-modal-title').textContent = h.title;
+  document.getElementById('help-modal-body').innerHTML = h.content;
+  document.getElementById('help-modal').classList.add('show');
+}
+
+function hideHelp() {
+  document.getElementById('help-modal').classList.remove('show');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  STYLE PRESETS
 // ════════════════════════════════════════════════════════════════
 const PRESETS = {
@@ -1058,6 +1143,15 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('btn-export').addEventListener('click',doExport);
   document.getElementById('btn-dl').addEventListener('click',()=>{if(lastSvgString)triggerDownload(lastSvgString,lastSvgFilename);});
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
+
+  // Help modal
+  document.querySelectorAll('.help-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showHelp(btn.dataset.help); });
+  });
+  document.getElementById('help-modal-close').addEventListener('click', hideHelp);
+  document.getElementById('help-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('help-modal')) hideHelp();
+  });
 
   setTimeout(()=>hideToast(),4000);
 });
