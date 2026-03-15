@@ -144,33 +144,44 @@ const PRINT_PHYSICAL_MM = {
 const LAYER_REGISTRY = [
   { group: 'Natural', layers: [
     { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, ponds',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
-      overpassQuery:(b)=>`way["natural"~"water|bay"](${b});relation["natural"="water"](${b});way["landuse"="reservoir"](${b});` },
+      overpassQuery:(b)=>`way["natural"~"water|bay"](${b});relation["natural"="water"](${b});way["landuse"="reservoir"](${b});`,
+      tagFilter:el=>el.type!=='node'&&((/water|bay/.test(el.tags?.natural||''))||el.tags?.landuse==='reservoir') },
     { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
-      overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});` },
+      overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
+      tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
     { id:'parks',        label:'Parks & green',     hint:'Parks, gardens, forests',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:0.6, strokeWidth:1.5,
-      overpassQuery:(b)=>`way["leisure"~"park|garden|nature_reserve|recreation_ground"](${b});relation["leisure"~"park|garden"](${b});way["landuse"~"grass|forest|meadow|village_green|allotments|orchard"](${b});way["natural"~"wood|scrub|heath|grassland"](${b});` },
+      overpassQuery:(b)=>`way["leisure"~"park|garden|nature_reserve|recreation_ground"](${b});relation["leisure"~"park|garden"](${b});way["landuse"~"grass|forest|meadow|village_green|allotments|orchard"](${b});way["natural"~"wood|scrub|heath|grassland"](${b});`,
+      tagFilter:el=>el.type!=='node'&&(/park|garden|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||/grass|forest|meadow|village_green|allotments|orchard/.test(el.tags?.landuse||'')||/wood|scrub|heath|grassland/.test(el.tags?.natural||'')) },
   ]},
   { group: 'Built environment', layers: [
     { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:1.5, strokeColor:'#b8a890',
-      overpassQuery:(b)=>`way["building"](${b});relation["building"](${b});` },
+      overpassQuery:(b)=>`way["building"](${b});relation["building"](${b});`,
+      tagFilter:el=>el.type!=='node'&&!!el.tags?.building },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});` },
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track)$/.test(el.tags?.highway||'') },
     { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true,  type:'labels',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});` },
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway)$/.test(el.tags?.highway||'')&&el.tags?.name },
   ]},
   { group: 'Transit', layers: [
     { id:'rail',         label:'Railways',          hint:'Main line & narrow gauge',    color:'#444444', defaultOn:true,  type:'rail',
-      overpassQuery:(b)=>`way["railway"~"rail|narrow_gauge|preserved"](${b});` },
+      overpassQuery:(b)=>`way["railway"~"rail|narrow_gauge|preserved"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(rail|narrow_gauge|preserved)$/.test(el.tags?.railway||'') },
     { id:'metro',        label:'Metro / subway',    hint:'Underground & subway lines',  color:'#e63030', defaultOn:true,  type:'metro',
-      overpassQuery:(b)=>`way["railway"="subway"](${b});` },
+      overpassQuery:(b)=>`way["railway"="subway"](${b});`,
+      tagFilter:el=>el.type==='way'&&el.tags?.railway==='subway' },
     { id:'tram',         label:'Tram & light rail', hint:'Tram & light rail lines',     color:'#22aa88', defaultOn:true,  type:'tram',
-      overpassQuery:(b)=>`way["railway"~"tram|light_rail"](${b});` },
+      overpassQuery:(b)=>`way["railway"~"tram|light_rail"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(tram|light_rail)$/.test(el.tags?.railway||'') },
     { id:'transit_stops',label:'Transit stops',     hint:'Bus, tram & rail stops',      color:'#444444', defaultOn:false, type:'point', radius:2.5,
-      overpassQuery:(b)=>`node["public_transport"~"stop_position|platform"](${b});node["highway"="bus_stop"](${b});node["railway"~"station|halt|tram_stop"](${b});` },
+      overpassQuery:(b)=>`node["public_transport"~"stop_position|platform"](${b});node["highway"="bus_stop"](${b});node["railway"~"station|halt|tram_stop"](${b});`,
+      tagFilter:el=>el.type==='node'&&(/stop_position|platform/.test(el.tags?.public_transport||'')||el.tags?.highway==='bus_stop'||/station|halt|tram_stop/.test(el.tags?.railway||'')) },
   ]},
   { group: 'Labels', layers: [
     { id:'water_labels', label:'Water & park names', hint:'Rivers, lakes, parks',       color:'#1a3a6a', defaultOn:true,  type:'feature_labels',
-      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});relation["natural"="water"]["name"](${b});way["natural"="water"]["name"](${b});way["leisure"~"park|garden"]["name"](${b});relation["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});` },
+      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});relation["natural"="water"]["name"](${b});way["natural"="water"]["name"](${b});way["leisure"~"park|garden"]["name"](${b});relation["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});`,
+      tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(el.type!=='node'&&/park|garden/.test(el.tags?.leisure||'')&&el.tags?.name)||(el.type==='node'&&/suburb|neighbourhood|quarter/.test(el.tags?.place||'')&&el.tags?.name) },
   ]},
 ];
 
@@ -539,6 +550,50 @@ async function fetchLayer(layer, bboxStr, bbox) {
   }
 
   return { elements: mergeElements(elementArrays), failedTiles };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  COMBINED TILE FETCH — one Overpass call for all uncached layers
+// ════════════════════════════════════════════════════════════════
+async function fetchTileCombined(layers, tile) {
+  const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
+  const combinedQueries = layers.map(l => l.overpassQuery(tileBboxStr)).join('');
+  const q = `[out:json][timeout:120];(${combinedQueries});out body geom qt;`;
+  const body = 'data=' + encodeURIComponent(q);
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  let fetched = null, retries = 0;
+
+  while (!fetched && retries < MAX_TILE_RETRIES) {
+    const ep = getAvailableEndpoint();
+    if (!ep) {
+      const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+      const waitMs = Math.max(0, soonest - Date.now()) + 200;
+      setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      await sleep(waitMs);
+      retries++;
+      continue;
+    }
+    try {
+      const res = await fetch(ep, { method:'POST', headers, body, mode:'cors',
+        signal: AbortSignal.timeout(120000) });
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('Retry-After');
+        const waitMs = retryAfter ? parseInt(retryAfter,10)*1000 : (endpointBackoff[ep]?.delay||500);
+        recordEndpoint429(ep);
+        adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
+        setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+        await sleep(waitMs);
+        retries++;
+        continue;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      fetched = await res.json();
+    } catch(e) {
+      console.warn(`Combined fetch failed (${ep}):`, e.message);
+      retries++;
+    }
+  }
+  return fetched;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1095,27 +1150,67 @@ async function doExport() {
   adaptiveTileDelay=350;
   showProgress('Starting export…',0);
 
-  const results=[];
-  let failCount=0;
-  let totalFailedTiles=0;
+  // ── Tile-first combined fetching ─────────────────────────────
+  // Instead of one API call per tile per layer, we combine all
+  // uncached layers into a single Overpass query per tile, then
+  // split the response by tagFilter. For 10 layers × 4 tiles this
+  // reduces 40 API calls down to at most 4.
   const tiles=bboxToTiles(bbox);
-  for (let i=0;i<selected.length;i++) {
-    const layer=selected[i];
-    const cachedCount=(await Promise.all(tiles.map(t=>cacheGet(tileCacheKey(layer.id,t))))).filter(Boolean).length;
-    const cacheLabel=cachedCount===tiles.length?'↩ Cached':cachedCount>0?`↩ ${cachedCount}/${tiles.length} tiles cached`:'Fetching';
-    updateProgress(`${cacheLabel}: ${layer.label} (${i+1}/${selected.length})…`, Math.round((i/selected.length)*85));
-    try {
-      const result=await fetchLayer(layer,bboxStr,bbox);
-      results.push({layer, data:result});
-      if (result.failedTiles && result.failedTiles.length>0) {
-        showFailedTileOverlays(result.failedTiles, layer.label);
-        totalFailedTiles+=result.failedTiles.length;
-        if (result.elements.length===0) failCount++;
+  const layerElements={}; // layerId -> [...elements across tiles]
+  selected.forEach(l=>{ layerElements[l.id]=[]; });
+  let totalFailedTiles=0, fetchedTiles=0;
+
+  for (let t=0;t<tiles.length;t++) {
+    const tile=tiles[t];
+    const uncachedLayers=[];
+
+    // Check per-layer cache for this tile
+    for (const layer of selected) {
+      const cached=await cacheGet(tileCacheKey(layer.id,tile));
+      if (cached) {
+        layerElements[layer.id].push(...(cached.elements||[]));
+      } else {
+        uncachedLayers.push(layer);
       }
     }
-    catch(e) { failCount++; results.push({layer,data:null}); console.warn('Layer failed:',layer.id,e); }
-    await sleep(350);
+
+    if (!uncachedLayers.length) {
+      updateProgress(`Tile ${t+1}/${tiles.length} — all layers cached`, Math.round(((t+1)/tiles.length)*85));
+      continue;
+    }
+
+    updateProgress(
+      `Fetching tile ${t+1}/${tiles.length} — ${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}…`,
+      Math.round((t/tiles.length)*85)
+    );
+
+    const combined=await fetchTileCombined(uncachedLayers,tile);
+    if (!combined) {
+      console.warn(`Tile ${t+1}/${tiles.length} failed after retries`);
+      totalFailedTiles++;
+      showFailedTileOverlays([tile], `tile ${t+1}`);
+      continue;
+    }
+
+    // Split combined response into per-layer results using tagFilter
+    for (const layer of uncachedLayers) {
+      const elements=layer.tagFilter
+        ? combined.elements.filter(layer.tagFilter)
+        : combined.elements;
+      layerElements[layer.id].push(...elements);
+      cacheSet(tileCacheKey(layer.id,tile),{elements});
+    }
+
+    fetchedTiles++;
+    if (fetchedTiles>0 && t<tiles.length-1) await sleep(adaptiveTileDelay);
   }
+
+  // Build results in the format buildSVG expects
+  const results=selected.map(layer=>({
+    layer,
+    data:{ elements: mergeElements([layerElements[layer.id]]), failedTiles:[] }
+  }));
+  const failCount=results.filter(r=>!r.data.elements.length).length;
   if (failCount===selected.length) { hideProgress(); document.getElementById('btn-export').disabled=false; setStatus('All fetches failed — check your connection','error'); return; }
 
   // Cache results for live preview
@@ -1292,6 +1387,9 @@ function showFailedTileSummary(count) {
 function setStatus(msg,type){
   document.getElementById('status-text').textContent=msg;
   document.getElementById('status-bar').className=type||'';
+  // Also update the central progress overlay if it's showing
+  const overlay=document.getElementById('progress-overlay');
+  if (overlay.classList.contains('show')) document.getElementById('progress-label').textContent=msg;
 }
 function showToast(msg){const t=document.getElementById('map-toast');t.textContent=msg;t.classList.remove('hidden');}
 function hideToast(){document.getElementById('map-toast').classList.add('hidden');}
