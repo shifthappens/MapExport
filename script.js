@@ -654,10 +654,10 @@ function buildRoadsLayer(elements, pr, W) {
     const w=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
     const colors=preset.roads[hw]||{fill:'#ffffff',casing:'#cccccc'};
     const dash=w.dash?` stroke-dasharray="${w.dash}"`:'';
-    const fillW=(w.fillW*sf).toFixed(2), totalW=((w.fillW+w.casingW*2)*sf).toFixed(2);
+    const fillW=(w.fillW*sf).toFixed(2);
     const label=TYPE_LABELS[hw]||hw;
     const uid=makeUidGen();
-    let casings='',fills='';
+    let fills='';
     ways.forEach((el,i) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
@@ -667,11 +667,10 @@ function buildRoadsLayer(elements, pr, W) {
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
       const lbl=name||ref||`${label} (${el.id||i})`;
-      casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${totalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
       fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     });
     if (!fills) return;
-    typeGroups+=`\n  <g id="roads_${hw}" inkscape:label="${label}" inkscape:groupmode="layer">\n    <g id="roads_${hw}_casing" inkscape:label="${label} — casing">${casings}\n    </g>\n    <g id="roads_${hw}_fill" inkscape:label="${label} — fill">${fills}\n    </g>\n  </g>`;
+    typeGroups+=`\n  <g id="roads_${hw}" inkscape:label="${label}" inkscape:groupmode="layer">${fills}\n  </g>`;
   });
   return typeGroups?`  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">${typeGroups}\n  </g>\n`:'';
 }
@@ -765,20 +764,21 @@ function buildTramLayer(elements, pr, W) {
 //  LABELS — street labels with textPath + halo
 // ════════════════════════════════════════════════════════════════
 const LABEL_STYLES={
-  motorway:     {size:40,weight:700,minLen:200,spacing:900},
-  trunk:        {size:40,weight:700,minLen:200,spacing:900},
-  primary:      {size:36,weight:600,minLen:180,spacing:800},
-  secondary:    {size:32,weight:600,minLen:160,spacing:700},
-  tertiary:     {size:28,weight:500,minLen:140,spacing:600},
-  residential:  {size:22,weight:500,minLen:100,spacing:500},
-  unclassified: {size:22,weight:500,minLen:100,spacing:500},
-  living_street:{size:18,weight:400,minLen:90, spacing:450},
-  cycleway:     {size:18,weight:400,minLen:90, spacing:450},
-  footway:      {size:14,weight:400,minLen:80, spacing:400},
-  pedestrian:   {size:18,weight:400,minLen:90, spacing:450},
-  _default:     {size:22,weight:400,minLen:90, spacing:480},
+  motorway:     {size:40,weight:700,minLen:100,spacing:900},
+  trunk:        {size:40,weight:700,minLen:100,spacing:900},
+  primary:      {size:36,weight:600,minLen:80, spacing:800},
+  secondary:    {size:32,weight:600,minLen:70, spacing:700},
+  tertiary:     {size:28,weight:500,minLen:60, spacing:600},
+  residential:  {size:22,weight:500,minLen:50, spacing:500},
+  unclassified: {size:22,weight:500,minLen:50, spacing:500},
+  living_street:{size:18,weight:400,minLen:45, spacing:450},
+  cycleway:     {size:18,weight:400,minLen:45, spacing:450},
+  footway:      {size:14,weight:400,minLen:40, spacing:400},
+  pedestrian:   {size:18,weight:400,minLen:45, spacing:450},
+  _default:     {size:22,weight:400,minLen:50, spacing:480},
 };
-function approxTextWidth(t,fs){return t.length*fs*0.55;}
+// Uppercase chars are wider than lowercase; include letter-spacing in estimate
+function approxTextWidth(t,fs,ls=0){return t.length*(fs*0.65+ls);}
 function pathLength(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
 function angleAtMid(pts){
   const total=pathLength(pts); let acc=0,mid=total*0.5;
@@ -813,16 +813,39 @@ function buildLabelsLayer(elements, pr, W, H) {
     // Check label visibility toggle
     if (LABEL_VISIBILITY.hasOwnProperty(hw) && !LABEL_VISIBILITY[hw]) return;
     const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
-    // Get road fill width to constrain label size
     const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
-    const maxFontSize=roadW.fillW*sf*0.75; // text must fit inside road width
+    const maxFontSize=roadW.fillW*sf*0.75;
     const sz=Math.min(style.size*sf, maxFontSize);
-    if (sz<4) return; // too small to read
+    if (sz<4) return;
     const displayName=name.toUpperCase();
+    const ls=sz*0.08;
     const pts=el.geometry.map(g=>pr(g.lat,g.lon));
+    const textW=approxTextWidth(displayName,sz,ls);
+
+    // Roundabouts and closed-loop named areas (squares, plazas): place a
+    // centered horizontal label at the centroid instead of along the path.
+    const isRoundabout = el.tags?.junction==='roundabout';
+    const isClosed = pts.length>=3 &&
+      Math.hypot(pts[0][0]-pts[pts.length-1][0], pts[0][1]-pts[pts.length-1][1]) < 2;
+    const isArea = isClosed && (isRoundabout || hw==='pedestrian' || el.tags?.area==='yes');
+
+    if (isArea) {
+      const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
+      const cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+      const lastX=placedNames.get(name);
+      if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
+      const lh=sz*1.4;
+      if (collision.overlaps(cx,cy,textW,lh)) return;
+      collision.add(cx,cy,textW,lh);
+      placedNames.set(name,cx);
+      const textId=`lbl_${safeName(name)}_${pid++}`;
+      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
+      texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${displayName}</text>`);
+      return;
+    }
+
     const len=pathLength(pts);
-    const textW=approxTextWidth(displayName,sz);
-    if (len<style.minLen*sf||len<textW*1.1) return;
+    if (len<style.minLen*sf||len<textW*1.05) return;
     let pathPts=[...pts];
     if (pathPts.length>=2&&pathPts[0][0]>pathPts[pathPts.length-1][0]) pathPts.reverse();
     const mid=pathPts[Math.floor(pathPts.length/2)];
@@ -836,14 +859,12 @@ function buildLabelsLayer(elements, pr, W, H) {
     placedNames.set(name,cx);
     const pathId=`lp${pid++}`;
     const textId=`lbl_${safeName(name)}_${pid}`;
-    // Offset path vertically to center text on road: shift by ~0.35em downward
-    // We achieve this by using dominant-baseline="central" on the text
     let d=`M${pathPts[0][0].toFixed(1)},${pathPts[0][1].toFixed(1)}`;
     for(let i=1;i<pathPts.length;i++) d+=`L${pathPts[i][0].toFixed(1)},${pathPts[i][1].toFixed(1)}`;
     defs.push(`<path id="${pathId}" inkscape:label="${name} (path)" d="${d}"/>`);
     const offset=Math.max(0,(len-textW)/2);
     const offsetPct=((offset/len)*100).toFixed(1);
-    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${(sz*0.08).toFixed(1)}"`;
+    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
     texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} fill="${preset.labelColor}"><textPath href="#${pathId}" startOffset="${offsetPct}%">${displayName}</textPath></text>`);
   });
   if (!defs.length) return '';
