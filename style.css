@@ -157,3 +157,14 @@ body{font-family:'Geist Mono',monospace;color:var(--ink);font-size:13px}
 #help-modal-body li{margin-bottom:4px}
 #help-modal-body strong{color:var(--ink);font-weight:500}
 #help-modal-body .tip{margin-top:10px;padding:8px 10px;background:var(--paper2);border-left:2px solid var(--accent);border-radius:0 2px 2px 0;font-size:10.5px;color:var(--muted)}
+
+/* ── Failed tile overlays ─────────────────────────────────────── */
+.failed-tile-rect{cursor:pointer;transition:fill-opacity .15s}
+.failed-tile-rect:hover{fill-opacity:.45!important}
+.failed-tile-tooltip-wrap.leaflet-tooltip{background:rgba(24,24,15,.88);border:none;border-radius:2px;padding:4px 8px;box-shadow:none;pointer-events:none}
+.failed-tile-tooltip-wrap.leaflet-tooltip::before{border-top-color:rgba(24,24,15,.88)}
+.failed-tile-tooltip{font-family:'Geist Mono',monospace;font-size:10px;color:#f7f4ed;white-space:nowrap}
+#failed-tile-banner{display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(191,59,30,.10);border-top:1px solid rgba(191,59,30,.30);font-size:10px;color:var(--accent);font-family:'Geist Mono',monospace}
+#failed-tile-banner span{flex:1;line-height:1.4}
+.failed-tile-retry-btn,.failed-tile-dismiss-btn{background:none;border:1px solid var(--accent);border-radius:2px;font-family:'Geist Mono',monospace;font-size:9px;color:var(--accent);cursor:pointer;padding:3px 7px;text-transform:uppercase;letter-spacing:.4px;transition:background .15s;flex-shrink:0}
+.failed-tile-retry-btn:hover,.failed-tile-dismiss-btn:hover{background:rgba(191,59,30,.12)}

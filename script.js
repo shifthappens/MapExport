@@ -28,13 +28,8 @@ const HELP = {
   step2: {
     title: 'Map style',
     content: `
-      <p>Choose a colour theme for your exported SVG. This affects road colours, water, parks, and buildings.</p>
-      <ul>
-        <li><strong>Light</strong> — warm paper tones, good for editorial and print</li>
-        <li><strong>Dark</strong> — dark background with muted tones, suits digital use</li>
-        <li><strong>Minimal</strong> — greyscale, clean and neutral</li>
-        <li><strong>Print</strong> — optimised for black-and-white printing</li>
-      </ul>
+      <p>The export uses a <strong>USE-IT</strong> city guide colour scheme — warm cream background, white roads, clear blue water, and green parks.</p>
+      <p>This style is optimised for print city guides with high readability and a warm, inviting feel.</p>
       <div class="tip">Style only affects colours in the SVG — you can always re-colour individual layers in Illustrator or Inkscape after export.</div>
     `
   },
@@ -89,133 +84,40 @@ function hideHelp() {
 //  STYLE PRESETS
 // ════════════════════════════════════════════════════════════════
 const PRESETS = {
-  light: {
-    label: 'Light',
-    swatches: ['#f89a4f','#fdd990','#ffffff','#6aaa64'],
-    bg: '#f7f4ed',
+  useit: {
+    label: 'USE-IT',
+    swatches: ['#f5f0e1','#ffffff','#7eb8da','#b8d89a'],
+    bg: '#f5f0e1',
     roads: {
-      motorway:      { fill:'#f89a4f', casing:'#c47020' },
-      trunk:         { fill:'#f89a4f', casing:'#c47020' },
-      motorway_link: { fill:'#f89a4f', casing:'#c47020' },
-      trunk_link:    { fill:'#f89a4f', casing:'#c47020' },
-      primary:       { fill:'#fdd990', casing:'#c8a830' },
-      primary_link:  { fill:'#fdd990', casing:'#c8a830' },
-      secondary:     { fill:'#fef3b0', casing:'#c8b830' },
-      secondary_link:{ fill:'#fef3b0', casing:'#c8b830' },
-      tertiary:      { fill:'#ffffff', casing:'#bbbbaa' },
-      tertiary_link: { fill:'#ffffff', casing:'#bbbbaa' },
-      residential:   { fill:'#ffffff', casing:'#ccccbb' },
-      unclassified:  { fill:'#ffffff', casing:'#ccccbb' },
-      living_street: { fill:'#eeeedf', casing:'#bbbbaa' },
-      service:       { fill:'#ffffff', casing:'#ccccbb' },
-      cycleway:      { fill:'#88cc66', casing:'#559933' },
-      pedestrian:    { fill:'#eeeedf', casing:'#aaaaaa' },
-      footway:       { fill:'#ffccaa', casing:'#cc8866' },
-      path:          { fill:'#ddcc99', casing:'#aa9966' },
-      track:         { fill:'#ddcc99', casing:'#aa9966' },
-      steps:         { fill:'#ff9966', casing:'#cc6633' },
+      motorway:      { fill:'#ffffff', casing:'#b8b4a8' },
+      trunk:         { fill:'#ffffff', casing:'#b8b4a8' },
+      motorway_link: { fill:'#ffffff', casing:'#b8b4a8' },
+      trunk_link:    { fill:'#ffffff', casing:'#b8b4a8' },
+      primary:       { fill:'#ffffff', casing:'#c8c4b8' },
+      primary_link:  { fill:'#ffffff', casing:'#c8c4b8' },
+      secondary:     { fill:'#ffffff', casing:'#c8c4b8' },
+      secondary_link:{ fill:'#ffffff', casing:'#c8c4b8' },
+      tertiary:      { fill:'#ffffff', casing:'#d0ccc0' },
+      tertiary_link: { fill:'#ffffff', casing:'#d0ccc0' },
+      residential:   { fill:'#ffffff', casing:'#d0ccc0' },
+      unclassified:  { fill:'#ffffff', casing:'#d0ccc0' },
+      living_street: { fill:'#ffffff', casing:'#d8d4c8' },
+      service:       { fill:'#ffffff', casing:'#d8d4c8' },
+      cycleway:      { fill:'#e8e4d8', casing:'#c8c4b8' },
+      pedestrian:    { fill:'#ffffff', casing:'#d0ccc0' },
+      footway:       { fill:'#e8e4d8', casing:'#d0ccc0' },
+      path:          { fill:'#e8e4d8', casing:'#d0ccc0' },
+      track:         { fill:'#e8e4d8', casing:'#d0ccc0' },
+      steps:         { fill:'#e0dcd0', casing:'#c8c4b8' },
     },
-    water: '#5b9bd5', waterOp: 0.82,
-    park:  '#6aaa64', parkOp: 0.55,
-    building: '#c8b8a2', buildingStroke: '#a8957f',
-    labelColor: '#1a1a0f',
-  },
-  dark: {
-    label: 'Dark',
-    swatches: ['#c8651a','#1a1a1a','#2a2a2a','#2a4a2a'],
-    bg: '#1a1a1a',
-    roads: {
-      motorway:      { fill:'#c8651a', casing:'#8a4010' },
-      trunk:         { fill:'#c8651a', casing:'#8a4010' },
-      motorway_link: { fill:'#c8651a', casing:'#8a4010' },
-      trunk_link:    { fill:'#c8651a', casing:'#8a4010' },
-      primary:       { fill:'#b89020', casing:'#806010' },
-      primary_link:  { fill:'#b89020', casing:'#806010' },
-      secondary:     { fill:'#888040', casing:'#505030' },
-      secondary_link:{ fill:'#888040', casing:'#505030' },
-      tertiary:      { fill:'#505050', casing:'#303030' },
-      tertiary_link: { fill:'#505050', casing:'#303030' },
-      residential:   { fill:'#404040', casing:'#282828' },
-      unclassified:  { fill:'#404040', casing:'#282828' },
-      living_street: { fill:'#383830', casing:'#252520' },
-      service:       { fill:'#383838', casing:'#252525' },
-      cycleway:      { fill:'#446633', casing:'#223322' },
-      pedestrian:    { fill:'#383830', casing:'#252520' },
-      footway:       { fill:'#4a3828', casing:'#2a2018' },
-      path:          { fill:'#3a3020', casing:'#252015' },
-      track:         { fill:'#3a3020', casing:'#252015' },
-      steps:         { fill:'#4a2818', casing:'#2a1808' },
-    },
-    water: '#1a3a5a', waterOp: 0.9,
-    park:  '#1a3a1a', parkOp: 0.8,
-    building: '#2a2825', buildingStroke: '#383530',
-    labelColor: '#e8e0d0',
-  },
-  minimal: {
-    label: 'Minimal',
-    swatches: ['#888888','#cccccc','#ffffff','#e0e0e0'],
-    bg: '#ffffff',
-    roads: {
-      motorway:      { fill:'#999999', casing:'#666666' },
-      trunk:         { fill:'#aaaaaa', casing:'#777777' },
-      motorway_link: { fill:'#999999', casing:'#666666' },
-      trunk_link:    { fill:'#aaaaaa', casing:'#777777' },
-      primary:       { fill:'#bbbbbb', casing:'#888888' },
-      primary_link:  { fill:'#bbbbbb', casing:'#888888' },
-      secondary:     { fill:'#cccccc', casing:'#999999' },
-      secondary_link:{ fill:'#cccccc', casing:'#999999' },
-      tertiary:      { fill:'#dddddd', casing:'#aaaaaa' },
-      tertiary_link: { fill:'#dddddd', casing:'#aaaaaa' },
-      residential:   { fill:'#eeeeee', casing:'#bbbbbb' },
-      unclassified:  { fill:'#eeeeee', casing:'#bbbbbb' },
-      living_street: { fill:'#f0f0f0', casing:'#cccccc' },
-      service:       { fill:'#eeeeee', casing:'#cccccc' },
-      cycleway:      { fill:'#cccccc', casing:'#999999' },
-      pedestrian:    { fill:'#eeeeee', casing:'#cccccc' },
-      footway:       { fill:'#e8e8e8', casing:'#bbbbbb' },
-      path:          { fill:'#e0e0e0', casing:'#bbbbbb' },
-      track:         { fill:'#e0e0e0', casing:'#bbbbbb' },
-      steps:         { fill:'#d8d8d8', casing:'#aaaaaa' },
-    },
-    water: '#b0c8e0', waterOp: 0.6,
-    park:  '#c8d8c0', parkOp: 0.5,
-    building: '#e8e8e8', buildingStroke: '#d0d0d0',
-    labelColor: '#333333',
-  },
-  print: {
-    label: 'Print',
-    swatches: ['#000000','#555555','#ffffff','#cccccc'],
-    bg: '#ffffff',
-    roads: {
-      motorway:      { fill:'#000000', casing:'#000000' },
-      trunk:         { fill:'#222222', casing:'#000000' },
-      motorway_link: { fill:'#000000', casing:'#000000' },
-      trunk_link:    { fill:'#222222', casing:'#000000' },
-      primary:       { fill:'#333333', casing:'#111111' },
-      primary_link:  { fill:'#333333', casing:'#111111' },
-      secondary:     { fill:'#555555', casing:'#333333' },
-      secondary_link:{ fill:'#555555', casing:'#333333' },
-      tertiary:      { fill:'#777777', casing:'#555555' },
-      tertiary_link: { fill:'#777777', casing:'#555555' },
-      residential:   { fill:'#999999', casing:'#777777' },
-      unclassified:  { fill:'#aaaaaa', casing:'#888888' },
-      living_street: { fill:'#bbbbbb', casing:'#999999' },
-      service:       { fill:'#cccccc', casing:'#aaaaaa' },
-      cycleway:      { fill:'#888888', casing:'#666666' },
-      pedestrian:    { fill:'#bbbbbb', casing:'#999999' },
-      footway:       { fill:'#cccccc', casing:'#aaaaaa' },
-      path:          { fill:'#cccccc', casing:'#aaaaaa' },
-      track:         { fill:'#cccccc', casing:'#aaaaaa' },
-      steps:         { fill:'#aaaaaa', casing:'#888888' },
-    },
-    water: '#aaaaaa', waterOp: 0.5,
-    park:  '#cccccc', parkOp: 0.4,
-    building: '#dddddd', buildingStroke: '#aaaaaa',
-    labelColor: '#000000',
+    water: '#7eb8da', waterOp: 0.85,
+    park:  '#b8d89a', parkOp: 0.6,
+    building: '#d4c8b4', buildingStroke: '#b8a890',
+    labelColor: '#2a2a20',
   },
 };
 
-let activePreset = 'light';
+let activePreset = 'useit';
 
 // ════════════════════════════════════════════════════════════════
 //  PRINT SIZES  (width in px)
@@ -226,21 +128,30 @@ const PRINT_SIZES = {
   a2_300: 7016,   // A2
   a1_300: 9933,   // A1
 };
+// Physical long-edge widths in mm for each preset (used to set SVG width/height in mm
+// so Illustrator/Inkscape open the document at the correct physical size rather than
+// interpreting px as pt and producing a document ~4× too large)
+const PRINT_PHYSICAL_MM = {
+  a4_300: 297,   // A4 long edge
+  a3_300: 420,   // A3 long edge
+  a2_300: 594,   // A2 long edge
+  a1_300: 841,   // A1 long edge
+};
 
 // ════════════════════════════════════════════════════════════════
 //  LAYER REGISTRY
 // ════════════════════════════════════════════════════════════════
 const LAYER_REGISTRY = [
   { group: 'Natural', layers: [
-    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, ponds',    color:'#5b9bd5', defaultOn:true,  type:'area', fillOpacity:0.82, strokeWidth:0.5,
+    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, ponds',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
       overpassQuery:(b)=>`way["natural"~"water|bay"](${b});relation["natural"="water"](${b});way["landuse"="reservoir"](${b});` },
-    { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#5b9bd5', defaultOn:true,  type:'line', strokeWidth:2,
+    { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});` },
-    { id:'parks',        label:'Parks & green',     hint:'Parks, gardens, forests',     color:'#6aaa64', defaultOn:true,  type:'area', fillOpacity:0.55, strokeWidth:0.3,
+    { id:'parks',        label:'Parks & green',     hint:'Parks, gardens, forests',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:0.6, strokeWidth:1.5,
       overpassQuery:(b)=>`way["leisure"~"park|garden|nature_reserve|recreation_ground"](${b});relation["leisure"~"park|garden"](${b});way["landuse"~"grass|forest|meadow|village_green|allotments|orchard"](${b});way["natural"~"wood|scrub|heath|grassland"](${b});` },
   ]},
   { group: 'Built environment', layers: [
-    { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#c8b8a2', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:0.4, strokeColor:'#a8957f',
+    { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:1.5, strokeColor:'#b8a890',
       overpassQuery:(b)=>`way["building"](${b});relation["building"](${b});` },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});` },
@@ -281,20 +192,20 @@ const LAYER_REGISTRY = [
 //  ROAD STYLE TABLE (widths — colours come from active preset)
 // ════════════════════════════════════════════════════════════════
 const ROAD_WIDTHS = {
-  motorway:{fillW:9,casingW:2.5},    trunk:{fillW:8,casingW:2.5},
-  motorway_link:{fillW:5,casingW:1.5},trunk_link:{fillW:5,casingW:1.5},
-  primary:{fillW:7,casingW:2},       primary_link:{fillW:4,casingW:1.5},
-  secondary:{fillW:6,casingW:1.5},   secondary_link:{fillW:3.5,casingW:1.5},
-  tertiary:{fillW:5,casingW:1.2},    tertiary_link:{fillW:3,casingW:1.2},
-  residential:{fillW:3.5,casingW:1}, unclassified:{fillW:3,casingW:1},
-  living_street:{fillW:2.5,casingW:0.8}, service:{fillW:2,casingW:0.8},
-  cycleway:{fillW:2,casingW:0.8,dash:'6 3'},
-  pedestrian:{fillW:3,casingW:0.8},
-  footway:{fillW:1.2,casingW:0.6,dash:'4 2'},
-  path:{fillW:1,casingW:0.5,dash:'4 2'},
-  track:{fillW:1.5,casingW:0.5,dash:'5 3'},
-  steps:{fillW:1.5,casingW:0.6,dash:'2 2'},
-  _default:{fillW:2,casingW:0.8},
+  motorway:{fillW:66,casingW:12},     trunk:{fillW:60,casingW:12},
+  motorway_link:{fillW:42,casingW:9}, trunk_link:{fillW:42,casingW:9},
+  primary:{fillW:54,casingW:10.5},    primary_link:{fillW:36,casingW:9},
+  secondary:{fillW:48,casingW:9},     secondary_link:{fillW:30,casingW:7.5},
+  tertiary:{fillW:42,casingW:7.5},    tertiary_link:{fillW:27,casingW:6},
+  residential:{fillW:30,casingW:6},   unclassified:{fillW:27,casingW:6},
+  living_street:{fillW:24,casingW:4.5}, service:{fillW:18,casingW:4.5},
+  cycleway:{fillW:12,casingW:3.6,dash:'6 3'},
+  pedestrian:{fillW:27,casingW:4.5},
+  footway:{fillW:9,casingW:3,dash:'4 2'},
+  path:{fillW:7.5,casingW:2.4,dash:'4 2'},
+  track:{fillW:9,casingW:2.4,dash:'5 3'},
+  steps:{fillW:9,casingW:3,dash:'2 2'},
+  _default:{fillW:18,casingW:4.5},
 };
 const ROAD_DRAW_ORDER=['track','path','footway','steps','cycleway','pedestrian','service','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
 const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',service:'Service roads',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',track:'Tracks',steps:'Steps'};
@@ -315,6 +226,9 @@ let lastSvgString=null, lastSvgFilename=null;
 let searchTimeout=null;
 let lastResults=null;   // cached Overpass data from the most recent export fetch
 let previewDebounce=null;
+let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
+const endpointBackoff={};      // { endpoint -> { until: timestamp, delay: ms } }
+let adaptiveTileDelay=350;     // ms between tile fetches; increases when 429s occur
 
 // ════════════════════════════════════════════════════════════════
 //  INIT MAP
@@ -331,6 +245,7 @@ function initMap() {
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom:19, crossOrigin:true
   }).addTo(map);
+  failedTileLayerGroup = L.layerGroup().addTo(map);
   setTimeout(() => map.invalidateSize(), 100);
   setTimeout(() => map.invalidateSize(), 500);
 }
@@ -340,21 +255,9 @@ function initMap() {
 // ════════════════════════════════════════════════════════════════
 function renderPresets() {
   const grid = document.getElementById('preset-grid');
-  grid.innerHTML = '';
-  Object.entries(PRESETS).forEach(([key, p]) => {
-    const btn = document.createElement('button');
-    btn.className = 'preset-btn' + (key === activePreset ? ' active' : '');
-    btn.dataset.preset = key;
-    const swatchHtml = p.swatches.map(c => `<span style="background:${c};border:1px solid #ccc8b8"></span>`).join('');
-    btn.innerHTML = `<div class="preset-swatch">${swatchHtml}</div>${p.label}`;
-    btn.addEventListener('click', () => {
-      activePreset = key;
-      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      scheduleLivePreview();
-    });
-    grid.appendChild(btn);
-  });
+  const p = PRESETS.useit;
+  const swatchHtml = p.swatches.map(c => `<span style="background:${c};border:1px solid #ccc8b8"></span>`).join('');
+  grid.innerHTML = `<div class="preset-btn active" style="grid-column:1/-1;cursor:default"><div class="preset-swatch">${swatchHtml}</div>${p.label}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -519,17 +422,33 @@ async function cacheGet(key) {
   try {
     const res = await fetch(`cache.php?key=${encodeURIComponent(key)}`);
     if (!res.ok) return null;
-    return await res.json();
+    const data = await res.json();
+    return data || null; // cache.php returns null JSON for misses
   } catch { return null; }
 }
 
 async function cacheSet(key, data) {
   try {
-    await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
+    const json = JSON.stringify(data);
+    // Gzip-compress to avoid hitting PHP post_max_size (8M) for large layers
+    if (typeof CompressionStream !== 'undefined') {
+      const blob = new Blob([json]);
+      const cs = new CompressionStream('gzip');
+      const stream = blob.stream().pipeThrough(cs);
+      const compressed = await new Response(stream).blob();
+      await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+        body: compressed
+      });
+    } else {
+      // Fallback for browsers without CompressionStream
+      await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: json
+      });
+    }
   } catch { /* fail silently — cache write failure doesn't block export */ }
 }
 
@@ -549,10 +468,25 @@ function mergeElements(arrays) {
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
 const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const MAX_TILE_RETRIES=3;
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+function getAvailableEndpoint(){
+  const now=Date.now();
+  return OVERPASS_ENDPOINTS.find(ep=>{ const b=endpointBackoff[ep]; return !b||now>=b.until; })||null;
+}
+
+function recordEndpoint429(ep){
+  const prev=endpointBackoff[ep];
+  const nextDelay=Math.min((prev?prev.delay:500)*2,4000);
+  endpointBackoff[ep]={ until:Date.now()+nextDelay, delay:nextDelay };
+}
 
 async function fetchLayer(layer, bboxStr, bbox) {
   const tiles = bboxToTiles(bbox);
   const elementArrays = [];
+  const failedTiles = [];
   let fetchCount = 0;
 
   for (const tile of tiles) {
@@ -562,29 +496,63 @@ async function fetchLayer(layer, bboxStr, bbox) {
       elementArrays.push(cached.elements || []);
       continue;
     }
+
     const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
     const q = `[out:json][timeout:60];(${layer.overpassQuery(tileBboxStr)});out body geom qt;`;
     const body = 'data=' + encodeURIComponent(q);
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
     let fetched = null;
-    for (const ep of OVERPASS_ENDPOINTS) {
+    let tileRetries = 0;
+
+    while (!fetched && tileRetries < MAX_TILE_RETRIES) {
+      const ep = getAvailableEndpoint();
+
+      if (!ep) {
+        // All endpoints are rate-limited — wait for the soonest one to free up
+        const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+        const waitMs = Math.max(0, soonest - Date.now()) + 200;
+        setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+        await sleep(waitMs);
+        tileRetries++;
+        continue;
+      }
+
       try {
-        const res = await fetch(ep, { method:'POST', headers, body, mode:'cors' });
+        const res = await fetch(ep, { method:'POST', headers, body, mode:'cors',
+          signal: AbortSignal.timeout(62000) });
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('Retry-After');
+          const waitMs = retryAfter ? parseInt(retryAfter,10)*1000 : (endpointBackoff[ep]?.delay||500);
+          recordEndpoint429(ep);
+          adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
+          setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+          await sleep(waitMs);
+          tileRetries++;
+          continue;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         fetched = await res.json();
-        break;
-      } catch(e) { console.warn(`Overpass failed (${ep}):`, e.message); }
+      } catch(e) {
+        console.warn(`Overpass failed (${ep}):`, e.message);
+        tileRetries++;
+      }
     }
-    if (!fetched) throw new Error('All Overpass endpoints failed');
+
+    if (!fetched) {
+      console.warn(`Tile ${tileBboxStr} failed after ${MAX_TILE_RETRIES} retries for layer ${layer.id}`);
+      failedTiles.push(tile);
+      continue;
+    }
+
     cacheSet(key, fetched);
     elementArrays.push(fetched.elements || []);
     fetchCount++;
     if (fetchCount > 0 && tiles.indexOf(tile) < tiles.length - 1) {
-      await new Promise(r => setTimeout(r, 350));
+      await sleep(adaptiveTileDelay);
     }
   }
 
-  return { elements: mergeElements(elementArrays) };
+  return { elements: mergeElements(elementArrays), failedTiles };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -623,6 +591,31 @@ function geomToPathD(geom,pr,eps,close) {
   let d=`M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
   for (let i=1;i<pts.length;i++) d+=`L${pts[i][0].toFixed(1)},${pts[i][1].toFixed(1)}`;
   return close?d+'Z':d;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  BBOX CULLING — skip elements with no geometry inside export area
+// ════════════════════════════════════════════════════════════════
+function elementInBbox(el, b) {
+  // Use Overpass-provided bounds when available (fastest path)
+  if (el.bounds) {
+    return el.bounds.maxlat >= b.south && el.bounds.minlat <= b.north &&
+           el.bounds.maxlon >= b.west  && el.bounds.minlon <= b.east;
+  }
+  // Node (POI)
+  if (el.type === 'node') {
+    return el.lat >= b.south && el.lat <= b.north && el.lon >= b.west && el.lon <= b.east;
+  }
+  // Way — any node inside bbox is enough to include it (cross-boundary geometries are clipped by SVG clipPath)
+  if (el.geometry?.length) {
+    return el.geometry.some(g => g.lat >= b.south && g.lat <= b.north && g.lon >= b.west && g.lon <= b.east);
+  }
+  // Relation — check member geometries
+  if (el.members?.length) {
+    return el.members.some(m => m.geometry?.some(g =>
+      g.lat >= b.south && g.lat <= b.north && g.lon >= b.west && g.lon <= b.east));
+  }
+  return true; // unknown structure — include by default
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -698,9 +691,9 @@ function buildRailLayer(elements, pr, W) {
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`rail_${el.id||i}`);
     const lbl=name||`Railway (${el.id||i})`;
-    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(4*sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round"/>`;
-    sleepers+=`\n      <path id="${pid}_sleepers" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#eeeeee" stroke-width="${(2*sf).toFixed(2)}" stroke-linecap="butt" stroke-dasharray="${(10*sf).toFixed(1)} ${(8*sf).toFixed(1)}"/>`;
-    rails+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#333333" stroke-width="${(0.6*sf).toFixed(2)}" stroke-linecap="butt" opacity="0.5"/>`;
+    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(12*sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round"/>`;
+    sleepers+=`\n      <path id="${pid}_sleepers" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#eeeeee" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="butt" stroke-dasharray="${(30*sf).toFixed(1)} ${(24*sf).toFixed(1)}"/>`;
+    rails+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#333333" stroke-width="${(1.8*sf).toFixed(2)}" stroke-linecap="butt" opacity="0.5"/>`;
   });
   if (!casings) return '';
   return `  <g id="rail" inkscape:label="Railways" inkscape:groupmode="layer">\n    <g id="rail_casing">${casings}\n    </g>\n    <g id="rail_sleepers">${sleepers}\n    </g>\n    <g id="rail_tracks">${rails}\n    </g>\n  </g>\n`;
@@ -735,8 +728,8 @@ function buildMetroLayer(elements, pr, W) {
       const name=el.tags?.name||el.tags?.ref||key;
       const pid=uid(safeName(name!=='_default'?name:`metro_${el.id||i}`));
       const lbl=name!=='_default'?name:`Metro (${el.id||i})`;
-      casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="white" stroke-width="${(8*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>`;
-      fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${line.color}" stroke-width="${(5.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"/>`;
+      casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>`;
+      fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"/>`;
     });
     if (!fills) return;
     const lid=safeName(key!=='_default'?key:'metro_default');
@@ -761,8 +754,8 @@ function buildTramLayer(elements, pr, W) {
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`tram_${el.id||i}`);
     const lbl=name||`Tram (${el.id||i})`;
-    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(3.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>`;
-    fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#aaee44" stroke-width="${(2*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
+    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>`;
+    fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
   });
   if (!casings) return '';
   return `  <g id="tram" inkscape:label="Tram &amp; light rail" inkscape:groupmode="layer">\n    <g id="tram_casing">${casings}\n    </g>\n    <g id="tram_fill">${fills}\n    </g>\n  </g>\n`;
@@ -772,18 +765,18 @@ function buildTramLayer(elements, pr, W) {
 //  LABELS — street labels with textPath + halo
 // ════════════════════════════════════════════════════════════════
 const LABEL_STYLES={
-  motorway:     {size:13,weight:700,halo:3.5,minLen:120,spacing:600},
-  trunk:        {size:13,weight:700,halo:3.5,minLen:120,spacing:600},
-  primary:      {size:12,weight:600,halo:3,  minLen:100,spacing:500},
-  secondary:    {size:11,weight:600,halo:2.8,minLen:90, spacing:450},
-  tertiary:     {size:10,weight:500,halo:2.5,minLen:80, spacing:400},
-  residential:  {size:9, weight:500,halo:2.5,minLen:70, spacing:350},
-  unclassified: {size:9, weight:500,halo:2.5,minLen:70, spacing:350},
-  living_street:{size:8, weight:400,halo:2,  minLen:60, spacing:300},
-  cycleway:     {size:8, weight:400,halo:2,  minLen:60, spacing:300},
-  footway:      {size:7, weight:400,halo:2,  minLen:50, spacing:280},
-  pedestrian:   {size:8, weight:400,halo:2,  minLen:60, spacing:300},
-  _default:     {size:9, weight:400,halo:2,  minLen:60, spacing:320},
+  motorway:     {size:40,weight:700,minLen:200,spacing:900},
+  trunk:        {size:40,weight:700,minLen:200,spacing:900},
+  primary:      {size:36,weight:600,minLen:180,spacing:800},
+  secondary:    {size:32,weight:600,minLen:160,spacing:700},
+  tertiary:     {size:28,weight:500,minLen:140,spacing:600},
+  residential:  {size:22,weight:500,minLen:100,spacing:500},
+  unclassified: {size:22,weight:500,minLen:100,spacing:500},
+  living_street:{size:18,weight:400,minLen:90, spacing:450},
+  cycleway:     {size:18,weight:400,minLen:90, spacing:450},
+  footway:      {size:14,weight:400,minLen:80, spacing:400},
+  pedestrian:   {size:18,weight:400,minLen:90, spacing:450},
+  _default:     {size:22,weight:400,minLen:90, spacing:480},
 };
 function approxTextWidth(t,fs){return t.length*fs*0.55;}
 function pathLength(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
@@ -807,7 +800,7 @@ function buildLabelsLayer(elements, pr, W, H) {
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
   const collision=makeCollisionGrid();
-  const defs=[],halos=[],texts=[];
+  const defs=[],texts=[];
   let pid=0;
   const sorted=[...elements].sort((a,b)=>{
     const order=['motorway','trunk','primary','secondary','tertiary','residential'];
@@ -820,10 +813,15 @@ function buildLabelsLayer(elements, pr, W, H) {
     // Check label visibility toggle
     if (LABEL_VISIBILITY.hasOwnProperty(hw) && !LABEL_VISIBILITY[hw]) return;
     const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
-    const sz=style.size*sf;
+    // Get road fill width to constrain label size
+    const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
+    const maxFontSize=roadW.fillW*sf*0.75; // text must fit inside road width
+    const sz=Math.min(style.size*sf, maxFontSize);
+    if (sz<4) return; // too small to read
+    const displayName=name.toUpperCase();
     const pts=el.geometry.map(g=>pr(g.lat,g.lon));
     const len=pathLength(pts);
-    const textW=approxTextWidth(name,sz);
+    const textW=approxTextWidth(displayName,sz);
     if (len<style.minLen*sf||len<textW*1.1) return;
     let pathPts=[...pts];
     if (pathPts.length>=2&&pathPts[0][0]>pathPts[pathPts.length-1][0]) pathPts.reverse();
@@ -838,17 +836,18 @@ function buildLabelsLayer(elements, pr, W, H) {
     placedNames.set(name,cx);
     const pathId=`lp${pid++}`;
     const textId=`lbl_${safeName(name)}_${pid}`;
+    // Offset path vertically to center text on road: shift by ~0.35em downward
+    // We achieve this by using dominant-baseline="central" on the text
     let d=`M${pathPts[0][0].toFixed(1)},${pathPts[0][1].toFixed(1)}`;
     for(let i=1;i<pathPts.length;i++) d+=`L${pathPts[i][0].toFixed(1)},${pathPts[i][1].toFixed(1)}`;
     defs.push(`<path id="${pathId}" inkscape:label="${name} (path)" d="${d}"/>`);
     const offset=Math.max(0,(len-textW)/2);
     const offsetPct=((offset/len)*100).toFixed(1);
-    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start"`;
-    halos.push(`<text id="${textId}_halo" inkscape:label="${name} (halo)" ${attrs} stroke="white" stroke-width="${(style.halo*sf).toFixed(1)}" stroke-linejoin="round" fill="none" paint-order="stroke"><textPath href="#${pathId}" startOffset="${offsetPct}%">${name}</textPath></text>`);
-    texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} fill="${preset.labelColor}"><textPath href="#${pathId}" startOffset="${offsetPct}%">${name}</textPath></text>`);
+    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${(sz*0.08).toFixed(1)}"`;
+    texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} fill="${preset.labelColor}"><textPath href="#${pathId}" startOffset="${offsetPct}%">${displayName}</textPath></text>`);
   });
   if (!defs.length) return '';
-  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_halos">${halos.join('')}</g>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
+  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -867,12 +866,12 @@ function buildFeatureLabelsLayer(elements, pr, W, H) {
 
     if (place==='suburb'||place==='neighbourhood'||place==='quarter') {
       if (el.type!=='node') return;
-      [cx,cy]=pr(el.lat,el.lon); sz=10*sf; weight=500; color='#445566';
+      [cx,cy]=pr(el.lat,el.lon); sz=24*sf; weight=500; color='#2a2a20';
     } else if (waterway==='river'||waterway==='canal') {
       if (el.type!=='way'||!el.geometry?.length) return;
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const mid=pts[Math.floor(pts.length/2)]; [cx,cy]=mid;
-      sz=11*sf; weight=400; color='#2255aa';
+      sz=26*sf; weight=400; color='#3a6a9a';
     } else if (natural==='water'||leisure==='park'||leisure==='garden') {
       if (el.type==='way'&&el.geometry?.length) {
         const pts=el.geometry.map(g=>pr(g.lat,g.lon));
@@ -880,8 +879,8 @@ function buildFeatureLabelsLayer(elements, pr, W, H) {
         cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
       } else if (el.type==='node') { [cx,cy]=pr(el.lat,el.lon); }
       else return;
-      sz=natural==='water'?10*sf:9*sf; weight=400;
-      color=natural==='water'?'#2255aa':'#224422';
+      sz=natural==='water'?24*sf:22*sf; weight=400;
+      color=natural==='water'?'#3a6a9a':'#3a6a3a';
     } else return;
 
     const tw=approxTextWidth(name,sz), th=sz*1.4;
@@ -910,7 +909,7 @@ function getEps() {
 // ════════════════════════════════════════════════════════════════
 //  SVG BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildSVG(results, b, W) {
+function buildSVG(results, b, W, physicalWidthMm=null) {
   const {pr,H}=makeProjector(b,W);
   const preset=PRESETS[activePreset];
   const EPS={area_large:getEps()*1.4, area:getEps()*0.9, line:getEps()*0.6};
@@ -920,12 +919,15 @@ function buildSVG(results, b, W) {
 
   sorted.forEach(({layer,data})=>{
     if (!data?.elements?.length) return;
-    if (layer.type==='roads')         { layersSVG+=buildRoadsLayer(data.elements,pr,W); return; }
-    if (layer.type==='rail')          { layersSVG+=buildRailLayer(data.elements,pr,W); return; }
-    if (layer.type==='metro')         { layersSVG+=buildMetroLayer(data.elements,pr,W); return; }
-    if (layer.type==='tram')          { layersSVG+=buildTramLayer(data.elements,pr,W); return; }
-    if (layer.type==='labels')        { layersSVG+=buildLabelsLayer(data.elements,pr,W,H); return; }
-    if (layer.type==='feature_labels'){ layersSVG+=buildFeatureLabelsLayer(data.elements,pr,W,H); return; }
+    // Cull elements entirely outside the export bbox before any rendering
+    const elements = data.elements.filter(el => elementInBbox(el, b));
+    if (!elements.length) return;
+    if (layer.type==='roads')         { layersSVG+=buildRoadsLayer(elements,pr,W); return; }
+    if (layer.type==='rail')          { layersSVG+=buildRailLayer(elements,pr,W); return; }
+    if (layer.type==='metro')         { layersSVG+=buildMetroLayer(elements,pr,W); return; }
+    if (layer.type==='tram')          { layersSVG+=buildTramLayer(elements,pr,W); return; }
+    if (layer.type==='labels')        { layersSVG+=buildLabelsLayer(elements,pr,W,H); return; }
+    if (layer.type==='feature_labels'){ layersSVG+=buildFeatureLabelsLayer(elements,pr,W,H); return; }
 
     const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
     const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
@@ -938,7 +940,7 @@ function buildSVG(results, b, W) {
     if (layer.id==='parks') { fillColor=preset.park; strokeColor=preset.park; }
     if (layer.id==='buildings') { fillColor=preset.building; strokeColor=preset.buildingStroke; }
 
-    data.elements.forEach(el=>{
+    elements.forEach(el=>{
       if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
         const [x,y]=pr(el.lat,el.lon);
         const poiName=el.tags?.name||el.tags?.amenity||el.tags?.tourism||el.tags?.shop||layer.label;
@@ -956,7 +958,14 @@ function buildSVG(results, b, W) {
       if (isArea) {
         const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
         const sw=layer.strokeWidth??0.5;
-        content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+        if (layer.id==='buildings') {
+          // Buildings: stroke first (bottom), then fill on top — adjacent buildings
+          // merge into blocks because fill covers internal shared borders
+          content+=`<path d="${d}" fill="none" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round" opacity="${fo}"/>`;
+          content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
+        } else {
+          content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+        }
       } else {
         const sw=typeof layer.strokeWidth==='function'?layer.strokeWidth({}):(layer.strokeWidth??1);
         const dash=layer.strokeDash?` stroke-dasharray="${layer.strokeDash}"`:'';
@@ -975,13 +984,22 @@ function buildSVG(results, b, W) {
      xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:cc="http://creativecommons.org/ns#"
      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-     width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+     width="${W}"
+     height="${H}"
+     viewBox="0 0 ${W} ${H}"
      inkscape:document-units="px">
-  <metadata><rdf:RDF><cc:Work rdf:about=""><dc:title>Map Export — ${date}</dc:title><dc:source>© OpenStreetMap contributors (ODbL)</dc:source><dc:description>Bbox: ${b.south.toFixed(5)},${b.west.toFixed(5)},${b.north.toFixed(5)},${b.east.toFixed(5)} | Style: ${activePreset}</dc:description></cc:Work></rdf:RDF></metadata>
+  <metadata><rdf:RDF><cc:Work rdf:about=""><dc:title>Map Export — ${date}</dc:title><dc:source>© OpenStreetMap contributors (ODbL)</dc:source><dc:description>Bbox: ${b.south.toFixed(5)},${b.west.toFixed(5)},${b.north.toFixed(5)},${b.east.toFixed(5)} | Style: ${activePreset}${physicalWidthMm ? ` | Print size: ${physicalWidthMm}mm × ${(physicalWidthMm*H/W).toFixed(1)}mm @ 300dpi` : ''}</dc:description></cc:Work></rdf:RDF></metadata>
+  <defs>
+    <clipPath id="map-clip">
+      <rect x="0" y="0" width="${W}" height="${H}"/>
+    </clipPath>
+  </defs>
   <g id="background" inkscape:label="Background" inkscape:groupmode="layer">
     <rect width="${W}" height="${H}" fill="${preset.bg}"/>
   </g>
-${layersSVG}</svg>`;
+  <g id="map-content" inkscape:label="Map content" inkscape:groupmode="layer" clip-path="url(#map-clip)">
+${layersSVG}  </g>
+</svg>`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1023,24 +1041,36 @@ async function doExport() {
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
   const W=getExportWidth();
+  const physicalWidthMm=PRINT_PHYSICAL_MM[document.getElementById('print-size').value]||null;
   const bboxStr=`${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
   const date=new Date().toISOString().slice(0,10);
   const filename=`map-${activePreset}-${date}.svg`;
 
   document.getElementById('btn-export').disabled=true;
+  clearFailedTileOverlays();
+  adaptiveTileDelay=350;
   showProgress('Starting export…',0);
 
   const results=[];
   let failCount=0;
+  let totalFailedTiles=0;
   const tiles=bboxToTiles(bbox);
   for (let i=0;i<selected.length;i++) {
     const layer=selected[i];
     const cachedCount=(await Promise.all(tiles.map(t=>cacheGet(tileCacheKey(layer.id,t))))).filter(Boolean).length;
     const cacheLabel=cachedCount===tiles.length?'↩ Cached':cachedCount>0?`↩ ${cachedCount}/${tiles.length} tiles cached`:'Fetching';
     updateProgress(`${cacheLabel}: ${layer.label} (${i+1}/${selected.length})…`, Math.round((i/selected.length)*85));
-    try { results.push({layer, data:await fetchLayer(layer,bboxStr,bbox)}); }
+    try {
+      const result=await fetchLayer(layer,bboxStr,bbox);
+      results.push({layer, data:result});
+      if (result.failedTiles && result.failedTiles.length>0) {
+        showFailedTileOverlays(result.failedTiles, layer.label);
+        totalFailedTiles+=result.failedTiles.length;
+        if (result.elements.length===0) failCount++;
+      }
+    }
     catch(e) { failCount++; results.push({layer,data:null}); console.warn('Layer failed:',layer.id,e); }
-    await new Promise(r=>setTimeout(r,350));
+    await sleep(350);
   }
   if (failCount===selected.length) { hideProgress(); document.getElementById('btn-export').disabled=false; setStatus('All fetches failed — check your connection','error'); return; }
 
@@ -1053,7 +1083,7 @@ async function doExport() {
 
   updateProgress('Building SVG…',90);
   await new Promise(r=>setTimeout(r,50));
-  const svg=buildSVG(results,bbox,W);
+  const svg=buildSVG(results,bbox,W,physicalWidthMm);
   const actualMB=(svg.length/1024/1024).toFixed(1);
   lastSvgString=svg; lastSvgFilename=filename;
 
@@ -1063,6 +1093,7 @@ async function doExport() {
   showPreview(svg,filename);
   document.getElementById('btn-export').disabled=false;
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
+  showFailedTileSummary(totalFailedTiles);
   saveHistory(bbox, activePreset, W, filename, actualMB, totalElements);
 }
 
@@ -1124,8 +1155,8 @@ function renderHistory() {
         updateBboxDisplay();
         document.getElementById('btn-export').disabled=false;
         // Restore preset
-        activePreset=entry.preset;
-        document.querySelectorAll('.preset-btn').forEach(b=>{b.classList.toggle('active',b.dataset.preset===entry.preset);});
+        activePreset=PRESETS[entry.preset]?entry.preset:'useit';
+        document.querySelectorAll('.preset-btn').forEach(b=>{b.classList.toggle('active',b.dataset.preset===activePreset);});
         setStatus(`Loaded: ${entry.date} export`,'success');
       });
       list.appendChild(div);
@@ -1161,6 +1192,48 @@ async function searchCity(query) {
     });
     resEl.classList.add('show');
   } catch(e) { statusEl.textContent='Search failed'; }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  FAILED TILE OVERLAYS
+// ════════════════════════════════════════════════════════════════
+function showFailedTileOverlays(tiles, layerLabel) {
+  if (!failedTileLayerGroup) return;
+  tiles.forEach(tile => {
+    const rect = L.rectangle(
+      [[tile.s, tile.w], [tile.n, tile.e]],
+      { color:'#bf3b1e', weight:1, fillColor:'#e03020', fillOpacity:0.25,
+        dashArray:'4 3', className:'failed-tile-rect' }
+    );
+    rect.bindTooltip(
+      `<span class="failed-tile-tooltip">Failed: ${layerLabel}</span>`,
+      { permanent:false, direction:'top', className:'failed-tile-tooltip-wrap' }
+    );
+    failedTileLayerGroup.addLayer(rect);
+  });
+}
+
+function clearFailedTileOverlays() {
+  if (failedTileLayerGroup) failedTileLayerGroup.clearLayers();
+}
+
+function showFailedTileSummary(count) {
+  const existing = document.getElementById('failed-tile-banner');
+  if (existing) existing.remove();
+  if (count === 0) return;
+  const banner = document.createElement('div');
+  banner.id = 'failed-tile-banner';
+  banner.innerHTML =
+    `<span>${count} tile${count>1?'s':''} failed — highlighted in red on map</span>` +
+    `<button id="btn-retry-failed" class="failed-tile-retry-btn">Retry</button>` +
+    `<button id="btn-dismiss-failed" class="failed-tile-dismiss-btn">✕</button>`;
+  document.getElementById('status-bar').after(banner);
+  document.getElementById('btn-dismiss-failed').addEventListener('click', () => {
+    banner.remove(); clearFailedTileOverlays();
+  });
+  document.getElementById('btn-retry-failed').addEventListener('click', () => {
+    banner.remove(); clearFailedTileOverlays(); doExport();
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
