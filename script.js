@@ -493,22 +493,98 @@ async function fetchBoundaries(placeName) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  TILE CACHE  (server-side via cache.php, 7-day TTL)
+// ════════════════════════════════════════════════════════════════
+const TILE_SIZE = 0.1; // degrees per tile (~8×11 km at mid-latitudes)
+const CACHE_PREFIX = 'mapexport_v1_';
+
+function bboxToTiles(bbox) {
+  const tiles = [];
+  const s0 = Math.floor(bbox.south / TILE_SIZE) * TILE_SIZE;
+  const w0 = Math.floor(bbox.west  / TILE_SIZE) * TILE_SIZE;
+  for (let s = s0; s < bbox.north; s = +(s + TILE_SIZE).toFixed(10)) {
+    for (let w = w0; w < bbox.east; w = +(w + TILE_SIZE).toFixed(10)) {
+      tiles.push({ s: +s.toFixed(1), w: +w.toFixed(1),
+                   n: +(s + TILE_SIZE).toFixed(1), e: +(w + TILE_SIZE).toFixed(1) });
+    }
+  }
+  return tiles;
+}
+
+function tileCacheKey(layerId, tile) {
+  return `${CACHE_PREFIX}${layerId}_${tile.s}_${tile.w}`;
+}
+
+async function cacheGet(key) {
+  try {
+    const res = await fetch(`cache.php?key=${encodeURIComponent(key)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+async function cacheSet(key, data) {
+  try {
+    await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  } catch { /* fail silently — cache write failure doesn't block export */ }
+}
+
+function mergeElements(arrays) {
+  const seen = new Set();
+  const out = [];
+  for (const arr of arrays) {
+    for (const el of arr) {
+      const k = el.type + el.id;
+      if (!seen.has(k)) { seen.add(k); out.push(el); }
+    }
+  }
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
 const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
 
-async function fetchLayer(layer, bboxStr) {
-  const q = `[out:json][timeout:60];(${layer.overpassQuery(bboxStr)});out body geom qt;`;
-  const body = 'data='+encodeURIComponent(q);
-  const headers = {'Content-Type':'application/x-www-form-urlencoded'};
-  for (const ep of OVERPASS_ENDPOINTS) {
-    try {
-      const res = await fetch(ep, {method:'POST', headers, body, mode:'cors'});
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch(e) { console.warn(`Overpass failed (${ep}):`, e.message); }
+async function fetchLayer(layer, bboxStr, bbox) {
+  const tiles = bboxToTiles(bbox);
+  const elementArrays = [];
+  let fetchCount = 0;
+
+  for (const tile of tiles) {
+    const key = tileCacheKey(layer.id, tile);
+    const cached = await cacheGet(key);
+    if (cached) {
+      elementArrays.push(cached.elements || []);
+      continue;
+    }
+    const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
+    const q = `[out:json][timeout:60];(${layer.overpassQuery(tileBboxStr)});out body geom qt;`;
+    const body = 'data=' + encodeURIComponent(q);
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    let fetched = null;
+    for (const ep of OVERPASS_ENDPOINTS) {
+      try {
+        const res = await fetch(ep, { method:'POST', headers, body, mode:'cors' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        fetched = await res.json();
+        break;
+      } catch(e) { console.warn(`Overpass failed (${ep}):`, e.message); }
+    }
+    if (!fetched) throw new Error('All Overpass endpoints failed');
+    cacheSet(key, fetched);
+    elementArrays.push(fetched.elements || []);
+    fetchCount++;
+    if (fetchCount > 0 && tiles.indexOf(tile) < tiles.length - 1) {
+      await new Promise(r => setTimeout(r, 350));
+    }
   }
-  throw new Error('All Overpass endpoints failed');
+
+  return { elements: mergeElements(elementArrays) };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -956,10 +1032,13 @@ async function doExport() {
 
   const results=[];
   let failCount=0;
+  const tiles=bboxToTiles(bbox);
   for (let i=0;i<selected.length;i++) {
     const layer=selected[i];
-    updateProgress(`Fetching: ${layer.label} (${i+1}/${selected.length})…`, Math.round((i/selected.length)*85));
-    try { results.push({layer, data:await fetchLayer(layer,bboxStr)}); }
+    const cachedCount=(await Promise.all(tiles.map(t=>cacheGet(tileCacheKey(layer.id,t))))).filter(Boolean).length;
+    const cacheLabel=cachedCount===tiles.length?'↩ Cached':cachedCount>0?`↩ ${cachedCount}/${tiles.length} tiles cached`:'Fetching';
+    updateProgress(`${cacheLabel}: ${layer.label} (${i+1}/${selected.length})…`, Math.round((i/selected.length)*85));
+    try { results.push({layer, data:await fetchLayer(layer,bboxStr,bbox)}); }
     catch(e) { failCount++; results.push({layer,data:null}); console.warn('Layer failed:',layer.id,e); }
     await new Promise(r=>setTimeout(r,350));
   }
