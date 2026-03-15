@@ -17,8 +17,11 @@ body{font-family:'Geist Mono',monospace;color:var(--ink);font-size:13px}
 #hdr-badge{font-size:10px;letter-spacing:0.8px;padding:4px 10px;border:1px solid var(--border2);border-radius:2px;color:var(--muted);text-transform:uppercase}
 
 #layout{display:flex;height:calc(100vh - var(--hdr))}
-#sidebar{width:var(--sidebar);min-width:var(--sidebar);background:var(--paper);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+#sidebar{width:var(--sidebar);min-width:var(--sidebar);background:var(--paper);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;position:relative}
 #sidebar-inner{flex:1;overflow-y:auto;padding:0}
+/* Fade hint at the bottom of the sidebar to indicate more content below */
+#sidebar-fade{position:absolute;left:0;right:0;bottom:68px;height:48px;background:linear-gradient(to bottom,transparent,var(--paper));pointer-events:none;z-index:5;transition:opacity .2s}
+#sidebar-fade.hidden{opacity:0}
 #sidebar-inner::-webkit-scrollbar{width:3px}
 #sidebar-inner::-webkit-scrollbar-thumb{background:var(--border2)}
 

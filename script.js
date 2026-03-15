@@ -1308,11 +1308,27 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderLabelToggles();
   renderHistory();
 
-  // Delete-all history button
+  // Delete-all history button (with confirmation)
   document.getElementById('btn-history-clear').addEventListener('click', () => {
+    if (!confirm('Delete all recent exports?')) return;
     localStorage.removeItem('mapexport_history');
     renderHistory();
   });
+
+  // Sidebar scroll-fade: hide gradient when scrolled to bottom
+  const sidebarInner = document.getElementById('sidebar-inner');
+  const sidebarFade = document.getElementById('sidebar-fade');
+  function updateSidebarFade() {
+    const atBottom = sidebarInner.scrollTop + sidebarInner.clientHeight >= sidebarInner.scrollHeight - 8;
+    const noScroll = sidebarInner.scrollHeight <= sidebarInner.clientHeight;
+    sidebarFade.classList.toggle('hidden', atBottom || noScroll);
+  }
+  sidebarInner.addEventListener('scroll', updateSidebarFade);
+  // Re-check whenever layers/history render might change content height
+  const _origRenderLayers = renderLayers;
+  // Use a ResizeObserver to catch content height changes
+  new ResizeObserver(updateSidebarFade).observe(sidebarInner);
+  updateSidebarFade();
 
   if (location.protocol==='file:') {
     const warn=document.createElement('div');
