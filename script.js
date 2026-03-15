@@ -1324,10 +1324,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     sidebarFade.classList.toggle('hidden', atBottom || noScroll);
   }
   sidebarInner.addEventListener('scroll', updateSidebarFade);
-  // Re-check whenever layers/history render might change content height
-  const _origRenderLayers = renderLayers;
-  // Use a ResizeObserver to catch content height changes
-  new ResizeObserver(updateSidebarFade).observe(sidebarInner);
+  new ResizeObserver(updateSidebarFade).observe(sidebarInner.firstElementChild);
   updateSidebarFade();
 
   if (location.protocol==='file:') {
