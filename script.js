@@ -807,8 +807,47 @@ function buildLabelsLayer(elements, pr, W, H) {
     return (order.indexOf(a.tags?.highway||'')||99)-(order.indexOf(b.tags?.highway||'')||99);
   });
   const placedNames=new Map();
+
+  // Pre-pass: group all roundabout segments by name so that a roundabout
+  // split into many short arcs (like Sint-Annaplein) still gets one label
+  // placed at the collective centroid of all its segments.
+  const roundaboutHandled=new Set();
+  const roundaboutGroups=new Map(); // name → {hw, elements:[]}
   sorted.forEach(el=>{
     if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
+    if (el.tags?.junction!=='roundabout') return;
+    const name=el.tags.name, hw=el.tags.highway||'_default';
+    if (!roundaboutGroups.has(name)) roundaboutGroups.set(name,{hw,elements:[]});
+    roundaboutGroups.get(name).elements.push(el);
+  });
+  roundaboutGroups.forEach(({hw,elements},name)=>{
+    elements.forEach(el=>roundaboutHandled.add(el.id));
+    if (LABEL_VISIBILITY.hasOwnProperty(hw)&&!LABEL_VISIBILITY[hw]) return;
+    const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
+    const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
+    const maxFontSize=roadW.fillW*sf*0.75;
+    const sz=Math.min(style.size*sf,maxFontSize);
+    if (sz<4) return;
+    const displayName=name.toUpperCase();
+    const ls=sz*0.08;
+    const textW=approxTextWidth(displayName,sz,ls);
+    const allPts=elements.flatMap(el=>el.geometry.map(g=>pr(g.lat,g.lon)));
+    const cx=allPts.reduce((s,p)=>s+p[0],0)/allPts.length;
+    const cy=allPts.reduce((s,p)=>s+p[1],0)/allPts.length;
+    const lastX=placedNames.get(name);
+    if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
+    const lh=sz*1.4;
+    if (collision.overlaps(cx,cy,textW,lh)) return;
+    collision.add(cx,cy,textW,lh);
+    placedNames.set(name,cx);
+    const textId=`lbl_${safeName(name)}_${pid++}`;
+    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
+    texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${displayName}</text>`);
+  });
+
+  sorted.forEach(el=>{
+    if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
+    if (roundaboutHandled.has(el.id)) return; // already handled in pre-pass
     const name=el.tags.name, hw=el.tags.highway||'_default';
     // Check label visibility toggle
     if (LABEL_VISIBILITY.hasOwnProperty(hw) && !LABEL_VISIBILITY[hw]) return;
@@ -822,12 +861,10 @@ function buildLabelsLayer(elements, pr, W, H) {
     const pts=el.geometry.map(g=>pr(g.lat,g.lon));
     const textW=approxTextWidth(displayName,sz,ls);
 
-    // Roundabouts and closed-loop named areas (squares, plazas): place a
-    // centered horizontal label at the centroid instead of along the path.
-    const isRoundabout = el.tags?.junction==='roundabout';
+    // Closed-loop named areas (squares, plazas): place a centered label at centroid.
     const isClosed = pts.length>=3 &&
       Math.hypot(pts[0][0]-pts[pts.length-1][0], pts[0][1]-pts[pts.length-1][1]) < 2;
-    const isArea = isClosed && (isRoundabout || hw==='pedestrian' || el.tags?.area==='yes');
+    const isArea = isClosed && (hw==='pedestrian' || el.tags?.area==='yes');
 
     if (isArea) {
       const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
