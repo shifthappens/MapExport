@@ -2,3 +2,4 @@
 .claude/
 test.txt
 cache/*.json
+cache/*.json.gz
