@@ -131,7 +131,7 @@ body{font-family:'Geist Mono',monospace;color:var(--ink);font-size:13px}
 #progress-bar{height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width .4s ease}
 #progress-label{font-size:11px;color:var(--ink2);letter-spacing:.3px}
 
-#preview-pane{position:absolute;inset:0;background:var(--paper);z-index:500;display:none;flex-direction:column}
+#preview-pane{position:absolute;inset:0;background:var(--paper);z-index:1000;display:none;flex-direction:column}
 #preview-pane.show{display:flex}
 #preview-pane h4{font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);padding:10px 14px 8px;flex-shrink:0;border-bottom:1px solid var(--border)}
 #preview-svg-wrap{flex:1;overflow:auto;background:#fff;display:flex;align-items:flex-start;justify-content:center}
