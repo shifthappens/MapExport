@@ -4,6 +4,4 @@ test.txt
 cache/*.json
 cache/*.json.gz
 deploy.sh
-script.min.js
-style.min.css
 minify.sh
