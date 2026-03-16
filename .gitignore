@@ -3,3 +3,4 @@
 test.txt
 cache/*.json
 cache/*.json.gz
+deploy.sh
