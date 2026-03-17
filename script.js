@@ -1008,17 +1008,20 @@ function getEps() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  BUILDING BLOCK MERGE (rasterize → morph-close → vectorize)
+//  BUILDING BLOCK MERGE (inverse approach: fill everything, erase roads/parks/water)
 // ════════════════════════════════════════════════════════════════
 
-function rasterizeBuildings(elements, pr, cW, cH, scale) {
+function rasterizeBlocksInverse(allResults, pr, cW, cH, scale, svgW) {
   const canvas = document.createElement('canvas');
   canvas.width = cW; canvas.height = cH;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, cW, cH);
+
+  // Start with everything filled (white = block)
   ctx.fillStyle = '#fff';
-  function drawPoly(geom) {
+  ctx.fillRect(0, 0, cW, cH);
+
+  // Helper: draw a polygon as black (erasing)
+  function erasePoly(geom) {
     if (!geom || geom.length < 3) return;
     ctx.beginPath();
     const [x0,y0] = pr(geom[0].lat, geom[0].lon);
@@ -1030,12 +1033,77 @@ function rasterizeBuildings(elements, pr, cW, cH, scale) {
     ctx.closePath();
     ctx.fill();
   }
-  for (const el of elements) {
-    if (el.type==='way' && el.geometry?.length) drawPoly(el.geometry);
-    if (el.type==='relation' && el.members) {
-      for (const m of el.members) drawPoly(m.geometry);
+
+  // Helper: draw a line (road) as black
+  function eraseLine(geom, width) {
+    if (!geom || geom.length < 2) return;
+    ctx.beginPath();
+    const [x0,y0] = pr(geom[0].lat, geom[0].lon);
+    ctx.moveTo(x0*scale, y0*scale);
+    for (let i=1; i<geom.length; i++) {
+      const [x,y] = pr(geom[i].lat, geom[i].lon);
+      ctx.lineTo(x*scale, y*scale);
+    }
+    ctx.lineWidth = width;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#000';
+  ctx.strokeStyle = '#000';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const sf = getScaleFactor(svgW);
+
+  // Erase roads
+  for (const {layer, data} of allResults) {
+    if (layer.type === 'roads' && data?.elements?.length) {
+      for (const el of data.elements) {
+        if (el.type !== 'way' || !el.geometry?.length) continue;
+        const hw = el.tags?.highway || '_default';
+        const w = ROAD_WIDTHS[hw] || ROAD_WIDTHS._default;
+        // Use full road width (fill + casing) scaled to canvas
+        const totalWidth = (w.fillW + w.casingW) * sf * scale;
+        eraseLine(el.geometry, totalWidth);
+      }
+    }
+    // Erase parks
+    if ((layer.id === 'parks') && data?.elements?.length) {
+      for (const el of data.elements) {
+        if (el.type === 'way' && el.geometry?.length) erasePoly(el.geometry);
+        if (el.type === 'relation' && el.members) {
+          for (const m of el.members) erasePoly(m.geometry);
+        }
+      }
+    }
+    // Erase water bodies
+    if ((layer.id === 'water_bodies') && data?.elements?.length) {
+      for (const el of data.elements) {
+        if (el.type === 'way' && el.geometry?.length) erasePoly(el.geometry);
+        if (el.type === 'relation' && el.members) {
+          for (const m of el.members) erasePoly(m.geometry);
+        }
+      }
+    }
+    // Erase waterways (rivers/canals as thick lines)
+    if ((layer.id === 'waterways') && data?.elements?.length) {
+      for (const el of data.elements) {
+        if (el.type === 'way' && el.geometry?.length) {
+          eraseLine(el.geometry, 12 * sf * scale);
+        }
+      }
+    }
+    // Erase rail/tram/metro corridors
+    if ((layer.type === 'rail' || layer.type === 'tram' || layer.type === 'metro') && data?.elements?.length) {
+      for (const el of data.elements) {
+        if (el.type === 'way' && el.geometry?.length) {
+          eraseLine(el.geometry, 20 * sf * scale);
+        }
+      }
     }
   }
+
+  // Extract binary image
   const imgData = ctx.getImageData(0, 0, cW, cH);
   const bin = new Uint8Array(cW * cH);
   for (let i=0; i<bin.length; i++) bin[i] = imgData.data[i*4] > 128 ? 1 : 0;
@@ -1191,15 +1259,21 @@ function traceContours(bin, w, h) {
   return outers;
 }
 
-function mergeBuildingsToBlocks(elements, pr, W, H, mergeRadius) {
+function mergeBuildingsToBlocks(allResults, pr, W, H) {
   const CANVAS_MAX = 2000;
   const scale = Math.min(1, CANVAS_MAX / W);
   const cW = Math.round(W * scale);
   const cH = Math.round(H * scale);
-  const canvasRadius = Math.max(1, Math.round(mergeRadius * scale));
 
-  const bin = rasterizeBuildings(elements, pr, cW, cH, scale);
-  const closed = morphClose(bin, cW, cH, canvasRadius);
+  // Inverse approach: fill everything, erase roads/parks/water
+  const bin = rasterizeBlocksInverse(allResults, pr, cW, cH, scale, W);
+  // Light erosion to pull blocks slightly away from road edges
+  const erodeRadius = Math.max(1, Math.round(3 * scale));
+  const inv = new Uint8Array(cW * cH);
+  for (let i=0; i<inv.length; i++) inv[i] = 1 - bin[i];
+  const dilInv = dilate(inv, cW, cH, erodeRadius);
+  const closed = new Uint8Array(cW * cH);
+  for (let i=0; i<closed.length; i++) closed[i] = 1 - dilInv[i];
   const blocks = traceContours(closed, cW, cH);
 
   // Convert contours to SVG path data
@@ -1267,8 +1341,8 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
     if (layer.id==='parks') { fillColor=preset.park; strokeColor=preset.park; }
     if (layer.id==='buildings') {
       fillColor=preset.building; strokeColor=preset.buildingStroke;
-      // Merge individual buildings into city-block shapes
-      const blocks = mergeBuildingsToBlocks(elements, pr, W, H, 10);
+      // Generate city-block shapes from inverse of roads/parks/water
+      const blocks = mergeBuildingsToBlocks(results, pr, W, H);
       if (blocks.length) {
         const fo = layer.fillOpacity ?? 0.8;
         const sw = layer.strokeWidth ?? 1.5;
