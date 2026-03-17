@@ -663,6 +663,7 @@ function elementInBbox(el, b) {
 //  NAME UTILS
 // ════════════════════════════════════════════════════════════════
 function safeName(s) { return (s||'').replace(/&/g,'and').replace(/[<>"']/g,'').replace(/\s+/g,'_').replace(/[^\w\-]/g,'_').slice(0,80); }
+function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function makeUidGen() { const used=new Set(); return base=>{ if(!used.has(base)){used.add(base);return base;} let n=2; while(used.has(`${base}_${n}`))n++; const id=`${base}_${n}`;used.add(id);return id;}; }
 
 // ════════════════════════════════════════════════════════════════
@@ -707,7 +708,7 @@ function buildRoadsLayer(elements, pr, W) {
       for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
-      const lbl=name||ref||`${label} (${el.id||i})`;
+      const lbl=escXml(name||ref||`${label} (${el.id||i})`);
       fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     });
     if (!fills) return;
@@ -730,7 +731,7 @@ function buildRailLayer(elements, pr, W) {
     for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`rail_${el.id||i}`);
-    const lbl=name||`Railway (${el.id||i})`;
+    const lbl=escXml(name||`Railway (${el.id||i})`);
     casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(12*sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round"/>`;
     sleepers+=`\n      <path id="${pid}_sleepers" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#eeeeee" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="butt" stroke-dasharray="${(30*sf).toFixed(1)} ${(24*sf).toFixed(1)}"/>`;
     rails+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#333333" stroke-width="${(1.8*sf).toFixed(2)}" stroke-linecap="butt" opacity="0.5"/>`;
@@ -767,13 +768,13 @@ function buildMetroLayer(elements, pr, W) {
       for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
       const name=el.tags?.name||el.tags?.ref||key;
       const pid=uid(safeName(name!=='_default'?name:`metro_${el.id||i}`));
-      const lbl=name!=='_default'?name:`Metro (${el.id||i})`;
+      const lbl=escXml(name!=='_default'?name:`Metro (${el.id||i})`);
       casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>`;
       fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"/>`;
     });
     if (!fills) return;
     const lid=safeName(key!=='_default'?key:'metro_default');
-    const llbl=key!=='_default'?key:'Metro line';
+    const llbl=escXml(key!=='_default'?key:'Metro line');
     lineGroups+=`\n  <g id="metro_${lid}" inkscape:label="Metro — ${llbl}" inkscape:groupmode="layer">\n    <g id="metro_${lid}_casing">${casings}\n    </g>\n    <g id="metro_${lid}_fill">${fills}\n    </g>\n  </g>`;
   });
   return lineGroups?`  <g id="metro" inkscape:label="Metro / subway" inkscape:groupmode="layer">${lineGroups}\n  </g>\n`:'';
@@ -793,7 +794,7 @@ function buildTramLayer(elements, pr, W) {
     for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`tram_${el.id||i}`);
-    const lbl=name||`Tram (${el.id||i})`;
+    const lbl=escXml(name||`Tram (${el.id||i})`);
     casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>`;
     fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
   });
@@ -883,7 +884,7 @@ function buildLabelsLayer(elements, pr, W, H) {
     placedNames.set(name,cx);
     const textId=`lbl_${safeName(name)}_${pid++}`;
     const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${displayName}</text>`);
+    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
   });
 
   sorted.forEach(el=>{
@@ -918,7 +919,7 @@ function buildLabelsLayer(elements, pr, W, H) {
       placedNames.set(name,cx);
       const textId=`lbl_${safeName(name)}_${pid++}`;
       const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${displayName}</text>`);
+      texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
       return;
     }
 
@@ -939,11 +940,11 @@ function buildLabelsLayer(elements, pr, W, H) {
     const textId=`lbl_${safeName(name)}_${pid}`;
     let d=`M${pathPts[0][0].toFixed(1)},${pathPts[0][1].toFixed(1)}`;
     for(let i=1;i<pathPts.length;i++) d+=`L${pathPts[i][0].toFixed(1)},${pathPts[i][1].toFixed(1)}`;
-    defs.push(`<path id="${pathId}" inkscape:label="${name} (path)" d="${d}"/>`);
+    defs.push(`<path id="${pathId}" inkscape:label="${escXml(name)} (path)" d="${d}"/>`);
     const offset=Math.max(0,(len-textW)/2);
     const offsetPct=((offset/len)*100).toFixed(1);
     const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${name}" ${attrs} fill="${preset.labelColor}"><textPath href="#${pathId}" startOffset="${offsetPct}%">${displayName}</textPath></text>`);
+    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} fill="${preset.labelColor}"><textPath xlink:href="#${pathId}" startOffset="${offsetPct}%">${escXml(displayName)}</textPath></text>`);
   });
   if (!defs.length) return '';
   return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
@@ -989,8 +990,9 @@ function buildFeatureLabelsLayer(elements, pr, W, H) {
     const haloSz=(sz*0.15+1.5).toFixed(1);
     const italicAttr=waterway?'font-style="italic"':'';
     const fid=`feat_${safeName(name)}`;
-    labels+=`<text id="${fid}_halo" inkscape:label="${name} (halo)" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none" paint-order="stroke">${name}</text>`;
-    labels+=`<text id="${fid}" inkscape:label="${name}" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" fill="${color}" opacity="0.9">${name}</text>`;
+    const eName=escXml(name);
+    labels+=`<text id="${fid}_halo" inkscape:label="${eName} (halo)" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none" paint-order="stroke">${eName}</text>`;
+    labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" fill="${color}" opacity="0.9">${eName}</text>`;
   });
 
   if (!labels) return '';
@@ -1044,7 +1046,7 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
         const [x,y]=pr(el.lat,el.lon);
         const poiName=el.tags?.name||el.tags?.amenity||el.tags?.tourism||el.tags?.shop||layer.label;
         const poiId=`poi_${safeName(poiName)}_${el.id||Math.round(x)}`;
-        circles+=`<circle id="${poiId}" inkscape:label="${poiName}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${layer.radius||2}"/>`;
+        circles+=`<circle id="${poiId}" inkscape:label="${escXml(poiName)}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${layer.radius||2}"/>`;
         return;
       }
       if (el.type==='way') allD+=geomToPathD(el.geometry,pr,eps,isArea)+' ';
@@ -1082,6 +1084,7 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
      xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:cc="http://creativecommons.org/ns#"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
      width="${W}"
      height="${H}"
