@@ -1008,6 +1008,232 @@ function getEps() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  BUILDING BLOCK MERGE (rasterize → morph-close → vectorize)
+// ════════════════════════════════════════════════════════════════
+
+function rasterizeBuildings(elements, pr, cW, cH, scale) {
+  const canvas = document.createElement('canvas');
+  canvas.width = cW; canvas.height = cH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, cW, cH);
+  ctx.fillStyle = '#fff';
+  function drawPoly(geom) {
+    if (!geom || geom.length < 3) return;
+    ctx.beginPath();
+    const [x0,y0] = pr(geom[0].lat, geom[0].lon);
+    ctx.moveTo(x0*scale, y0*scale);
+    for (let i=1; i<geom.length; i++) {
+      const [x,y] = pr(geom[i].lat, geom[i].lon);
+      ctx.lineTo(x*scale, y*scale);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+  for (const el of elements) {
+    if (el.type==='way' && el.geometry?.length) drawPoly(el.geometry);
+    if (el.type==='relation' && el.members) {
+      for (const m of el.members) drawPoly(m.geometry);
+    }
+  }
+  const imgData = ctx.getImageData(0, 0, cW, cH);
+  const bin = new Uint8Array(cW * cH);
+  for (let i=0; i<bin.length; i++) bin[i] = imgData.data[i*4] > 128 ? 1 : 0;
+  return bin;
+}
+
+function dilate(bin, w, h, radius) {
+  const tmp = new Uint8Array(w * h);
+  const out = new Uint8Array(w * h);
+  // Horizontal pass
+  for (let y=0; y<h; y++) {
+    const row = y * w;
+    let dist = radius + 1;
+    const distL = new Int32Array(w);
+    for (let x=0; x<w; x++) { dist = bin[row+x] ? 0 : dist+1; distL[x] = dist; }
+    dist = radius + 1;
+    for (let x=w-1; x>=0; x--) {
+      dist = bin[row+x] ? 0 : dist+1;
+      tmp[row+x] = Math.min(distL[x], dist) <= radius ? 1 : 0;
+    }
+  }
+  // Vertical pass
+  for (let x=0; x<w; x++) {
+    let dist = radius + 1;
+    const distT = new Int32Array(h);
+    for (let y=0; y<h; y++) { dist = tmp[y*w+x] ? 0 : dist+1; distT[y] = dist; }
+    dist = radius + 1;
+    for (let y=h-1; y>=0; y--) {
+      dist = tmp[y*w+x] ? 0 : dist+1;
+      out[y*w+x] = Math.min(distT[y], dist) <= radius ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+function morphClose(bin, w, h, radius) {
+  const dilated = dilate(bin, w, h, radius);
+  // Erode = invert → dilate → invert
+  const inv = new Uint8Array(w * h);
+  for (let i=0; i<inv.length; i++) inv[i] = 1 - dilated[i];
+  const erodedInv = dilate(inv, w, h, radius);
+  const result = new Uint8Array(w * h);
+  for (let i=0; i<result.length; i++) result[i] = 1 - erodedInv[i];
+  return result;
+}
+
+function traceContours(bin, w, h) {
+  // Pad with 1px border of zeros so contours close at edges
+  const pw = w+2, ph = h+2;
+  const pad = new Uint8Array(pw * ph);
+  for (let y=0; y<h; y++)
+    for (let x=0; x<w; x++)
+      pad[(y+1)*pw + (x+1)] = bin[y*w + x];
+
+  // Edge midpoints for a cell at (cx, cy):
+  // top: (cx+0.5, cy), right: (cx+1, cy+0.5), bottom: (cx+0.5, cy+1), left: (cx, cy+0.5)
+  const EDGES = [[0.5,0],[1,0.5],[0.5,1],[0,0.5]]; // T,R,B,L
+  // For each marching-squares case, map entry-edge → [exit-edge, vertex-edge]
+  // Edges: 0=top, 1=right, 2=bottom, 3=left
+  // Lookup: case → array of [entryEdge, exitEdge] pairs
+  const SEGMENTS = new Array(16);
+  SEGMENTS[0] = []; SEGMENTS[15] = [];
+  SEGMENTS[1]  = [[2,3]]; SEGMENTS[2]  = [[1,2]]; SEGMENTS[3]  = [[1,3]];
+  SEGMENTS[4]  = [[0,1]]; SEGMENTS[5]  = [[0,1],[2,3]]; // saddle
+  SEGMENTS[6]  = [[0,2]]; SEGMENTS[7]  = [[0,3]];
+  SEGMENTS[8]  = [[3,0]]; SEGMENTS[9]  = [[2,0]];
+  SEGMENTS[10] = [[1,0],[3,2]]; // saddle
+  SEGMENTS[11] = [[1,0]]; SEGMENTS[12] = [[3,1]];
+  SEGMENTS[13] = [[2,1]]; SEGMENTS[14] = [[3,2]]; // was SEGMENTS[14]
+
+  function cellCase(cx, cy) {
+    const tl = pad[cy*pw+cx], tr = pad[cy*pw+cx+1];
+    const bl = pad[(cy+1)*pw+cx], br = pad[(cy+1)*pw+cx+1];
+    return (tl<<3)|(tr<<2)|(br<<1)|bl;
+  }
+
+  // Build edge→edge lookup per cell, tracking which edges are consumed
+  // Edge key: "cx,cy,edge"
+  const edgeMap = new Map(); // edgeKey → { cx, cy, exitEdge }
+  const opposite = [2,3,0,1]; // opposite edge index
+
+  for (let cy=0; cy<ph-1; cy++) {
+    for (let cx=0; cx<pw-1; cx++) {
+      const c = cellCase(cx, cy);
+      if (c===0 || c===15) continue;
+      const segs = SEGMENTS[c];
+      for (const [from, to] of segs) {
+        const key = `${cx},${cy},${from}`;
+        edgeMap.set(key, { cx, cy, exitEdge: to });
+      }
+    }
+  }
+
+  // Trace rings by following edges
+  const visited = new Set();
+  const rings = [];
+
+  for (const [startKey, startVal] of edgeMap) {
+    if (visited.has(startKey)) continue;
+    const ring = [];
+    let key = startKey;
+    let val = startVal;
+    while (val && !visited.has(key)) {
+      visited.add(key);
+      const { cx, cy, exitEdge } = val;
+      const e = EDGES[exitEdge];
+      ring.push([cx + e[0] - 1, cy + e[1] - 1]); // -1 to undo padding offset
+
+      // Move to adjacent cell via exit edge
+      const dx = exitEdge===1 ? 1 : exitEdge===3 ? -1 : 0;
+      const dy = exitEdge===2 ? 1 : exitEdge===0 ? -1 : 0;
+      const ncx = cx + dx, ncy = cy + dy;
+      const entryEdge = opposite[exitEdge];
+      key = `${ncx},${ncy},${entryEdge}`;
+      val = edgeMap.get(key);
+    }
+    if (ring.length >= 3) rings.push(ring);
+  }
+
+  // Classify rings: positive signed area = outer, negative = hole
+  function signedArea(ring) {
+    let a = 0;
+    for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
+      a += (ring[j][0]-ring[i][0]) * (ring[j][1]+ring[i][1]);
+    }
+    return a / 2;
+  }
+  function pointInRing(pt, ring) {
+    let inside = false;
+    for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
+      const [xi,yi]=ring[i], [xj,yj]=ring[j];
+      if ((yi>pt[1]) !== (yj>pt[1]) && pt[0] < (xj-xi)*(pt[1]-yi)/(yj-yi)+xi)
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  const outers = [], holes = [];
+  for (const ring of rings) {
+    const a = signedArea(ring);
+    if (a > 0) outers.push({ ring, area: a, holes: [] });
+    else if (a < 0) holes.push({ ring, area: -a });
+  }
+  outers.sort((a,b) => b.area - a.area);
+  for (const hole of holes) {
+    for (const outer of outers) {
+      if (pointInRing(hole.ring[0], outer.ring)) {
+        outer.holes.push(hole.ring);
+        break;
+      }
+    }
+  }
+  return outers;
+}
+
+function mergeBuildingsToBlocks(elements, pr, W, H, mergeRadius) {
+  const CANVAS_MAX = 2000;
+  const scale = Math.min(1, CANVAS_MAX / W);
+  const cW = Math.round(W * scale);
+  const cH = Math.round(H * scale);
+  const canvasRadius = Math.max(1, Math.round(mergeRadius * scale));
+
+  const bin = rasterizeBuildings(elements, pr, cW, cH, scale);
+  const closed = morphClose(bin, cW, cH, canvasRadius);
+  const blocks = traceContours(closed, cW, cH);
+
+  // Convert contours to SVG path data
+  const eps = 1.2; // simplification tolerance in canvas pixels
+  const minArea = 25; // discard tiny blocks (canvas px²)
+  const result = [];
+
+  for (const block of blocks) {
+    if (block.area < minArea) continue;
+    // Scale ring coordinates back to SVG space and simplify
+    const outerPts = block.ring.map(([x,y]) => [x/scale, y/scale]);
+    const simpOuter = dpSimplify(outerPts, eps/scale);
+    if (simpOuter.length < 3) continue;
+
+    let d = `M${simpOuter[0][0].toFixed(1)},${simpOuter[0][1].toFixed(1)}`;
+    for (let i=1; i<simpOuter.length; i++) d += `L${simpOuter[i][0].toFixed(1)},${simpOuter[i][1].toFixed(1)}`;
+    d += 'Z';
+
+    const holePaths = [];
+    for (const hole of block.holes) {
+      const holePts = hole.map(([x,y]) => [x/scale, y/scale]);
+      const simpHole = dpSimplify(holePts, eps/scale);
+      if (simpHole.length < 3) continue;
+      let hd = `M${simpHole[0][0].toFixed(1)},${simpHole[0][1].toFixed(1)}`;
+      for (let i=1; i<simpHole.length; i++) hd += `L${simpHole[i][0].toFixed(1)},${simpHole[i][1].toFixed(1)}`;
+      hd += 'Z';
+      holePaths.push(hd);
+    }
+    result.push({ outer: d, holes: holePaths });
+  }
+  return result;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  SVG BUILDER
 // ════════════════════════════════════════════════════════════════
 function buildSVG(results, b, W, physicalWidthMm=null) {
@@ -1039,7 +1265,22 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
     let fillColor=layer.color, strokeColor=layer.strokeColor||layer.color;
     if (layer.id==='water_bodies'||layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
     if (layer.id==='parks') { fillColor=preset.park; strokeColor=preset.park; }
-    if (layer.id==='buildings') { fillColor=preset.building; strokeColor=preset.buildingStroke; }
+    if (layer.id==='buildings') {
+      fillColor=preset.building; strokeColor=preset.buildingStroke;
+      // Merge individual buildings into city-block shapes
+      const blocks = mergeBuildingsToBlocks(elements, pr, W, H, 10);
+      if (blocks.length) {
+        const fo = layer.fillOpacity ?? 0.8;
+        const sw = layer.strokeWidth ?? 1.5;
+        let content = '';
+        for (let i=0; i<blocks.length; i++) {
+          const pathD = blocks[i].outer + (blocks[i].holes.length ? ' '+blocks[i].holes.join(' ') : '');
+          content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+        }
+        layersSVG += `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+      }
+      return;
+    }
 
     elements.forEach(el=>{
       if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
@@ -1059,14 +1300,8 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
       if (isArea) {
         const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
         const sw=layer.strokeWidth??0.5;
-        if (layer.id==='buildings') {
-          // Buildings: stroke first (bottom), then fill on top — adjacent buildings
-          // merge into blocks because fill covers internal shared borders
-          content+=`<path d="${d}" fill="none" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round" opacity="${fo}"/>`;
-          content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
-        } else {
-          content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
-        }
+        content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+
       } else {
         const sw=typeof layer.strokeWidth==='function'?layer.strokeWidth({}):(layer.strokeWidth??1);
         const dash=layer.strokeDash?` stroke-dasharray="${layer.strokeDash}"`:'';
