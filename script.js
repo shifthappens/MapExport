@@ -1075,7 +1075,7 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
     }
     if (circles) content+=circles;
     if (!content) return;
-    layersSVG+=`  <g id="${layer.id}" inkscape:label="${layer.label}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
+    layersSVG+=`  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
   });
 
   const date=new Date().toISOString().slice(0,10);
