@@ -168,10 +168,10 @@ const LAYER_REGISTRY = [
     { id:'rail',         label:'Railways',          hint:'Main line & narrow gauge',    color:'#444444', defaultOn:true,  type:'rail',
       overpassQuery:(b)=>`way["railway"~"rail|narrow_gauge|preserved"](${b});`,
       tagFilter:el=>el.type==='way'&&/^(rail|narrow_gauge|preserved)$/.test(el.tags?.railway||'') },
-    { id:'metro',        label:'Metro / subway',    hint:'Underground & subway lines',  color:'#e63030', defaultOn:true,  type:'metro',
+    { id:'metro',        label:'Metro / subway',    hint:'Underground & subway lines',  color:'#e63030', defaultOn:false, type:'metro',
       overpassQuery:(b)=>`way["railway"="subway"](${b});`,
       tagFilter:el=>el.type==='way'&&el.tags?.railway==='subway' },
-    { id:'tram',         label:'Tram & light rail', hint:'Tram & light rail lines',     color:'#22aa88', defaultOn:true,  type:'tram',
+    { id:'tram',         label:'Tram & light rail', hint:'Tram & light rail lines',     color:'#22aa88', defaultOn:false, type:'tram',
       overpassQuery:(b)=>`way["railway"~"tram|light_rail"](${b});`,
       tagFilter:el=>el.type==='way'&&/^(tram|light_rail)$/.test(el.tags?.railway||'') },
     { id:'transit_stops',label:'Transit stops',     hint:'Bus, tram & rail stops',      color:'#444444', defaultOn:false, type:'point', radius:2.5,
@@ -189,20 +189,20 @@ const LAYER_REGISTRY = [
 //  ROAD STYLE TABLE (widths — colours come from active preset)
 // ════════════════════════════════════════════════════════════════
 const ROAD_WIDTHS = {
-  motorway:{fillW:66,casingW:12},     trunk:{fillW:60,casingW:12},
-  motorway_link:{fillW:42,casingW:9}, trunk_link:{fillW:42,casingW:9},
-  primary:{fillW:54,casingW:10.5},    primary_link:{fillW:36,casingW:9},
-  secondary:{fillW:48,casingW:9},     secondary_link:{fillW:30,casingW:7.5},
-  tertiary:{fillW:42,casingW:7.5},    tertiary_link:{fillW:27,casingW:6},
-  residential:{fillW:30,casingW:6},   unclassified:{fillW:27,casingW:6},
-  living_street:{fillW:24,casingW:4.5}, service:{fillW:18,casingW:4.5},
-  cycleway:{fillW:12,casingW:3.6,dash:'6 3'},
-  pedestrian:{fillW:27,casingW:4.5},
-  footway:{fillW:9,casingW:3,dash:'4 2'},
-  path:{fillW:7.5,casingW:2.4,dash:'4 2'},
-  track:{fillW:9,casingW:2.4,dash:'5 3'},
-  steps:{fillW:9,casingW:3,dash:'2 2'},
-  _default:{fillW:18,casingW:4.5},
+  motorway:{fillW:66,casingW:6},     trunk:{fillW:60,casingW:6},
+  motorway_link:{fillW:42,casingW:6}, trunk_link:{fillW:42,casingW:6},
+  primary:{fillW:54,casingW:6},      primary_link:{fillW:36,casingW:6},
+  secondary:{fillW:48,casingW:6},    secondary_link:{fillW:30,casingW:6},
+  tertiary:{fillW:42,casingW:6},     tertiary_link:{fillW:27,casingW:6},
+  residential:{fillW:30,casingW:6},  unclassified:{fillW:27,casingW:6},
+  living_street:{fillW:24,casingW:6}, service:{fillW:18,casingW:6},
+  cycleway:{fillW:12,casingW:6,dash:'6 3'},
+  pedestrian:{fillW:27,casingW:6},
+  footway:{fillW:9,casingW:6,dash:'4 2'},
+  path:{fillW:7.5,casingW:6,dash:'4 2'},
+  track:{fillW:9,casingW:6,dash:'5 3'},
+  steps:{fillW:9,casingW:6,dash:'2 2'},
+  _default:{fillW:18,casingW:6},
 };
 const ROAD_DRAW_ORDER=['track','path','footway','steps','cycleway','pedestrian','service','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
 const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',service:'Service roads',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',track:'Tracks',steps:'Steps'};
@@ -1302,7 +1302,7 @@ function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
   const {pr,H}=makeProjector(b,W);
   const preset=PRESETS[activePreset];
   const EPS={area_large:getEps()*1.4, area:getEps()*0.9, line:getEps()*0.6};
-  const layerOrder=['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','roads','rail','tram','metro','parks','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
+  const layerOrder=['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
   const sorted=[...results].sort((a,z)=>(layerOrder.indexOf(a.layer.id)||999)-(layerOrder.indexOf(z.layer.id)||999));
   let layersSVG='';
 
