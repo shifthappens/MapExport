@@ -86,33 +86,33 @@ function hideHelp() {
 const PRESETS = {
   useit: {
     label: 'USE-IT',
-    swatches: ['#f5f0e1','#ffffff','#7eb8da','#b8d89a'],
-    bg: '#f5f0e1',
+    swatches: ['#ffffff','#ffffff','#A4DBF3','#51A886'],
+    bg: '#ffffff',
     roads: {
-      motorway:      { fill:'#ffffff', casing:'#b8b4a8' },
-      trunk:         { fill:'#ffffff', casing:'#b8b4a8' },
-      motorway_link: { fill:'#ffffff', casing:'#b8b4a8' },
-      trunk_link:    { fill:'#ffffff', casing:'#b8b4a8' },
-      primary:       { fill:'#ffffff', casing:'#c8c4b8' },
-      primary_link:  { fill:'#ffffff', casing:'#c8c4b8' },
-      secondary:     { fill:'#ffffff', casing:'#c8c4b8' },
-      secondary_link:{ fill:'#ffffff', casing:'#c8c4b8' },
-      tertiary:      { fill:'#ffffff', casing:'#d0ccc0' },
-      tertiary_link: { fill:'#ffffff', casing:'#d0ccc0' },
-      residential:   { fill:'#ffffff', casing:'#d0ccc0' },
-      unclassified:  { fill:'#ffffff', casing:'#d0ccc0' },
-      living_street: { fill:'#ffffff', casing:'#d8d4c8' },
-      service:       { fill:'#ffffff', casing:'#d8d4c8' },
-      cycleway:      { fill:'#e8e4d8', casing:'#c8c4b8' },
-      pedestrian:    { fill:'#ffffff', casing:'#d0ccc0' },
-      footway:       { fill:'#e8e4d8', casing:'#d0ccc0' },
-      path:          { fill:'#e8e4d8', casing:'#d0ccc0' },
-      track:         { fill:'#e8e4d8', casing:'#d0ccc0' },
-      steps:         { fill:'#e0dcd0', casing:'#c8c4b8' },
+      motorway:      { fill:'#ffffff', casing:'#F4AFA7' },
+      trunk:         { fill:'#ffffff', casing:'#F4AFA7' },
+      motorway_link: { fill:'#ffffff', casing:'#F4AFA7' },
+      trunk_link:    { fill:'#ffffff', casing:'#F4AFA7' },
+      primary:       { fill:'#ffffff', casing:'#F4AFA7' },
+      primary_link:  { fill:'#ffffff', casing:'#F4AFA7' },
+      secondary:     { fill:'#ffffff', casing:'#F4AFA7' },
+      secondary_link:{ fill:'#ffffff', casing:'#F4AFA7' },
+      tertiary:      { fill:'#ffffff', casing:'#F4AFA7' },
+      tertiary_link: { fill:'#ffffff', casing:'#F4AFA7' },
+      residential:   { fill:'#ffffff', casing:'#F4AFA7' },
+      unclassified:  { fill:'#ffffff', casing:'#F4AFA7' },
+      living_street: { fill:'#ffffff', casing:'#F4AFA7' },
+      service:       { fill:'#ffffff', casing:'#F4AFA7' },
+      cycleway:      { fill:'#ffffff', casing:'#F4AFA7' },
+      pedestrian:    { fill:'#ffffff', casing:'#F4AFA7' },
+      footway:       { fill:'#ffffff', casing:'#F4AFA7' },
+      path:          { fill:'#ffffff', casing:'#F4AFA7' },
+      track:         { fill:'#ffffff', casing:'#F4AFA7' },
+      steps:         { fill:'#ffffff', casing:'#F4AFA7' },
     },
-    water: '#7eb8da', waterOp: 0.85,
-    park:  '#b8d89a', parkOp: 0.6,
-    building: '#d4c8b4', buildingStroke: '#b8a890',
+    water: '#A4DBF3', waterOp: 1,
+    park:  '#51A886', parkOp: 1,
+    building: '#FEF6ED', buildingStroke: '#F4AFA7',
     labelColor: '#2a2a20',
   },
 };
@@ -149,9 +149,9 @@ const LAYER_REGISTRY = [
     { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
-    { id:'parks',        label:'Parks & green',     hint:'Parks, gardens, forests',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:0.6, strokeWidth:1.5,
-      overpassQuery:(b)=>`way["leisure"~"park|garden|nature_reserve|recreation_ground"](${b});relation["leisure"~"park|garden"](${b});way["landuse"~"grass|forest|meadow|village_green|allotments|orchard"](${b});way["natural"~"wood|scrub|heath|grassland"](${b});`,
-      tagFilter:el=>el.type!=='node'&&(/park|garden|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||/grass|forest|meadow|village_green|allotments|orchard/.test(el.tags?.landuse||'')||/wood|scrub|heath|grassland/.test(el.tags?.natural||'')) },
+    { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, reserves',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
+      overpassQuery:(b)=>`way["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});relation["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});way["landuse"="forest"]["name"](${b});relation["landuse"="forest"]["name"](${b});way["natural"="wood"]["name"](${b});relation["natural"="wood"]["name"](${b});`,
+      tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
   ]},
   { group: 'Built environment', layers: [
     { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:1.5, strokeColor:'#b8a890',
@@ -396,7 +396,7 @@ async function fetchBoundaries(placeName) {
 //  TILE CACHE  (server-side via cache.php, 7-day TTL)
 // ════════════════════════════════════════════════════════════════
 const TILE_SIZE = 0.1; // degrees per tile (~8×11 km at mid-latitudes)
-const CACHE_PREFIX = 'mapexport_v1_';
+const CACHE_PREFIX = 'mapexport_v2_';
 
 function bboxToTiles(bbox) {
   const tiles = [];
@@ -690,16 +690,19 @@ function buildRoadsLayer(elements, pr, W) {
   });
   if (!byType.size) return '';
   const types=[...byType.keys()].sort((a,b)=>(ROAD_DRAW_ORDER.indexOf(a)||50)-(ROAD_DRAW_ORDER.indexOf(b)||50));
-  let typeGroups='';
+  // Two-pass rendering: casings first (wider, darker), then fills (narrower, lighter)
+  // This creates proper bordered roads regardless of layer order
+  let allCasings='', allFills='';
+  const uid=makeUidGen();
   types.forEach(hw => {
     const ways=byType.get(hw);
     const w=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
     const colors=preset.roads[hw]||{fill:'#ffffff',casing:'#cccccc'};
     const dash=w.dash?` stroke-dasharray="${w.dash}"`:'';
+    const casingTotalW=((w.fillW+w.casingW)*sf).toFixed(2);
     const fillW=(w.fillW*sf).toFixed(2);
     const label=TYPE_LABELS[hw]||hw;
-    const uid=makeUidGen();
-    let fills='';
+    let casings='', fills='';
     ways.forEach((el,i) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
@@ -709,12 +712,14 @@ function buildRoadsLayer(elements, pr, W) {
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
+      casings+=`\n      <path id="${pid}_casing" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
       fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     });
-    if (!fills) return;
-    typeGroups+=`\n  <g id="roads_${hw}" inkscape:label="${label}" inkscape:groupmode="layer">${fills}\n  </g>`;
+    if (casings) allCasings+=casings;
+    if (fills) allFills+=fills;
   });
-  return typeGroups?`  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">${typeGroups}\n  </g>\n`:'';
+  if (!allCasings&&!allFills) return '';
+  return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">\n  <g id="roads_casings" inkscape:label="Road casings">${allCasings}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${allFills}\n  </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1008,313 +1013,296 @@ function getEps() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  BUILDING BLOCK MERGE (inverse approach: fill everything, erase roads/parks/water)
+//  CITY BLOCKS (ClipperLib: buffer roads → union → subtract from bbox)
 // ════════════════════════════════════════════════════════════════
 
-function rasterizeBlocksInverse(allResults, pr, cW, cH, scale, svgW) {
-  const canvas = document.createElement('canvas');
-  canvas.width = cW; canvas.height = cH;
-  const ctx = canvas.getContext('2d');
+// ════════════════════════════════════════════════════════════════
+//  CITY BLOCKS — Web Worker + ClipperLib
+//  Produces individual <path> elements for each block between roads.
+//  Runs in a Web Worker so the UI never freezes.
+// ════════════════════════════════════════════════════════════════
 
-  // Start with everything filled (white = block)
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, cW, cH);
+// Worker source as string — will be turned into a blob URL
+const BLOCK_WORKER_SRC = `
+importScripts('https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js');
 
-  // Helper: draw a polygon as black (erasing)
-  function erasePoly(geom) {
-    if (!geom || geom.length < 3) return;
-    ctx.beginPath();
-    const [x0,y0] = pr(geom[0].lat, geom[0].lon);
-    ctx.moveTo(x0*scale, y0*scale);
-    for (let i=1; i<geom.length; i++) {
-      const [x,y] = pr(geom[i].lat, geom[i].lon);
-      ctx.lineTo(x*scale, y*scale);
+// Douglas-Peucker simplification (copied for worker context)
+function dpS(pts, eps) {
+  if (pts.length <= 2) return pts;
+  const [x1,y1] = pts[0], [x2,y2] = pts[pts.length-1];
+  const dx = x2-x1, dy = y2-y1, len = Math.hypot(dx,dy);
+  let maxD = 0, idx = 0;
+  for (let i = 1; i < pts.length-1; i++) {
+    const d = len === 0 ? Math.hypot(pts[i][0]-x1,pts[i][1]-y1)
+      : Math.abs(dy*pts[i][0]-dx*pts[i][1]+x2*y1-y2*x1)/len;
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD > eps) {
+    const l = dpS(pts.slice(0,idx+1),eps), r = dpS(pts.slice(idx),eps);
+    return [...l.slice(0,-1), ...r];
+  }
+  return [pts[0], pts[pts.length-1]];
+}
+
+// Point-in-polygon (ray casting)
+function pointInPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+      inside = !inside;
     }
-    ctx.closePath();
-    ctx.fill();
+  }
+  return inside;
+}
+
+self.onmessage = function(e) {
+  const { lines, areas, waterPolys, W, H } = e.data;
+  const CLP = ClipperLib;
+
+  self.postMessage({ type:'progress', msg:'Buffering roads…', pct:10 });
+
+  // Buffer lines by width group
+  const widthGroups = new Map();
+  for (const { pts, halfW } of lines) {
+    if (!widthGroups.has(halfW)) widthGroups.set(halfW, []);
+    widthGroups.get(halfW).push(pts.map(([x,y]) => ({ X: Math.round(x), Y: Math.round(y) })));
   }
 
-  // Helper: draw a line (road) as black
-  function eraseLine(geom, width) {
-    if (!geom || geom.length < 2) return;
-    ctx.beginPath();
-    const [x0,y0] = pr(geom[0].lat, geom[0].lon);
-    ctx.moveTo(x0*scale, y0*scale);
-    for (let i=1; i<geom.length; i++) {
-      const [x,y] = pr(geom[i].lat, geom[i].lon);
-      ctx.lineTo(x*scale, y*scale);
+  const allVoids = [];
+
+  // Offset each width group in batches
+  let groupsDone = 0, totalGroups = widthGroups.size;
+  for (const [halfW, paths] of widthGroups) {
+    const BATCH = 300;
+    for (let i = 0; i < paths.length; i += BATCH) {
+      const co = new CLP.ClipperOffset();
+      co.ArcTolerance = halfW * 2; // very coarse arcs = fast
+      co.MiterLimit = 2;
+      const batch = paths.slice(i, i + BATCH);
+      for (const p of batch) {
+        co.AddPath(p, CLP.JoinType.jtSquare, CLP.EndType.etOpenSquare);
+      }
+      const buf = new CLP.Paths();
+      co.Execute(buf, halfW);
+      for (const bp of buf) {
+        const cl = CLP.Clipper.CleanPolygon(bp, 4);
+        if (cl && cl.length >= 3) allVoids.push(cl);
+      }
     }
-    ctx.lineWidth = width;
-    ctx.stroke();
+    groupsDone++;
+    self.postMessage({ type:'progress', msg:'Buffering roads…', pct: 10 + Math.round(30 * groupsDone / totalGroups) });
   }
 
-  ctx.fillStyle = '#000';
-  ctx.strokeStyle = '#000';
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  // Add area voids (parks, water) — already closed polygons
+  for (const { pts } of areas) {
+    const path = pts.map(([x,y]) => ({ X: Math.round(x), Y: Math.round(y) }));
+    if (path.length >= 3) allVoids.push(path);
+  }
 
-  const sf = getScaleFactor(svgW);
+  self.postMessage({ type:'progress', msg:'Merging ' + allVoids.length + ' shapes…', pct:45 });
 
-  // Erase roads
-  for (const {layer, data} of allResults) {
-    if (layer.type === 'roads' && data?.elements?.length) {
+  // Union all voids
+  const uc = new CLP.Clipper();
+  for (const vp of allVoids) {
+    uc.AddPath(vp, CLP.PolyType.ptSubject, true);
+  }
+  const voidUnion = new CLP.Paths();
+  uc.Execute(CLP.ClipType.ctUnion, voidUnion, CLP.PolyFillType.pftNonZero, CLP.PolyFillType.pftNonZero);
+
+  self.postMessage({ type:'progress', msg:'Simplifying…', pct:65 });
+
+  // Clean the union result
+  const voidClean = [];
+  for (const p of voidUnion) {
+    const cl = CLP.Clipper.CleanPolygon(p, 6);
+    if (cl && cl.length >= 3) voidClean.push(cl);
+  }
+
+  self.postMessage({ type:'progress', msg:'Cutting blocks…', pct:75 });
+
+  // Diff: bbox minus voids = blocks
+  const bbox = [
+    { X:0, Y:0 }, { X: Math.round(W), Y:0 },
+    { X: Math.round(W), Y: Math.round(H) }, { X:0, Y: Math.round(H) }
+  ];
+  const dc = new CLP.Clipper();
+  dc.AddPath(bbox, CLP.PolyType.ptSubject, true);
+  for (const vp of voidClean) {
+    dc.AddPath(vp, CLP.PolyType.ptClip, true);
+  }
+  const tree = new CLP.PolyTree();
+  dc.Execute(CLP.ClipType.ctDifference, tree, CLP.PolyFillType.pftNonZero, CLP.PolyFillType.pftNonZero);
+
+  self.postMessage({ type:'progress', msg:'Tracing blocks…', pct:85 });
+
+  // Collect raw block contours from PolyTree
+  const rawBlocks = []; // { outer: ClipperPath, holes: [ClipperPath] }
+  const minArea = 400;
+
+  function walk(node) {
+    if (node.IsHole()) return;
+    const c = node.Contour();
+    if (!c || c.length < 3) return;
+    if (Math.abs(CLP.Clipper.Area(c)) < minArea) return;
+    const holes = [];
+    for (let i = 0; i < node.ChildCount(); i++) {
+      const child = node.Childs()[i];
+      const hc = child.Contour();
+      if (hc && hc.length >= 3) holes.push(hc);
+      for (let j = 0; j < child.ChildCount(); j++) walk(child.Childs()[j]);
+    }
+    rawBlocks.push({ outer: c, holes });
+  }
+
+  for (let i = 0; i < tree.ChildCount(); i++) walk(tree.Childs()[i]);
+
+  const blocks = [];
+
+  function toD(path) {
+    const pts = path.map(p => [p.X, p.Y]);
+    const s = dpS(pts, 2.0);
+    if (s.length < 3) return '';
+    let d = 'M' + s[0][0].toFixed(0) + ',' + s[0][1].toFixed(0);
+    for (let i = 1; i < s.length; i++) d += 'L' + s[i][0].toFixed(0) + ',' + s[i][1].toFixed(0);
+    return d + 'Z';
+  }
+
+  for (const raw of rawBlocks) {
+    // Skip blocks whose centroid is inside a water body
+    const c = raw.outer;
+    let cx = 0, cy = 0;
+    for (const p of c) { cx += p.X; cy += p.Y; }
+    cx /= c.length; cy /= c.length;
+    let inWater = false;
+    if (waterPolys && waterPolys.length) {
+      for (const wp of waterPolys) {
+        if (pointInPoly(cx, cy, wp)) { inWater = true; break; }
+      }
+    }
+    if (inWater) continue;
+
+    const outer = toD(raw.outer);
+    if (!outer) continue;
+    const holes = raw.holes.map(h => toD(h)).filter(d => d);
+    blocks.push({ outer, holes });
+  }
+
+  self.postMessage({ type:'done', blocks });
+};
+`;
+
+let blockWorkerUrl = null;
+function getBlockWorkerUrl() {
+  if (!blockWorkerUrl) {
+    blockWorkerUrl = URL.createObjectURL(new Blob([BLOCK_WORKER_SRC], { type: 'application/javascript' }));
+  }
+  return blockWorkerUrl;
+}
+
+// Prepare geometry data for the worker (project + simplify on main thread)
+function prepareBlockData(allResults, pr, W, H) {
+  const sf = getScaleFactor(W);
+  const eps = 8.0; // aggressive simplification — blocks are simple shapes
+
+  const BLOCK_ROADS = new Set(['motorway','trunk','primary','secondary','tertiary',
+    'residential','unclassified','living_street','pedestrian',
+    'motorway_link','trunk_link','primary_link','secondary_link','tertiary_link']);
+
+  const lines = []; // { pts: [[x,y],...], halfW }
+  const areas = []; // { pts: [[x,y],...] }
+  const waterPolys = []; // water body polygons for filtering blocks inside water
+
+  for (const { layer, data } of allResults) {
+    if (!data?.elements?.length) continue;
+
+    // Roads → lines with half-width
+    if (layer.type === 'roads') {
       for (const el of data.elements) {
-        if (el.type !== 'way' || !el.geometry?.length) continue;
+        if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
         const hw = el.tags?.highway || '_default';
+        if (!BLOCK_ROADS.has(hw)) continue;
         const w = ROAD_WIDTHS[hw] || ROAD_WIDTHS._default;
-        // Use full road width (fill + casing) scaled to canvas
-        const totalWidth = (w.fillW + w.casingW) * sf * scale;
-        eraseLine(el.geometry, totalWidth);
+        const halfW = Math.round((w.fillW + w.casingW) * sf / 2);
+        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
+        if (pts.length >= 2) lines.push({ pts, halfW });
       }
     }
-    // Erase parks
-    if ((layer.id === 'parks') && data?.elements?.length) {
+
+    // Parks & water bodies → closed areas
+    if (layer.id === 'parks' || layer.id === 'water_bodies') {
       for (const el of data.elements) {
-        if (el.type === 'way' && el.geometry?.length) erasePoly(el.geometry);
-        if (el.type === 'relation' && el.members) {
-          for (const m of el.members) erasePoly(m.geometry);
+        const geoms = el.type === 'way' ? [el.geometry] :
+          el.type === 'relation' && el.members ? el.members.map(m => m.geometry) : [];
+        for (const geom of geoms) {
+          if (!geom || geom.length < 3) continue;
+          const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), eps);
+          if (pts.length >= 3) {
+            areas.push({ pts });
+            if (layer.id === 'water_bodies') waterPolys.push(pts);
+          }
         }
       }
     }
-    // Erase water bodies
-    if ((layer.id === 'water_bodies') && data?.elements?.length) {
+
+    // Waterways → lines
+    if (layer.id === 'waterways') {
       for (const el of data.elements) {
-        if (el.type === 'way' && el.geometry?.length) erasePoly(el.geometry);
-        if (el.type === 'relation' && el.members) {
-          for (const m of el.members) erasePoly(m.geometry);
-        }
+        if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
+        const halfW = Math.round(12 * sf / 2);
+        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
+        if (pts.length >= 2) lines.push({ pts, halfW });
       }
     }
-    // Erase waterways (rivers/canals as thick lines)
-    if ((layer.id === 'waterways') && data?.elements?.length) {
+
+    // Rail/tram/metro → lines
+    if (layer.type === 'rail' || layer.type === 'tram' || layer.type === 'metro') {
       for (const el of data.elements) {
-        if (el.type === 'way' && el.geometry?.length) {
-          eraseLine(el.geometry, 12 * sf * scale);
-        }
-      }
-    }
-    // Erase rail/tram/metro corridors
-    if ((layer.type === 'rail' || layer.type === 'tram' || layer.type === 'metro') && data?.elements?.length) {
-      for (const el of data.elements) {
-        if (el.type === 'way' && el.geometry?.length) {
-          eraseLine(el.geometry, 20 * sf * scale);
-        }
+        if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
+        const halfW = Math.round(20 * sf / 2);
+        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
+        if (pts.length >= 2) lines.push({ pts, halfW });
       }
     }
   }
 
-  // Extract binary image
-  const imgData = ctx.getImageData(0, 0, cW, cH);
-  const bin = new Uint8Array(cW * cH);
-  for (let i=0; i<bin.length; i++) bin[i] = imgData.data[i*4] > 128 ? 1 : 0;
-  return bin;
+  return { lines, areas, waterPolys, W, H };
 }
 
-function dilate(bin, w, h, radius) {
-  const tmp = new Uint8Array(w * h);
-  const out = new Uint8Array(w * h);
-  // Horizontal pass
-  for (let y=0; y<h; y++) {
-    const row = y * w;
-    let dist = radius + 1;
-    const distL = new Int32Array(w);
-    for (let x=0; x<w; x++) { dist = bin[row+x] ? 0 : dist+1; distL[x] = dist; }
-    dist = radius + 1;
-    for (let x=w-1; x>=0; x--) {
-      dist = bin[row+x] ? 0 : dist+1;
-      tmp[row+x] = Math.min(distL[x], dist) <= radius ? 1 : 0;
-    }
-  }
-  // Vertical pass
-  for (let x=0; x<w; x++) {
-    let dist = radius + 1;
-    const distT = new Int32Array(h);
-    for (let y=0; y<h; y++) { dist = tmp[y*w+x] ? 0 : dist+1; distT[y] = dist; }
-    dist = radius + 1;
-    for (let y=h-1; y>=0; y--) {
-      dist = tmp[y*w+x] ? 0 : dist+1;
-      out[y*w+x] = Math.min(distT[y], dist) <= radius ? 1 : 0;
-    }
-  }
-  return out;
-}
+// Run block computation in Web Worker, returns promise of block array
+function computeBlocksAsync(allResults, pr, W, H, onProgress) {
+  return new Promise((resolve, reject) => {
+    const data = prepareBlockData(allResults, pr, W, H);
+    if (!data.lines.length && !data.areas.length) { resolve([]); return; }
 
-function morphClose(bin, w, h, radius) {
-  const dilated = dilate(bin, w, h, radius);
-  // Erode = invert → dilate → invert
-  const inv = new Uint8Array(w * h);
-  for (let i=0; i<inv.length; i++) inv[i] = 1 - dilated[i];
-  const erodedInv = dilate(inv, w, h, radius);
-  const result = new Uint8Array(w * h);
-  for (let i=0; i<result.length; i++) result[i] = 1 - erodedInv[i];
-  return result;
-}
-
-function traceContours(bin, w, h) {
-  // Pad with 1px border of zeros so contours close at edges
-  const pw = w+2, ph = h+2;
-  const pad = new Uint8Array(pw * ph);
-  for (let y=0; y<h; y++)
-    for (let x=0; x<w; x++)
-      pad[(y+1)*pw + (x+1)] = bin[y*w + x];
-
-  // Edge midpoints for a cell at (cx, cy):
-  // top: (cx+0.5, cy), right: (cx+1, cy+0.5), bottom: (cx+0.5, cy+1), left: (cx, cy+0.5)
-  const EDGES = [[0.5,0],[1,0.5],[0.5,1],[0,0.5]]; // T,R,B,L
-  // For each marching-squares case, map entry-edge → [exit-edge, vertex-edge]
-  // Edges: 0=top, 1=right, 2=bottom, 3=left
-  // Lookup: case → array of [entryEdge, exitEdge] pairs
-  const SEGMENTS = new Array(16);
-  SEGMENTS[0] = []; SEGMENTS[15] = [];
-  SEGMENTS[1]  = [[2,3]]; SEGMENTS[2]  = [[1,2]]; SEGMENTS[3]  = [[1,3]];
-  SEGMENTS[4]  = [[0,1]]; SEGMENTS[5]  = [[0,1],[2,3]]; // saddle
-  SEGMENTS[6]  = [[0,2]]; SEGMENTS[7]  = [[0,3]];
-  SEGMENTS[8]  = [[3,0]]; SEGMENTS[9]  = [[2,0]];
-  SEGMENTS[10] = [[1,0],[3,2]]; // saddle
-  SEGMENTS[11] = [[1,0]]; SEGMENTS[12] = [[3,1]];
-  SEGMENTS[13] = [[2,1]]; SEGMENTS[14] = [[3,2]]; // was SEGMENTS[14]
-
-  function cellCase(cx, cy) {
-    const tl = pad[cy*pw+cx], tr = pad[cy*pw+cx+1];
-    const bl = pad[(cy+1)*pw+cx], br = pad[(cy+1)*pw+cx+1];
-    return (tl<<3)|(tr<<2)|(br<<1)|bl;
-  }
-
-  // Build edge→edge lookup per cell, tracking which edges are consumed
-  // Edge key: "cx,cy,edge"
-  const edgeMap = new Map(); // edgeKey → { cx, cy, exitEdge }
-  const opposite = [2,3,0,1]; // opposite edge index
-
-  for (let cy=0; cy<ph-1; cy++) {
-    for (let cx=0; cx<pw-1; cx++) {
-      const c = cellCase(cx, cy);
-      if (c===0 || c===15) continue;
-      const segs = SEGMENTS[c];
-      for (const [from, to] of segs) {
-        const key = `${cx},${cy},${from}`;
-        edgeMap.set(key, { cx, cy, exitEdge: to });
+    const worker = new Worker(getBlockWorkerUrl());
+    worker.onmessage = function(e) {
+      if (e.data.type === 'progress' && onProgress) {
+        onProgress(e.data.msg, e.data.pct);
       }
-    }
-  }
-
-  // Trace rings by following edges
-  const visited = new Set();
-  const rings = [];
-
-  for (const [startKey, startVal] of edgeMap) {
-    if (visited.has(startKey)) continue;
-    const ring = [];
-    let key = startKey;
-    let val = startVal;
-    while (val && !visited.has(key)) {
-      visited.add(key);
-      const { cx, cy, exitEdge } = val;
-      const e = EDGES[exitEdge];
-      ring.push([cx + e[0] - 1, cy + e[1] - 1]); // -1 to undo padding offset
-
-      // Move to adjacent cell via exit edge
-      const dx = exitEdge===1 ? 1 : exitEdge===3 ? -1 : 0;
-      const dy = exitEdge===2 ? 1 : exitEdge===0 ? -1 : 0;
-      const ncx = cx + dx, ncy = cy + dy;
-      const entryEdge = opposite[exitEdge];
-      key = `${ncx},${ncy},${entryEdge}`;
-      val = edgeMap.get(key);
-    }
-    if (ring.length >= 3) rings.push(ring);
-  }
-
-  // Classify rings: positive signed area = outer, negative = hole
-  function signedArea(ring) {
-    let a = 0;
-    for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
-      a += (ring[j][0]-ring[i][0]) * (ring[j][1]+ring[i][1]);
-    }
-    return a / 2;
-  }
-  function pointInRing(pt, ring) {
-    let inside = false;
-    for (let i=0, j=ring.length-1; i<ring.length; j=i++) {
-      const [xi,yi]=ring[i], [xj,yj]=ring[j];
-      if ((yi>pt[1]) !== (yj>pt[1]) && pt[0] < (xj-xi)*(pt[1]-yi)/(yj-yi)+xi)
-        inside = !inside;
-    }
-    return inside;
-  }
-
-  const outers = [], holes = [];
-  for (const ring of rings) {
-    const a = signedArea(ring);
-    if (a > 0) outers.push({ ring, area: a, holes: [] });
-    else if (a < 0) holes.push({ ring, area: -a });
-  }
-  outers.sort((a,b) => b.area - a.area);
-  for (const hole of holes) {
-    for (const outer of outers) {
-      if (pointInRing(hole.ring[0], outer.ring)) {
-        outer.holes.push(hole.ring);
-        break;
+      if (e.data.type === 'done') {
+        worker.terminate();
+        resolve(e.data.blocks);
       }
-    }
-  }
-  return outers;
-}
-
-function mergeBuildingsToBlocks(allResults, pr, W, H) {
-  const CANVAS_MAX = 2000;
-  const scale = Math.min(1, CANVAS_MAX / W);
-  const cW = Math.round(W * scale);
-  const cH = Math.round(H * scale);
-
-  // Inverse approach: fill everything, erase roads/parks/water
-  const bin = rasterizeBlocksInverse(allResults, pr, cW, cH, scale, W);
-  // Light erosion to pull blocks slightly away from road edges
-  const erodeRadius = Math.max(1, Math.round(3 * scale));
-  const inv = new Uint8Array(cW * cH);
-  for (let i=0; i<inv.length; i++) inv[i] = 1 - bin[i];
-  const dilInv = dilate(inv, cW, cH, erodeRadius);
-  const closed = new Uint8Array(cW * cH);
-  for (let i=0; i<closed.length; i++) closed[i] = 1 - dilInv[i];
-  const blocks = traceContours(closed, cW, cH);
-
-  // Convert contours to SVG path data
-  const eps = 1.2; // simplification tolerance in canvas pixels
-  const minArea = 25; // discard tiny blocks (canvas px²)
-  const result = [];
-
-  for (const block of blocks) {
-    if (block.area < minArea) continue;
-    // Scale ring coordinates back to SVG space and simplify
-    const outerPts = block.ring.map(([x,y]) => [x/scale, y/scale]);
-    const simpOuter = dpSimplify(outerPts, eps/scale);
-    if (simpOuter.length < 3) continue;
-
-    let d = `M${simpOuter[0][0].toFixed(1)},${simpOuter[0][1].toFixed(1)}`;
-    for (let i=1; i<simpOuter.length; i++) d += `L${simpOuter[i][0].toFixed(1)},${simpOuter[i][1].toFixed(1)}`;
-    d += 'Z';
-
-    const holePaths = [];
-    for (const hole of block.holes) {
-      const holePts = hole.map(([x,y]) => [x/scale, y/scale]);
-      const simpHole = dpSimplify(holePts, eps/scale);
-      if (simpHole.length < 3) continue;
-      let hd = `M${simpHole[0][0].toFixed(1)},${simpHole[0][1].toFixed(1)}`;
-      for (let i=1; i<simpHole.length; i++) hd += `L${simpHole[i][0].toFixed(1)},${simpHole[i][1].toFixed(1)}`;
-      hd += 'Z';
-      holePaths.push(hd);
-    }
-    result.push({ outer: d, holes: holePaths });
-  }
-  return result;
+    };
+    worker.onerror = function(err) {
+      worker.terminate();
+      console.error('Block worker error:', err);
+      resolve([]); // fail gracefully — skip blocks
+    };
+    worker.postMessage(data);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
 //  SVG BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildSVG(results, b, W, physicalWidthMm=null) {
+function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
   const {pr,H}=makeProjector(b,W);
   const preset=PRESETS[activePreset];
   const EPS={area_large:getEps()*1.4, area:getEps()*0.9, line:getEps()*0.6};
-  const layerOrder=['landuse_residential','landuse_industrial','parks','water_bodies','waterways','buildings','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
+  const layerOrder=['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','roads','rail','tram','metro','parks','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
   const sorted=[...results].sort((a,z)=>(layerOrder.indexOf(a.layer.id)||999)-(layerOrder.indexOf(z.layer.id)||999));
   let layersSVG='';
 
@@ -1338,21 +1326,40 @@ function buildSVG(results, b, W, physicalWidthMm=null) {
     // Apply preset colors to known layers
     let fillColor=layer.color, strokeColor=layer.strokeColor||layer.color;
     if (layer.id==='water_bodies'||layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
-    if (layer.id==='parks') { fillColor=preset.park; strokeColor=preset.park; }
-    if (layer.id==='buildings') {
-      fillColor=preset.building; strokeColor=preset.buildingStroke;
-      // Generate city-block shapes from inverse of roads/parks/water
-      const blocks = mergeBuildingsToBlocks(results, pr, W, H);
-      if (blocks.length) {
-        const fo = layer.fillOpacity ?? 0.8;
-        const sw = layer.strokeWidth ?? 1.5;
-        let content = '';
-        for (let i=0; i<blocks.length; i++) {
-          const pathD = blocks[i].outer + (blocks[i].holes.length ? ' '+blocks[i].holes.join(' ') : '');
-          content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+    if (layer.id==='parks') {
+      // Each named park as its own selectable shape
+      fillColor=preset.park;
+      let content = '';
+      const uid = makeUidGen();
+      elements.forEach(el => {
+        const name = el.tags?.name;
+        if (!name) return; // skip unnamed — should not reach here but safety check
+        let d = '';
+        if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
+        if (el.type === 'relation' && el.members) {
+          el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
+          d = d.trim();
         }
+        if (!d) return;
+        const parkId = uid(`park_${safeName(name)}`);
+        content += `<path id="${parkId}" inkscape:label="${escXml(name)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
+      });
+      if (content) {
         layersSVG += `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
       }
+      return;
+    }
+    if (layer.id==='buildings' && precomputedBlocks && precomputedBlocks.length) {
+      fillColor=preset.building; strokeColor=preset.buildingStroke;
+      const fo = layer.fillOpacity ?? 0.8;
+      const sw = layer.strokeWidth ?? 1.5;
+      let content = '';
+      for (let i = 0; i < precomputedBlocks.length; i++) {
+        const b = precomputedBlocks[i];
+        const pathD = b.outer + (b.holes.length ? ' ' + b.holes.join(' ') : '');
+        content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
+      }
+      layersSVG += `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
       return;
     }
 
@@ -1419,17 +1426,23 @@ ${layersSVG}  </g>
 function scheduleLivePreview() {
   if (!lastResults || !bbox) return;
   clearTimeout(previewDebounce);
-  previewDebounce = setTimeout(() => {
+  previewDebounce = setTimeout(async () => {
     const PREVIEW_W = 600;
     const selected = new Set(getAllSelectedLayers().map(l => l.id));
-    // Filter cached results to only checked layers
     const filtered = lastResults.filter(r => selected.has(r.layer.id));
     if (!filtered.length) return;
-    const svg = buildSVG(filtered, bbox, PREVIEW_W);
+
+    // Compute blocks for preview if buildings layer is active
+    let blocks = null;
+    if (selected.has('buildings')) {
+      const {pr,H} = makeProjector(bbox, PREVIEW_W);
+      blocks = await computeBlocksAsync(filtered, pr, PREVIEW_W, H);
+    }
+
+    const svg = buildSVG(filtered, bbox, PREVIEW_W, null, blocks);
     const wrap = document.getElementById('preview-svg-wrap');
     wrap.innerHTML = svg;
     document.getElementById('preview-pane').classList.add('show');
-    // Update the download button to use latest filtered SVG
     lastSvgString = svg;
   }, 120);
 }
@@ -1532,9 +1545,20 @@ async function doExport() {
   const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
   const estMB=(totalElements*0.0003).toFixed(1);
 
-  updateProgress('Building SVG…',90);
+  // Compute city blocks in Web Worker (if buildings layer is selected)
+  const hasBuildingsLayer = results.some(r => r.layer.id === 'buildings');
+  let precomputedBlocks = null;
+  if (hasBuildingsLayer) {
+    updateProgress('Computing city blocks…',85);
+    const {pr,H}=makeProjector(bbox,W);
+    precomputedBlocks = await computeBlocksAsync(results, pr, W, H, (msg, pct) => {
+      updateProgress(msg, 85 + Math.round(pct * 0.1));
+    });
+  }
+
+  updateProgress('Building SVG…',96);
   await new Promise(r=>setTimeout(r,50));
-  const svg=buildSVG(results,bbox,W,physicalWidthMm);
+  const svg=buildSVG(results,bbox,W,physicalWidthMm,precomputedBlocks);
   const actualMB=(svg.length/1024/1024).toFixed(1);
   lastSvgString=svg; lastSvgFilename=filename;
 
