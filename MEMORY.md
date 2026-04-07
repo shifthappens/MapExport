@@ -1,0 +1,4 @@
+- [MapExport overview](memory/project_mapexport.md) — USE-IT City Map Builder: architecture, colors, layers, block generation, parks filtering
+- [Deploy target](memory/reference_deploy.md) — SSH/rsync details for coen.at server
+- [Workflow preferences](memory/feedback_workflow.md) — Don't auto-deploy, minified files tracked, deploy.sh gitignored
+- [Reference materials](memory/reference_materials.md) — Tutorial PDF and Ghent .ai file in references/ folder
