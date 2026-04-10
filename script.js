@@ -464,7 +464,7 @@ function mergeElements(arrays) {
 // ════════════════════════════════════════════════════════════════
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
-const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS_ENDPOINTS=['https://overpass.private.coffee/api/interpreter','https://maps.mail.ru/osm/tools/overpass/api/interpreter','https://overpass.kumi.systems/api/interpreter'];
 const MAX_TILE_RETRIES=3;
 
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
