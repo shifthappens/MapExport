@@ -495,7 +495,9 @@ async function fetchLayer(layer, bboxStr, bbox) {
     }
 
     const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
-    const q = `[out:json][timeout:60];(${layer.overpassQuery(tileBboxStr)});out body geom qt;`;
+    // §1.3: same bbox hoisting as fetchTileCombined — single-layer path too.
+    const stmt = layer.overpassQuery(tileBboxStr).replaceAll(`(${tileBboxStr})`, '');
+    const q = `[out:json][bbox:${tileBboxStr}][timeout:60];(${stmt});out body geom qt;`;
     const body = 'data=' + encodeURIComponent(q);
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
     let fetched = null;
@@ -557,8 +559,11 @@ async function fetchLayer(layer, bboxStr, bbox) {
 // ════════════════════════════════════════════════════════════════
 async function fetchTileCombined(layers, tile) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
-  const combinedQueries = layers.map(l => l.overpassQuery(tileBboxStr)).join('');
-  const q = `[out:json][timeout:120];(${combinedQueries});out body geom qt;`;
+  // §1.3: hoist bbox to the global header so every statement drops its own
+  // (bbox) filter. Keeps layer.overpassQuery(b) API unchanged; we just strip
+  // the resulting `(<bbox>)` substring since it's always the same literal here.
+  const combinedQueries = layers.map(l => l.overpassQuery(tileBboxStr)).join('').replaceAll(`(${tileBboxStr})`, '');
+  const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
   const body = 'data=' + encodeURIComponent(q);
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
   let fetched = null, retries = 0;
