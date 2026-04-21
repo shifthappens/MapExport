@@ -21,37 +21,88 @@ if (!fs.existsSync(metaPath)) {
 const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
 
 // Extract { id, tagFilter } pairs from script.js by evaluating matched slices.
-// Each tagFilter is of the form `tagFilter:el=>...` ending before the next
-// top-level comma at depth 0 (before the closing `}` of the layer entry).
+// Walks the source as a tiny JS scanner so we correctly handle:
+//   * block-body arrows: `tagFilter:el=>{ ... return x; }`
+//   * regex literals containing `(`, `|`, `,` etc.
+//   * string / template literals
+function skipLiteral(src, i) {
+  const q = src[i];
+  if (q === '`') {
+    for (i++; i < src.length; i++) {
+      if (src[i] === '\\') { i++; continue; }
+      if (src[i] === '`') return i;
+      if (src[i] === '$' && src[i + 1] === '{') {
+        i = skipBalanced(src, i + 1, '{', '}');
+      }
+    }
+    return src.length;
+  }
+  for (i++; i < src.length; i++) {
+    if (src[i] === '\\') { i++; continue; }
+    if (src[i] === q) return i;
+  }
+  return src.length;
+}
+function skipRegex(src, i) {
+  let inClass = false;
+  for (i++; i < src.length; i++) {
+    const c = src[i];
+    if (c === '\\') { i++; continue; }
+    if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) {
+      while (i + 1 < src.length && /[a-z]/i.test(src[i + 1])) i++;
+      return i;
+    }
+  }
+  return src.length;
+}
+function skipBalanced(src, start, open, close) {
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === '`') { i = skipLiteral(src, i); continue; }
+    if (c === open) depth++;
+    else if (c === close) { depth--; if (depth === 0) return i; }
+  }
+  return src.length;
+}
+// Scan from i until we reach a top-level `,` or the layer-entry closing `}`.
+// Tracks paren/bracket/brace depth and skips strings + regex literals.
+function scanExpressionEnd(src, i) {
+  let depth = 0;
+  let prevSig = ':'; // last significant (non-whitespace) char, seeds regex heuristic
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (/\s/.test(c)) continue;
+    if (c === "'" || c === '"' || c === '`') { i = skipLiteral(src, i); prevSig = c; continue; }
+    if (c === '/' && /[=(,!&|?:;{[]/.test(prevSig)) { i = skipRegex(src, i); prevSig = '/'; continue; }
+    if (c === '(' || c === '[' || c === '{') { depth++; prevSig = c; continue; }
+    if (c === ')' || c === ']' || c === '}') {
+      if (depth === 0) return i; // hit layer-entry `}` without a preceding `,`
+      depth--; prevSig = c; continue;
+    }
+    if (c === ',' && depth === 0) return i;
+    prevSig = c;
+  }
+  return src.length;
+}
 function extractTagFilters(src) {
   const out = {};
-  // Find `id:'X'` then later `tagFilter:el=>`. We match the whole expression
-  // up to the closing `}` of the layer entry by bracket-counting.
   const idRe = /\{\s*id:'([a-z_]+)'/g;
   let m;
   while ((m = idRe.exec(src)) !== null) {
     const id = m[1];
-    // Find matching `}` by bracket counting from m.index
-    let depth = 0, i = m.index, end = -1;
-    for (; i < src.length; i++) {
-      const c = src[i];
-      if (c === '{') depth++;
-      else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
-      else if (c === '`') { // skip template literal
-        const close = src.indexOf('`', i + 1);
-        i = close > -1 ? close : src.length;
-      } else if (c === "'") {
-        const close = src.indexOf("'", i + 1);
-        i = close > -1 ? close : src.length;
-      }
-    }
-    if (end < 0) continue;
-    const body = src.slice(m.index, end + 1);
-    const tfMatch = body.match(/tagFilter:(el=>[\s\S]+?)(?=\s*[,}])/);
-    if (!tfMatch) continue;
+    const entryEnd = skipBalanced(src, m.index, '{', '}');
+    const body = src.slice(m.index, entryEnd + 1);
+    const tfIdx = body.search(/tagFilter:el=>/);
+    if (tfIdx < 0) continue;
+    const exprStart = tfIdx + 'tagFilter:'.length;
+    const exprEnd = scanExpressionEnd(body, exprStart);
+    const expr = body.slice(exprStart, exprEnd);
     try {
       // eslint-disable-next-line no-eval
-      const fn = (0, eval)(`(${tfMatch[1]})`);
+      const fn = (0, eval)(`(${expr})`);
       out[id] = fn;
     } catch (err) {
       console.warn(`[pe] failed to eval tagFilter for ${id}: ${err.message}`);
@@ -82,13 +133,24 @@ for (const [id, info] of Object.entries(meta.layers)) {
   if (!info.element_count && info.element_count !== 0) continue;
   const tf = tagFilters[id];
   if (!tf) { console.log(`[pe] ${id}: SKIP (no tagFilter extracted)`); continue; }
+  // Baseline: tagFilter applied to the layer's own fixture. This accounts
+  // for cases where Overpass regex is looser than tagFilter (e.g.
+  // `highway~"motorway"` matches "motorway_junction", which tagFilter
+  // with an exact-match set excludes). That overfetch is current behavior;
+  // tagFilter is authoritative for rendered output.
+  const ownFixturePath = path.join(FIXTURE_DIR, `${id}.json`);
+  const ownFixture = fs.existsSync(ownFixturePath)
+    ? JSON.parse(fs.readFileSync(ownFixturePath, 'utf8')).elements || []
+    : [];
+  const baseline = ownFixture.filter(tf).length;
   const matched = [...seen.values()].filter(tf);
-  const delta = matched.length - info.element_count;
-  // Allow matched ≥ info.element_count (union may include elements from
-  // overlapping layers that this tagFilter also claims — that's OK and
-  // expected for supersession). Warn if strictly less.
-  const status = matched.length >= info.element_count ? 'OK' : 'FAIL';
-  console.log(`[pe] ${id}: ${status} · union-matched=${matched.length} fixture=${info.element_count} delta=${delta>=0?'+':''}${delta}`);
+  const delta = matched.length - baseline;
+  // Supersession test: union-matched must be >= baseline (the union may
+  // include elements from overlapping layers this tagFilter also claims,
+  // which is fine and the whole point of supersession). FAIL if strictly
+  // less — tagFilter lost elements it should have kept.
+  const status = matched.length >= baseline ? 'OK' : 'FAIL';
+  console.log(`[pe] ${id}: ${status} · union-matched=${matched.length} baseline=${baseline} raw-fixture=${info.element_count} delta=${delta>=0?'+':''}${delta}`);
   if (status === 'FAIL') failed++;
 }
 

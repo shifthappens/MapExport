@@ -1,0 +1,101 @@
+{
+  "captured_at": "2026-04-18T19:46:51.147Z",
+  "script_path": "../../script.js",
+  "bbox": {
+    "name": "tilburg",
+    "south": 51.53,
+    "west": 5.04,
+    "north": 51.59,
+    "east": 5.13
+  },
+  "layers": {
+    "water_bodies": {
+      "query_template": "way[\"natural\"~\"water|bay\"](${b});relation[\"natural\"=\"water\"](${b});way[\"landuse\"=\"reservoir\"](${b});",
+      "element_count": 824,
+      "response_bytes": 1453956,
+      "fixture_bytes": 68276,
+      "elapsed_ms": 2577,
+      "endpoint": "https://overpass.private.coffee/api/interpreter"
+    },
+    "waterways": {
+      "query_template": "way[\"waterway\"~\"river|canal|stream|drain\"][\"name\"](${b});",
+      "element_count": 45,
+      "response_bytes": 48778,
+      "fixture_bytes": 5291,
+      "elapsed_ms": 1635,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "parks": {
+      "query_template": "way[\"leisure\"~\"park|nature_reserve|recreation_ground\"][\"name\"](${b});relation[\"leisure\"~\"park|nature_reserve|recreation_ground\"][\"name\"](${b});way[\"landuse\"=\"forest\"][\"name\"](${b});relation[\"landuse\"=\"forest\"][\"name\"](${b});way[\"natural\"=\"wood\"][\"name\"](${b});relation[\"natural\"=\"wood\"][\"name\"](${b});",
+      "element_count": 31,
+      "response_bytes": 47489,
+      "fixture_bytes": 3882,
+      "elapsed_ms": 1548,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "buildings": {
+      "query_template": "way[\"building\"](${b});relation[\"building\"](${b});",
+      "element_count": 86863,
+      "response_bytes": 53225370,
+      "fixture_bytes": 13091224,
+      "elapsed_ms": 1883,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "roads": {
+      "query_template": "way[\"highway\"~\"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track\"](${b});",
+      "element_count": 13702,
+      "response_bytes": 6555500,
+      "fixture_bytes": 1568941,
+      "elapsed_ms": 747,
+      "endpoint": "https://overpass.private.coffee/api/interpreter"
+    },
+    "street_labels": {
+      "query_template": "way[\"highway\"~\"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway\"][\"name\"](${b});",
+      "element_count": 5732,
+      "response_bytes": 3240099,
+      "fixture_bytes": 905818,
+      "elapsed_ms": 2215,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "rail": {
+      "query_template": "way[\"railway\"~\"rail|narrow_gauge|preserved\"](${b});",
+      "element_count": 195,
+      "response_bytes": 155088,
+      "fixture_bytes": 92386,
+      "elapsed_ms": 2316,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "metro": {
+      "query_template": "way[\"railway\"=\"subway\"](${b});",
+      "element_count": 0,
+      "response_bytes": 248,
+      "fixture_bytes": 248,
+      "elapsed_ms": 1556,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "tram": {
+      "query_template": "way[\"railway\"~\"tram|light_rail\"](${b});",
+      "element_count": 0,
+      "response_bytes": 248,
+      "fixture_bytes": 248,
+      "elapsed_ms": 2191,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "transit_stops": {
+      "query_template": "node[\"public_transport\"~\"stop_position|platform\"](${b});node[\"highway\"=\"bus_stop\"](${b});node[\"railway\"~\"station|halt|tram_stop\"](${b});",
+      "element_count": 363,
+      "response_bytes": 85550,
+      "fixture_bytes": 73656,
+      "elapsed_ms": 4821,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    },
+    "water_labels": {
+      "query_template": "way[\"waterway\"~\"river|canal\"][\"name\"](${b});relation[\"natural\"=\"water\"][\"name\"](${b});way[\"natural\"=\"water\"][\"name\"](${b});way[\"leisure\"~\"park|garden\"][\"name\"](${b});relation[\"leisure\"~\"park|garden\"][\"name\"](${b});node[\"place\"~\"suburb|neighbourhood|quarter\"][\"name\"](${b});",
+      "element_count": 98,
+      "response_bytes": 165531,
+      "fixture_bytes": 10134,
+      "elapsed_ms": 8270,
+      "endpoint": "https://overpass-api.de/api/interpreter"
+    }
+  }
+}

@@ -6,7 +6,7 @@
 
 import {
   TILBURG, SCRIPT_PATH, FIXTURE_DIR,
-  extractLayers, fetchLayer, sleep, ensureDir, fs, path,
+  extractLayers, fetchLayer, sleep, ensureDir, slimResponse, fs, path,
 } from './lib.mjs';
 
 const layers = extractLayers();
@@ -24,21 +24,24 @@ for (const layer of layers) {
   process.stdout.write(`[capture] ${layer.id} … `);
   try {
     const { json, elapsed, bytes, ep } = await fetchLayer(layer, TILBURG);
+    const slim = slimResponse(json);
     const outPath = path.join(FIXTURE_DIR, `${layer.id}.json`);
-    fs.writeFileSync(outPath, JSON.stringify(json));
+    fs.writeFileSync(outPath, JSON.stringify(slim));
+    const slimBytes = fs.statSync(outPath).size;
     meta.layers[layer.id] = {
       query_template: layer.queryTemplate,
       element_count: json.elements?.length || 0,
-      bytes,
+      response_bytes: bytes,
+      fixture_bytes: slimBytes,
       elapsed_ms: elapsed,
       endpoint: ep,
     };
-    console.log(`${json.elements?.length || 0} elements · ${(bytes/1024).toFixed(1)} KB · ${elapsed}ms`);
+    console.log(`${json.elements?.length || 0} elements · wire ${(bytes/1024).toFixed(1)} KB → slim ${(slimBytes/1024).toFixed(1)} KB · ${elapsed}ms`);
   } catch (err) {
     console.log(`FAILED: ${err.message}`);
     meta.layers[layer.id] = { error: err.message };
   }
-  await sleep(2000); // be nice to Overpass
+  await sleep(5000); // 5s spacing — respect Overpass rate limits
 }
 
 fs.writeFileSync(path.join(FIXTURE_DIR, '_meta.json'), JSON.stringify(meta, null, 2));
