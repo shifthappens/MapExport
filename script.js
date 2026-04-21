@@ -144,18 +144,18 @@ const PRINT_PHYSICAL_MM = {
 const LAYER_REGISTRY = [
   { group: 'Natural', layers: [
     { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, ponds',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
-      overpassQuery:(b)=>`way["natural"~"water|bay"](${b});relation["natural"="water"](${b});way["landuse"="reservoir"](${b});`,
+      overpassQuery:(b)=>`wr["natural"~"water|bay"](${b});way["landuse"="reservoir"](${b});`,
       tagFilter:el=>el.type!=='node'&&((/water|bay/.test(el.tags?.natural||''))||el.tags?.landuse==='reservoir') },
     { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
     { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, reserves',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
-      overpassQuery:(b)=>`way["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});relation["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});way["landuse"="forest"]["name"](${b});relation["landuse"="forest"]["name"](${b});way["natural"="wood"]["name"](${b});relation["natural"="wood"]["name"](${b});`,
+      overpassQuery:(b)=>`wr["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
       tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
   ]},
   { group: 'Built environment', layers: [
     { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:1.5, strokeColor:'#b8a890',
-      overpassQuery:(b)=>`way["building"](${b});relation["building"](${b});`,
+      overpassQuery:(b)=>`wr["building"](${b});`,
       tagFilter:el=>el.type!=='node'&&!!el.tags?.building },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});`,
@@ -180,7 +180,7 @@ const LAYER_REGISTRY = [
   ]},
   { group: 'Labels', layers: [
     { id:'water_labels', label:'Water & park names', hint:'Rivers, lakes, parks',       color:'#1a3a6a', defaultOn:true,  type:'feature_labels',
-      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});relation["natural"="water"]["name"](${b});way["natural"="water"]["name"](${b});way["leisure"~"park|garden"]["name"](${b});relation["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});`,
+      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});wr["natural"="water"]["name"](${b});wr["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});`,
       tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(el.type!=='node'&&/park|garden/.test(el.tags?.leisure||'')&&el.tags?.name)||(el.type==='node'&&/suburb|neighbourhood|quarter/.test(el.tags?.place||'')&&el.tags?.name) },
   ]},
 ];
