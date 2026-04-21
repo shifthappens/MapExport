@@ -365,7 +365,7 @@ async function fetchBoundaries(placeName) {
   res.classList.add('show');
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(placeName)}&format=json&limit=5&polygon_geojson=0&addressdetails=1&featuretype=city,town,village,suburb,neighbourhood,municipality`;
-    const data = await (await fetch(url, {headers:{'Accept-Language':'en','User-Agent':'MapExport/1.0'}})).json();
+    const data = await (await fetch(url, {headers:{'Accept-Language':'en'}})).json();
     res.innerHTML = '';
     if (!data.length) { res.innerHTML='<div style="padding:6px 10px;font-size:9.5px;color:var(--muted)">No boundaries found</div>'; return; }
     data.filter(p => p.boundingbox).slice(0,5).forEach(place => {
@@ -1654,7 +1654,7 @@ async function searchCity(query) {
   const resEl=document.getElementById('search-results');
   statusEl.textContent='Searching…'; resEl.classList.remove('show'); resEl.innerHTML='';
   try {
-    const data=await (await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&addressdetails=1`,{headers:{'Accept-Language':'en','User-Agent':'MapExport/1.0'}})).json();
+    const data=await (await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&addressdetails=1`,{headers:{'Accept-Language':'en'}})).json();
     statusEl.textContent='';
     if (!data.length) { statusEl.textContent='No results found'; return; }
     data.forEach(place=>{
