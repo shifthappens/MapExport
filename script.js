@@ -186,6 +186,50 @@ const LAYER_REGISTRY = [
 ];
 
 // ════════════════════════════════════════════════════════════════
+//  SUPERSESSIONS — §1.1
+// ════════════════════════════════════════════════════════════════
+// When two enabled layers would fetch overlapping elements, one of them
+// can skip its own statement and pick its slice out of the other's
+// response via tagFilter. Saves duplicated work server-side and cuts
+// response bytes on the wire.
+//
+// Only triggers when every `requires` layer is also part of the SAME
+// combined fetch — i.e. one of the uncachedLayers this round. If the
+// superseder is already cached (its statement isn't in this fetch),
+// stripping would drop the data from the wire entirely and the
+// subordinate layer would get nothing.
+const SUPERSESSIONS = {
+  // roads' highway regex is a superset of street_labels' — and roads
+  // doesn't require `["name"]`, so the named subset is still present.
+  street_labels: [
+    { strip:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
+      requires:['roads'] },
+  ],
+  // water_labels fetches four kinds of names; the river/canal and
+  // natural=water slices are covered by waterways and water_bodies
+  // respectively. leisure park|garden stays (parks' regex omits
+  // `garden`), and place=suburb|neighbourhood nodes have no superseder.
+  water_labels: [
+    { strip:(b)=>`way["waterway"~"river|canal"]["name"](${b});`,
+      requires:['waterways'] },
+    { strip:(b)=>`wr["natural"="water"]["name"](${b});`,
+      requires:['water_bodies'] },
+  ],
+};
+
+function supersededQuery(layer, b, inFetchSet) {
+  let q = layer.overpassQuery(b);
+  const rules = SUPERSESSIONS[layer.id];
+  if (!rules) return q;
+  for (const r of rules) {
+    if (r.requires.every(id => inFetchSet.has(id))) {
+      q = q.replace(r.strip(b), '');
+    }
+  }
+  return q;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  ROAD STYLE TABLE (widths — colours come from active preset)
 // ════════════════════════════════════════════════════════════════
 const ROAD_WIDTHS = {
@@ -598,10 +642,12 @@ async function fetchLayer(layer, bboxStr, bbox) {
 // ════════════════════════════════════════════════════════════════
 async function fetchTileCombined(layers, tile) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
+  // §1.1: strip statements superseded by another layer in THIS fetch.
+  const inFetchSet = new Set(layers.map(l => l.id));
   // §1.3: hoist bbox to the global header so every statement drops its own
   // (bbox) filter. Keeps layer.overpassQuery(b) API unchanged; we just strip
   // the resulting `(<bbox>)` substring since it's always the same literal here.
-  const combinedQueries = layers.map(l => l.overpassQuery(tileBboxStr)).join('').replaceAll(`(${tileBboxStr})`, '');
+  const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
   const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
   const body = 'data=' + encodeURIComponent(q);
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
