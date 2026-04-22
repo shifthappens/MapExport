@@ -24,7 +24,13 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
    ```
    Loads fixtures, runs them through each layer's `tagFilter`, compares per-layer element counts against `_meta.json`.
 
-4. **Smoke script** wraps the three:
+4. **Supersession check** (for §1.1 — always run after editing `SUPERSESSIONS` or any overlapping layer's `overpassQuery` / `tagFilter`):
+   ```
+   node tests/supersession.mjs
+   ```
+   Parses `SUPERSESSIONS` out of `script.js`, asserts each rule's `strip` literal appears verbatim in the subordinate's `overpassQuery('BBOX')` (catches drift after query edits), and feeds the superseders' fixtures through the subordinate's `tagFilter` to confirm coverage is a superset of the subordinate's own fixture-after-tagFilter. `PARTIAL` is informational (one rule rarely covers every sub-statement); hard-fails only if the pool is empty while `ownMatched` is non-empty.
+
+5. **Smoke script** wraps 2 + 3:
    ```
    bash tests/smoke.sh
    ```
@@ -35,7 +41,8 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 - `capture-fixtures.mjs` — writes baseline fixtures.
 - `query-equivalence.mjs` — post-change regression check (hits Overpass, rate-limited).
 - `pipeline-equivalence.mjs` — offline check against frozen fixtures.
-- `smoke.sh` — runs 2 + 3.
+- `supersession.mjs` — offline check for `SUPERSESSIONS` rules + tagFilter coverage.
+- `smoke.sh` — runs query-equivalence + pipeline-equivalence.
 
 ## Notes
 
