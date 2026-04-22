@@ -396,7 +396,25 @@ async function fetchBoundaries(placeName) {
 //  TILE CACHE  (server-side via cache.php, 7-day TTL)
 // ════════════════════════════════════════════════════════════════
 const TILE_SIZE = 0.1; // degrees per tile (~8×11 km at mid-latitudes)
-const CACHE_PREFIX = 'mapexport_v2_';
+const CACHE_PREFIX = 'mapexport_v3_';
+
+// §3.1: short stable hash of a layer's overpassQuery source. Any tweak to
+// the query template (added highway type, tightened regex, etc.) changes
+// the hash, which changes the cache key, which retires stale cache entries
+// silently. FNV-1a 32-bit → base36 (~6 chars). Not cryptographic — just
+// cache-busting.
+function fnv1a36(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+function layerQHash(layer) {
+  if (layer._qHash) return layer._qHash;
+  return (layer._qHash = fnv1a36(layer.overpassQuery.toString()));
+}
 
 function bboxToTiles(bbox) {
   const tiles = [];
@@ -411,8 +429,8 @@ function bboxToTiles(bbox) {
   return tiles;
 }
 
-function tileCacheKey(layerId, tile) {
-  return `${CACHE_PREFIX}${layerId}_${tile.s}_${tile.w}`;
+function tileCacheKey(layer, tile) {
+  return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_${tile.s}_${tile.w}`;
 }
 
 async function cacheGet(key) {
@@ -487,7 +505,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
   let fetchCount = 0;
 
   for (const tile of tiles) {
-    const key = tileCacheKey(layer.id, tile);
+    const key = tileCacheKey(layer, tile);
     const cached = await cacheGet(key);
     if (cached) {
       elementArrays.push(cached.elements || []);
@@ -1496,7 +1514,7 @@ async function doExport() {
 
     // Check per-layer cache for this tile
     for (const layer of selected) {
-      const cached=await cacheGet(tileCacheKey(layer.id,tile));
+      const cached=await cacheGet(tileCacheKey(layer,tile));
       if (cached) {
         layerElements[layer.id].push(...(cached.elements||[]));
       } else {
@@ -1528,7 +1546,7 @@ async function doExport() {
         ? combined.elements.filter(layer.tagFilter)
         : combined.elements;
       layerElements[layer.id].push(...elements);
-      cacheSet(tileCacheKey(layer.id,tile),{elements});
+      cacheSet(tileCacheKey(layer,tile),{elements});
     }
 
     fetchedTiles++;
