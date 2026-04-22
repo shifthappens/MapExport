@@ -442,6 +442,27 @@ async function cacheGet(key) {
   } catch { return null; }
 }
 
+// §2.2: batch existence probe. Replaces N per-key GETs during the
+// pre-fetch cache check with one round-trip. Returns a Set of keys that
+// are known to be present on the server. On failure, returns an empty
+// set — callers fall back to per-key cacheGet, same as before.
+async function cacheExistsBatch(keys) {
+  if (!keys.length) return new Set();
+  try {
+    // cache.php caps at 64 keys per call; chunk if necessary.
+    const chunks = [];
+    for (let i = 0; i < keys.length; i += 64) chunks.push(keys.slice(i, i + 64));
+    const hits = new Set();
+    await Promise.all(chunks.map(async ch => {
+      const res = await fetch(`cache.php?exists=${ch.map(encodeURIComponent).join(',')}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const [k, v] of Object.entries(data)) if (v) hits.add(k);
+    }));
+    return hits;
+  } catch { return new Set(); }
+}
+
 async function cacheSet(key, data) {
   try {
     const json = JSON.stringify(data);
@@ -1508,18 +1529,26 @@ async function doExport() {
   selected.forEach(l=>{ layerElements[l.id]=[]; });
   let totalFailedTiles=0, fetchedTiles=0;
 
+  // §2.2: one round-trip to learn which (layer, tile) entries are cached.
+  // Avoids N×M serial GETs to cache.php before any Overpass call fires.
+  const allKeys=[];
+  for (const tile of tiles) for (const layer of selected) allKeys.push(tileCacheKey(layer,tile));
+  const existingKeys=await cacheExistsBatch(allKeys);
+
   for (let t=0;t<tiles.length;t++) {
     const tile=tiles[t];
     const uncachedLayers=[];
 
-    // Check per-layer cache for this tile
-    for (const layer of selected) {
-      const cached=await cacheGet(tileCacheKey(layer,tile));
-      if (cached) {
-        layerElements[layer.id].push(...(cached.elements||[]));
-      } else {
-        uncachedLayers.push(layer);
-      }
+    // Fetch cached tile data in parallel for keys the batch probe flagged
+    // as present; skip the round-trip entirely for known misses.
+    const cacheReads=selected.map(async layer => {
+      const key=tileCacheKey(layer,tile);
+      if (!existingKeys.has(key)) return { layer, cached:null };
+      return { layer, cached: await cacheGet(key) };
+    });
+    for (const { layer, cached } of await Promise.all(cacheReads)) {
+      if (cached) layerElements[layer.id].push(...(cached.elements||[]));
+      else uncachedLayers.push(layer);
     }
 
     if (!uncachedLayers.length) {

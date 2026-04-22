@@ -1,10 +1,38 @@
 <?php
 $CACHE_DIR = __DIR__ . '/cache/';
 $CACHE_TTL = 7 * 24 * 3600; // 7 days
+
+function validKey($k) { return preg_match('/^[a-z0-9_.\-]+$/i', $k) && strlen($k) > 0 && strlen($k) <= 120; }
+
+// §2.2: batch existence check. Takes ?exists=k1,k2,… (max 64 keys),
+// returns {k1:true|false, …}. Lets the client skip per-key round-trips
+// during the pre-fetch cache probe. Data retrieval still uses single-key
+// GETs so we can keep Content-Encoding: gzip passthrough for big tiles.
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['exists'])) {
+    header('Content-Type: application/json');
+    $keys = array_slice(array_filter(explode(',', $_GET['exists']), 'strlen'), 0, 64);
+    $out = [];
+    foreach ($keys as $k) {
+        if (!validKey($k)) { $out[$k] = false; continue; }
+        $f  = $CACHE_DIR . $k . '.json.gz';
+        $fl = $CACHE_DIR . $k . '.json';
+        $hit = false;
+        foreach ([$f, $fl] as $p) {
+            if (file_exists($p)) {
+                if (time() - filemtime($p) > $CACHE_TTL) { @unlink($p); continue; }
+                $hit = true; break;
+            }
+        }
+        $out[$k] = $hit;
+    }
+    echo json_encode($out);
+    exit;
+}
+
 $key = $_GET['key'] ?? '';
 
 // Strict validation — alphanumeric, underscores, dots, hyphens only (no slashes)
-if (!preg_match('/^[a-z0-9_.\-]+$/i', $key) || strlen($key) > 120) {
+if (!validKey($key)) {
     http_response_code(400); exit;
 }
 
