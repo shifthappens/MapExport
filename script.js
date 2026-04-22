@@ -640,7 +640,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
 // ════════════════════════════════════════════════════════════════
 //  COMBINED TILE FETCH — one Overpass call for all uncached layers
 // ════════════════════════════════════════════════════════════════
-async function fetchTileCombined(layers, tile) {
+async function fetchTileCombined(layers, tile, preferredEndpoint=null) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
   // §1.1: strip statements superseded by another layer in THIS fetch.
   const inFetchSet = new Set(layers.map(l => l.id));
@@ -654,7 +654,15 @@ async function fetchTileCombined(layers, tile) {
   let fetched = null, retries = 0;
 
   while (!fetched && retries < MAX_TILE_RETRIES) {
-    const ep = getAvailableEndpoint();
+    // §2.1: try preferredEndpoint first (if available); otherwise fall back
+    // to the normal rotation. Lets two concurrent workers pin to different
+    // endpoints so we don't hammer the same host.
+    let ep = null;
+    if (preferredEndpoint) {
+      const b = endpointBackoff[preferredEndpoint];
+      if (!b || Date.now() >= b.until) ep = preferredEndpoint;
+    }
+    if (!ep) ep = getAvailableEndpoint();
     if (!ep) {
       const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
       const waitMs = Math.max(0, soonest - Date.now()) + 200;
@@ -1581,52 +1589,66 @@ async function doExport() {
   for (const tile of tiles) for (const layer of selected) allKeys.push(tileCacheKey(layer,tile));
   const existingKeys=await cacheExistsBatch(allKeys);
 
-  for (let t=0;t<tiles.length;t++) {
-    const tile=tiles[t];
-    const uncachedLayers=[];
+  // §2.1: two concurrent workers, one pinned per Overpass endpoint. Each
+  // worker pulls the next tile off a shared queue, does its own cache
+  // check, fires fetchTileCombined preferring its endpoint, then applies
+  // tagFilter + cache-writes. Halves wall-clock on multi-tile exports.
+  const queue = tiles.map((tile, idx) => ({ tile, idx }));
+  let tilesDone = 0;
 
-    // Fetch cached tile data in parallel for keys the batch probe flagged
-    // as present; skip the round-trip entirely for known misses.
-    const cacheReads=selected.map(async layer => {
-      const key=tileCacheKey(layer,tile);
-      if (!existingKeys.has(key)) return { layer, cached:null };
-      return { layer, cached: await cacheGet(key) };
-    });
-    for (const { layer, cached } of await Promise.all(cacheReads)) {
-      if (cached) layerElements[layer.id].push(...(cached.elements||[]));
-      else uncachedLayers.push(layer);
+  async function worker(endpoint) {
+    while (queue.length) {
+      const { tile, idx } = queue.shift();
+      const uncachedLayers = [];
+
+      const cacheReads = selected.map(async layer => {
+        const key = tileCacheKey(layer, tile);
+        if (!existingKeys.has(key)) return { layer, cached: null };
+        return { layer, cached: await cacheGet(key) };
+      });
+      for (const { layer, cached } of await Promise.all(cacheReads)) {
+        if (cached) layerElements[layer.id].push(...(cached.elements || []));
+        else uncachedLayers.push(layer);
+      }
+
+      if (!uncachedLayers.length) {
+        tilesDone++;
+        updateProgress(`Tile ${tilesDone}/${tiles.length} — all layers cached`, Math.round((tilesDone/tiles.length)*85));
+        continue;
+      }
+
+      updateProgress(
+        `Fetching tile ${idx+1}/${tiles.length} (${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}) on ${new URL(endpoint).hostname}…`,
+        Math.round((tilesDone/tiles.length)*85)
+      );
+
+      const combined = await fetchTileCombined(uncachedLayers, tile, endpoint);
+      if (!combined) {
+        console.warn(`Tile ${idx+1}/${tiles.length} failed after retries`);
+        totalFailedTiles++;
+        showFailedTileOverlays([tile], `tile ${idx+1}`);
+        tilesDone++;
+        continue;
+      }
+
+      for (const layer of uncachedLayers) {
+        const elements = layer.tagFilter
+          ? combined.elements.filter(layer.tagFilter)
+          : combined.elements;
+        layerElements[layer.id].push(...elements);
+        cacheSet(tileCacheKey(layer, tile), { elements });
+      }
+
+      fetchedTiles++;
+      tilesDone++;
+      // Per-endpoint throttle: only sleep if there's more work for this
+      // worker to pick up. Keeps parallel workers from being artificially
+      // serialized through a shared timer.
+      if (queue.length) await sleep(adaptiveTileDelay);
     }
-
-    if (!uncachedLayers.length) {
-      updateProgress(`Tile ${t+1}/${tiles.length} — all layers cached`, Math.round(((t+1)/tiles.length)*85));
-      continue;
-    }
-
-    updateProgress(
-      `Fetching tile ${t+1}/${tiles.length} — ${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}…`,
-      Math.round((t/tiles.length)*85)
-    );
-
-    const combined=await fetchTileCombined(uncachedLayers,tile);
-    if (!combined) {
-      console.warn(`Tile ${t+1}/${tiles.length} failed after retries`);
-      totalFailedTiles++;
-      showFailedTileOverlays([tile], `tile ${t+1}`);
-      continue;
-    }
-
-    // Split combined response into per-layer results using tagFilter
-    for (const layer of uncachedLayers) {
-      const elements=layer.tagFilter
-        ? combined.elements.filter(layer.tagFilter)
-        : combined.elements;
-      layerElements[layer.id].push(...elements);
-      cacheSet(tileCacheKey(layer,tile),{elements});
-    }
-
-    fetchedTiles++;
-    if (fetchedTiles>0 && t<tiles.length-1) await sleep(adaptiveTileDelay);
   }
+
+  await Promise.all(OVERPASS_ENDPOINTS.map(worker));
 
   // Build results in the format buildSVG expects
   const results=selected.map(layer=>({
