@@ -461,11 +461,29 @@ function layerQHash(layer) {
 }
 
 function bboxToTiles(bbox) {
+  // Adaptive path: if the export bbox is smaller than one grid cell on
+  // BOTH axes, bypass the grid and issue one Overpass query bounded by
+  // the real selection. A town-sized bbox that straddles grid lines
+  // otherwise balloons to 2–4 tiles, all mostly empty. The cache key
+  // encodes the exact bbox so repeat exports of the same selection still
+  // hit the cache; grid-aligned entries stay disjoint.
+  const latSpan = bbox.north - bbox.south, lonSpan = bbox.east - bbox.west;
+  if (latSpan < TILE_SIZE * 0.95 && lonSpan < TILE_SIZE * 0.95) {
+    return [{
+      s: +bbox.south.toFixed(5), w: +bbox.west.toFixed(5),
+      n: +bbox.north.toFixed(5), e: +bbox.east.toFixed(5),
+      adaptive: true,
+    }];
+  }
+  // Grid path for multi-cell exports. Epsilon nudge because 0.1 isn't
+  // IEEE-representable: Math.floor(52.3/0.1) evaluates to 522 rather than
+  // 523, which otherwise emits a bogus tile one row south of the selection.
   const tiles = [];
-  const s0 = Math.floor(bbox.south / TILE_SIZE) * TILE_SIZE;
-  const w0 = Math.floor(bbox.west  / TILE_SIZE) * TILE_SIZE;
-  for (let s = s0; s < bbox.north; s = +(s + TILE_SIZE).toFixed(10)) {
-    for (let w = w0; w < bbox.east; w = +(w + TILE_SIZE).toFixed(10)) {
+  const EPS = 1e-9;
+  const s0 = Math.floor(bbox.south / TILE_SIZE + EPS) * TILE_SIZE;
+  const w0 = Math.floor(bbox.west  / TILE_SIZE + EPS) * TILE_SIZE;
+  for (let s = s0; s < bbox.north - EPS; s = +(s + TILE_SIZE).toFixed(10)) {
+    for (let w = w0; w < bbox.east - EPS; w = +(w + TILE_SIZE).toFixed(10)) {
       tiles.push({ s: +s.toFixed(1), w: +w.toFixed(1),
                    n: +(s + TILE_SIZE).toFixed(1), e: +(w + TILE_SIZE).toFixed(1) });
     }
@@ -474,6 +492,9 @@ function bboxToTiles(bbox) {
 }
 
 function tileCacheKey(layer, tile) {
+  if (tile.adaptive) {
+    return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_a_${tile.s}_${tile.w}_${tile.n}_${tile.e}`;
+  }
   return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_${tile.s}_${tile.w}`;
 }
 
@@ -594,6 +615,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
         const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
         const waitMs = Math.max(0, soonest - Date.now()) + 200;
         setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+        progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
         await sleep(waitMs);
         tileRetries++;
         continue;
@@ -608,6 +630,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
           recordEndpoint429(ep);
           adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
           setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+          progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
           await sleep(waitMs);
           tileRetries++;
           continue;
@@ -640,7 +663,14 @@ async function fetchLayer(layer, bboxStr, bbox) {
 // ════════════════════════════════════════════════════════════════
 //  COMBINED TILE FETCH — one Overpass call for all uncached layers
 // ════════════════════════════════════════════════════════════════
-async function fetchTileCombined(layers, tile, preferredEndpoint=null) {
+// onProgress (optional) is invoked during the fetch with the payload
+//   { phase: 'waiting',     elapsed,  endpoint }   // every ~500ms before first byte
+//   { phase: 'downloading', received, total, endpoint }  // per streamed chunk
+// Overpass has no mid-query progress, so 'waiting' is just elapsed time on
+// the request (server-side compute + network latency). Once bytes arrive we
+// stream the body via a ReadableStream reader so we can surface real
+// download size — Content-Length is usually absent (chunked), so total=0.
+async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgress=null) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
   // §1.1: strip statements superseded by another layer in THIS fetch.
   const inFetchSet = new Set(layers.map(l => l.id));
@@ -667,26 +697,62 @@ async function fetchTileCombined(layers, tile, preferredEndpoint=null) {
       const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
       const waitMs = Math.max(0, soonest - Date.now()) + 200;
       setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
       await sleep(waitMs);
       retries++;
       continue;
     }
+    // TTFB heartbeat — Overpass can take 5–30s of server-side compute before
+    // any bytes arrive. Without this the UI would be frozen on "0 MB" with
+    // no evidence anything is happening.
+    const reqStart = Date.now();
+    let ttfbTimer = null;
+    if (onProgress) {
+      onProgress({ phase: 'waiting', elapsed: 0, endpoint: ep });
+      ttfbTimer = setInterval(() => {
+        onProgress({ phase: 'waiting', elapsed: Math.round((Date.now() - reqStart)/1000), endpoint: ep });
+      }, 500);
+    }
     try {
       const res = await fetch(ep, { method:'POST', headers, body, mode:'cors',
         signal: AbortSignal.timeout(120000) });
+      if (ttfbTimer) { clearInterval(ttfbTimer); ttfbTimer = null; }
       if (res.status === 429) {
         const retryAfter = res.headers.get('Retry-After');
         const waitMs = retryAfter ? parseInt(retryAfter,10)*1000 : (endpointBackoff[ep]?.delay||500);
         recordEndpoint429(ep);
         adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
         setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+        progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
         await sleep(waitMs);
         retries++;
         continue;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      fetched = await res.json();
+      // Stream the body so we can surface bytes-received while it downloads.
+      // Falls back to res.json() if the environment doesn't give us a
+      // readable body stream.
+      if (onProgress && res.body?.getReader) {
+        const total = +res.headers.get('Content-Length') || 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          onProgress({ phase: 'downloading', received, total, endpoint: ep });
+        }
+        const merged = new Uint8Array(received);
+        let offset = 0;
+        for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+        fetched = JSON.parse(new TextDecoder().decode(merged));
+      } else {
+        fetched = await res.json();
+      }
     } catch(e) {
+      if (ttfbTimer) { clearInterval(ttfbTimer); ttfbTimer = null; }
       console.warn(`Combined fetch failed (${ep}):`, e.message);
       retries++;
     }
@@ -1416,103 +1482,106 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress) {
 // ════════════════════════════════════════════════════════════════
 //  SVG BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
-  const {pr,H}=makeProjector(b,W);
-  const preset=PRESETS[activePreset];
-  const EPS={area_large:getEps()*1.4, area:getEps()*0.9, line:getEps()*0.6};
-  const layerOrder=['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
-  const sorted=[...results].sort((a,z)=>(layerOrder.indexOf(a.layer.id)||999)-(layerOrder.indexOf(z.layer.id)||999));
-  let layersSVG='';
+// Render a single layer to an SVG string fragment. Pure — no DOM, no
+// globals beyond PRESETS/activePreset. Split out of buildSVG so the
+// export driver can render layers one-by-one and yield to the event loop
+// between them (enabling per-layer progress + keeping the UI responsive).
+function renderLayerSVG({ layer, data }, ctx) {
+  const { b, pr, W, H, preset, EPS, precomputedBlocks } = ctx;
+  if (!data?.elements?.length) return '';
+  const elements = data.elements.filter(el => elementInBbox(el, b));
+  if (!elements.length) return '';
+  if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W);
+  if (layer.type==='rail')           return buildRailLayer(elements,pr,W);
+  if (layer.type==='metro')          return buildMetroLayer(elements,pr,W);
+  if (layer.type==='tram')           return buildTramLayer(elements,pr,W);
+  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H);
+  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H);
 
-  sorted.forEach(({layer,data})=>{
-    if (!data?.elements?.length) return;
-    // Cull elements entirely outside the export bbox before any rendering
-    const elements = data.elements.filter(el => elementInBbox(el, b));
-    if (!elements.length) return;
-    if (layer.type==='roads')         { layersSVG+=buildRoadsLayer(elements,pr,W); return; }
-    if (layer.type==='rail')          { layersSVG+=buildRailLayer(elements,pr,W); return; }
-    if (layer.type==='metro')         { layersSVG+=buildMetroLayer(elements,pr,W); return; }
-    if (layer.type==='tram')          { layersSVG+=buildTramLayer(elements,pr,W); return; }
-    if (layer.type==='labels')        { layersSVG+=buildLabelsLayer(elements,pr,W,H); return; }
-    if (layer.type==='feature_labels'){ layersSVG+=buildFeatureLabelsLayer(elements,pr,W,H); return; }
+  const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
+  const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
+  const isArea=layer.type==='area';
+  let allD='', circles='';
 
-    const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
-    const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
-    const isArea=layer.type==='area';
-    let allD='', circles='';
-
-    // Apply preset colors to known layers
-    let fillColor=layer.color, strokeColor=layer.strokeColor||layer.color;
-    if (layer.id==='water_bodies'||layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
-    if (layer.id==='parks') {
-      // Each named park as its own selectable shape
-      fillColor=preset.park;
-      let content = '';
-      const uid = makeUidGen();
-      elements.forEach(el => {
-        const name = el.tags?.name;
-        if (!name) return; // skip unnamed — should not reach here but safety check
-        let d = '';
-        if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
-        if (el.type === 'relation' && el.members) {
-          el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
-          d = d.trim();
-        }
-        if (!d) return;
-        const parkId = uid(`park_${safeName(name)}`);
-        content += `<path id="${parkId}" inkscape:label="${escXml(name)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
-      });
-      if (content) {
-        layersSVG += `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  let fillColor=layer.color, strokeColor=layer.strokeColor||layer.color;
+  if (layer.id==='water_bodies'||layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
+  if (layer.id==='parks') {
+    fillColor=preset.park;
+    let content = '';
+    const uid = makeUidGen();
+    elements.forEach(el => {
+      const name = el.tags?.name;
+      if (!name) return;
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
+      if (el.type === 'relation' && el.members) {
+        el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
+        d = d.trim();
       }
-      return;
-    }
-    if (layer.id==='buildings' && precomputedBlocks && precomputedBlocks.length) {
-      fillColor=preset.building; strokeColor=preset.buildingStroke;
-      const fo = layer.fillOpacity ?? 0.8;
-      const sw = layer.strokeWidth ?? 1.5;
-      let content = '';
-      for (let i = 0; i < precomputedBlocks.length; i++) {
-        const b = precomputedBlocks[i];
-        const pathD = b.outer + (b.holes.length ? ' ' + b.holes.join(' ') : '');
-        content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
-      }
-      layersSVG += `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
-      return;
-    }
-
-    elements.forEach(el=>{
-      if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
-        const [x,y]=pr(el.lat,el.lon);
-        const poiName=el.tags?.name||el.tags?.amenity||el.tags?.tourism||el.tags?.shop||layer.label;
-        const poiId=`poi_${safeName(poiName)}_${el.id||Math.round(x)}`;
-        circles+=`<circle id="${poiId}" inkscape:label="${escXml(poiName)}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${layer.radius||2}"/>`;
-        return;
-      }
-      if (el.type==='way') allD+=geomToPathD(el.geometry,pr,eps,isArea)+' ';
-      if (el.type==='relation'&&el.members) el.members.forEach(m=>{allD+=geomToPathD(m.geometry,pr,eps,isArea)+' ';});
+      if (!d) return;
+      const parkId = uid(`park_${safeName(name)}`);
+      content += `<path id="${parkId}" inkscape:label="${escXml(name)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
     });
-
-    let content='';
-    const d=allD.trim();
-    if (d) {
-      if (isArea) {
-        const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
-        const sw=layer.strokeWidth??0.5;
-        content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
-
-      } else {
-        const sw=typeof layer.strokeWidth==='function'?layer.strokeWidth({}):(layer.strokeWidth??1);
-        const dash=layer.strokeDash?` stroke-dasharray="${layer.strokeDash}"`:'';
-        content+=`<path d="${d}" fill="none" stroke="${fillColor}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${dash} opacity="0.92"/>`;
-      }
+    if (!content) return '';
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+  if (layer.id==='buildings' && precomputedBlocks && precomputedBlocks.length) {
+    fillColor=preset.building; strokeColor=preset.buildingStroke;
+    const fo = layer.fillOpacity ?? 0.8;
+    let content = '';
+    for (let i = 0; i < precomputedBlocks.length; i++) {
+      const bl = precomputedBlocks[i];
+      const pathD = bl.outer + (bl.holes.length ? ' ' + bl.holes.join(' ') : '');
+      content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
     }
-    if (circles) content+=circles;
-    if (!content) return;
-    layersSVG+=`  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
+  elements.forEach(el=>{
+    if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
+      const [x,y]=pr(el.lat,el.lon);
+      const poiName=el.tags?.name||el.tags?.amenity||el.tags?.tourism||el.tags?.shop||layer.label;
+      const poiId=`poi_${safeName(poiName)}_${el.id||Math.round(x)}`;
+      circles+=`<circle id="${poiId}" inkscape:label="${escXml(poiName)}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${layer.radius||2}"/>`;
+      return;
+    }
+    if (el.type==='way') allD+=geomToPathD(el.geometry,pr,eps,isArea)+' ';
+    if (el.type==='relation'&&el.members) el.members.forEach(m=>{allD+=geomToPathD(m.geometry,pr,eps,isArea)+' ';});
   });
 
-  const date=new Date().toISOString().slice(0,10);
+  let content='';
+  const d=allD.trim();
+  if (d) {
+    if (isArea) {
+      const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
+      const sw=layer.strokeWidth??0.5;
+      content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+    } else {
+      const sw=typeof layer.strokeWidth==='function'?layer.strokeWidth({}):(layer.strokeWidth??1);
+      const dash=layer.strokeDash?` stroke-dasharray="${layer.strokeDash}"`:'';
+      content+=`<path d="${d}" fill="none" stroke="${fillColor}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${dash} opacity="0.92"/>`;
+    }
+  }
+  if (circles) content+=circles;
+  if (!content) return '';
+  return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
+}
+
+const LAYER_ORDER = ['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
+
+function buildSVGContext(b, W, precomputedBlocks) {
+  const { pr, H } = makeProjector(b, W);
+  return {
+    b, pr, W, H,
+    preset: PRESETS[activePreset],
+    EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
+    precomputedBlocks,
+  };
+}
+
+function wrapSVG(layersSVG, ctx, physicalWidthMm) {
+  const { b, W, H, preset } = ctx;
+  const date = new Date().toISOString().slice(0, 10);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -1536,6 +1605,17 @@ function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
   <g id="map-content" inkscape:label="Map content" inkscape:groupmode="layer" clip-path="url(#map-clip)">
 ${layersSVG}  </g>
 </svg>`;
+}
+
+function sortedResults(results) {
+  return [...results].sort((a,z) => (LAYER_ORDER.indexOf(a.layer.id) || 999) - (LAYER_ORDER.indexOf(z.layer.id) || 999));
+}
+
+function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
+  const ctx = buildSVGContext(b, W, precomputedBlocks);
+  let layersSVG = '';
+  for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);
+  return wrapSVG(layersSVG, ctx, physicalWidthMm);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1591,32 +1671,64 @@ async function doExport() {
   document.getElementById('btn-export').disabled=true;
   clearFailedTileOverlays();
   adaptiveTileDelay=350;
-  showProgress('Starting export…',0);
+
+  const hasBuildingsLayer = selected.some(l => l.id === 'buildings');
+  const stages = [
+    { id: 'plan_tiles',     label: 'Plan tiles' },
+    { id: 'check_cache',    label: 'Check cache' },
+    { id: 'fetch_tiles',    label: 'Fetch tiles' },
+    ...(hasBuildingsLayer ? [{ id: 'compute_blocks', label: 'Compute city blocks' }] : []),
+    { id: 'render_svg',     label: 'Render SVG' },
+    { id: 'finalize',       label: 'Finalize' },
+  ];
+  progress.begin(stages);
+  progress.log(`Export: ${selected.length} layer${selected.length>1?'s':''}, ${W}px wide, style “${activePreset}”`);
+
+  // Stage 1 — plan tiles
+  progress.setStage('plan_tiles', 'active');
+  const tiles=bboxToTiles(bbox);
+  const adaptiveMode = tiles.length === 1 && tiles[0].adaptive;
+  const midLat = (bbox.north + bbox.south) / 2;
+  const tileKmNS = (t) => ((t.n - t.s) * 111).toFixed(1);
+  const tileKmEW = (t) => ((t.e - t.w) * 111 * Math.cos(midLat * Math.PI/180)).toFixed(1);
+  const sample = tiles[0];
+  const sizeLabel = sample ? `~${tileKmEW(sample)}×${tileKmNS(sample)} km` : '';
+  progress.setStage('plan_tiles', 'done', {
+    meta: `${tiles.length} tile${tiles.length>1?'s':''}${adaptiveMode ? ' · adaptive' : ''}`,
+    detail: '',
+  });
+  progress.log(
+    adaptiveMode
+      ? `Planned 1 adaptive query (${sizeLabel}) — bounded by export bbox`
+      : `Planned ${tiles.length} tile${tiles.length>1?'s':''} on 0.1° grid (${sizeLabel} each)`
+  );
 
   // ── Tile-first combined fetching ─────────────────────────────
   // Instead of one API call per tile per layer, we combine all
   // uncached layers into a single Overpass query per tile, then
   // split the response by tagFilter. For 10 layers × 4 tiles this
   // reduces 40 API calls down to at most 4.
-  const tiles=bboxToTiles(bbox);
   const layerElements={}; // layerId -> [...elements across tiles]
   selected.forEach(l=>{ layerElements[l.id]=[]; });
   let totalFailedTiles=0, fetchedTiles=0;
 
-  // §2.2: one round-trip to learn which (layer, tile) entries are cached.
-  // Avoids N×M serial GETs to cache.php before any Overpass call fires.
+  // Stage 2 — cache probe
+  progress.setStage('check_cache', 'active');
   const allKeys=[];
   for (const tile of tiles) for (const layer of selected) allKeys.push(tileCacheKey(layer,tile));
   const existingKeys=await cacheExistsBatch(allKeys);
+  const cachedCount = existingKeys.size, totalKeys = allKeys.length, uncachedCount = totalKeys - cachedCount;
+  progress.setStage('check_cache', 'done', { meta: `${cachedCount}/${totalKeys} cached` });
+  progress.log(`Cache hit on ${cachedCount}/${totalKeys} (layer,tile) keys — ${uncachedCount} to fetch`);
 
-  // §2.1: two concurrent workers, one pinned per Overpass endpoint. Each
-  // worker pulls the next tile off a shared queue, does its own cache
-  // check, fires fetchTileCombined preferring its endpoint, then applies
-  // tagFilter + cache-writes. Halves wall-clock on multi-tile exports.
+  // Stage 3 — fetch tiles (or skip if nothing to fetch)
   const queue = tiles.map((tile, idx) => ({ tile, idx }));
-  let tilesDone = 0;
+  let tilesDone = 0, tilesFullyCached = 0;
+  const fetchedMeta = () => `${fetchedTiles} fetched · ${tilesFullyCached} cached · ${totalFailedTiles} failed`;
+  progress.setStage('fetch_tiles', 'active', { meta: `0/${tiles.length}`, detail: uncachedCount ? 'Waiting for endpoints…' : 'Nothing to fetch — all tiles cached' });
 
   async function worker(endpoint) {
+    const host = new URL(endpoint).hostname;
     while (queue.length) {
       const { tile, idx } = queue.shift();
       const uncachedLayers = [];
@@ -1632,22 +1744,53 @@ async function doExport() {
       }
 
       if (!uncachedLayers.length) {
-        tilesDone++;
-        updateProgress(`Tile ${tilesDone}/${tiles.length} — all layers cached`, Math.round((tilesDone/tiles.length)*85));
+        tilesDone++; tilesFullyCached++;
+        progress.setStage('fetch_tiles', 'active', {
+          meta: `${tilesDone}/${tiles.length}`,
+          detail: `Tile ${idx+1}: all layers cached`,
+        });
+        progress.bar(Math.round((tilesDone/tiles.length)*70));
         continue;
       }
 
-      updateProgress(
-        `Fetching tile ${idx+1}/${tiles.length} (${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}) on ${new URL(endpoint).hostname}…`,
-        Math.round((tilesDone/tiles.length)*85)
-      );
+      progress.setStage('fetch_tiles', 'active', {
+        meta: `${tilesDone}/${tiles.length} · ${fetchedMeta()}`,
+        detail: `Tile ${idx+1}/${tiles.length}: ${uncachedLayers.map(l=>l.label).join(', ')} on ${host}`,
+      });
 
-      const combined = await fetchTileCombined(uncachedLayers, tile, endpoint);
+      // Per-tile fetch progress: shows TTFB elapsed, then bytes received.
+      // Log a one-time warning if the server-side compute stalls past 15s.
+      let warnedSlow = false;
+      const onFetchProgress = (info) => {
+        let line = `Tile ${idx+1}/${tiles.length} on ${host}: `;
+        if (info.phase === 'waiting') {
+          line += info.elapsed === 0
+            ? 'sent query, awaiting response…'
+            : `running query… ${info.elapsed}s`;
+          if (!warnedSlow && info.elapsed >= 15) {
+            warnedSlow = true;
+            progress.log(`Tile ${idx+1}: Overpass still computing (${info.elapsed}s+) — large area?`, { warn: true });
+          }
+        } else if (info.phase === 'downloading') {
+          const mb = (info.received / 1024 / 1024).toFixed(2);
+          line += info.total
+            ? `downloading… ${mb} / ${(info.total/1024/1024).toFixed(2)} MB`
+            : `downloading… ${mb} MB`;
+        }
+        progress.setStage('fetch_tiles', 'active', {
+          meta: `${tilesDone}/${tiles.length} · ${fetchedMeta()}`,
+          detail: line,
+        });
+      };
+
+      const combined = await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
       if (!combined) {
         console.warn(`Tile ${idx+1}/${tiles.length} failed after retries`);
         totalFailedTiles++;
         showFailedTileOverlays([tile], `tile ${idx+1}`);
         tilesDone++;
+        progress.log(`Tile ${idx+1}/${tiles.length} failed after retries`, { warn: true });
+        progress.bar(Math.round((tilesDone/tiles.length)*70));
         continue;
       }
 
@@ -1661,6 +1804,8 @@ async function doExport() {
 
       fetchedTiles++;
       tilesDone++;
+      progress.log(`Tile ${idx+1}/${tiles.length} fetched (${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}) from ${host}`);
+      progress.bar(Math.round((tilesDone/tiles.length)*70));
       // Per-endpoint throttle: only sleep if there's more work for this
       // worker to pick up. Keeps parallel workers from being artificially
       // serialized through a shared timer.
@@ -1670,13 +1815,22 @@ async function doExport() {
 
   await Promise.all(OVERPASS_ENDPOINTS.map(worker));
 
+  const fetchStageState = totalFailedTiles && totalFailedTiles === tiles.length ? 'failed' : 'done';
+  progress.setStage('fetch_tiles', fetchStageState, { meta: fetchedMeta(), detail: '' });
+
   // Build results in the format buildSVG expects
   const results=selected.map(layer=>({
     layer,
     data:{ elements: mergeElements([layerElements[layer.id]]), failedTiles:[] }
   }));
   const failCount=results.filter(r=>!r.data.elements.length).length;
-  if (failCount===selected.length) { hideProgress(); document.getElementById('btn-export').disabled=false; setStatus('All fetches failed — check your connection','error'); return; }
+  if (failCount===selected.length) {
+    progress.log('All fetches failed — aborting export', { warn: true });
+    progress.end();
+    document.getElementById('btn-export').disabled=false;
+    setStatus('All fetches failed — check your connection','error');
+    return;
+  }
 
   // Cache results for live preview
   lastResults = results;
@@ -1685,26 +1839,55 @@ async function doExport() {
   const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
   const estMB=(totalElements*0.0003).toFixed(1);
 
-  // Compute city blocks in Web Worker (if buildings layer is selected)
-  const hasBuildingsLayer = results.some(r => r.layer.id === 'buildings');
+  // Stage 4 — compute city blocks (only if buildings layer is selected)
   let precomputedBlocks = null;
   if (hasBuildingsLayer) {
-    updateProgress('Computing city blocks…',85);
+    progress.setStage('compute_blocks', 'active', { detail: 'Starting worker…' });
     const {pr,H}=makeProjector(bbox,W);
+    let lastBlockMsg = '';
     precomputedBlocks = await computeBlocksAsync(results, pr, W, H, (msg, pct) => {
-      updateProgress(msg, 85 + Math.round(pct * 0.1));
+      progress.setStage('compute_blocks', 'active', { detail: msg });
+      progress.bar(70 + Math.round(pct * 0.2));
+      if (msg !== lastBlockMsg) { progress.log(`Blocks: ${msg}`); lastBlockMsg = msg; }
     });
+    progress.setStage('compute_blocks', 'done', { meta: `${precomputedBlocks?.length||0} blocks`, detail: '' });
+    progress.bar(90);
   }
 
-  updateProgress('Building SVG…',96);
-  await new Promise(r=>setTimeout(r,50));
-  const svg=buildSVG(results,bbox,W,physicalWidthMm,precomputedBlocks);
+  // Stage 5 — render SVG, per-layer
+  progress.setStage('render_svg', 'active', { detail: 'Preparing…' });
+  const ctx = buildSVGContext(bbox, W, precomputedBlocks);
+  const ordered = sortedResults(results);
+  let layersSVG = '';
+  const renderBase = hasBuildingsLayer ? 90 : 70;
+  const renderSpan = 100 - renderBase - 2; // leave 2% for finalize
+  for (let i = 0; i < ordered.length; i++) {
+    const r = ordered[i];
+    const n = r.data?.elements?.length || 0;
+    progress.setStage('render_svg', 'active', {
+      meta: `${i+1}/${ordered.length}`,
+      detail: `${r.layer.label} (${n.toLocaleString()} elements)`,
+    });
+    layersSVG += renderLayerSVG(r, ctx);
+    progress.bar(renderBase + Math.round(((i+1)/ordered.length) * renderSpan));
+    // Yield to the event loop so the overlay actually repaints between layers.
+    if (i < ordered.length - 1) await new Promise(r => setTimeout(r, 0));
+  }
+  progress.setStage('render_svg', 'done', { meta: `${ordered.length} layers`, detail: '' });
+
+  // Stage 6 — finalize
+  progress.setStage('finalize', 'active', { detail: 'Wrapping SVG…' });
+  await new Promise(r=>setTimeout(r,0));
+  const svg = wrapSVG(layersSVG, ctx, physicalWidthMm);
   const actualMB=(svg.length/1024/1024).toFixed(1);
   lastSvgString=svg; lastSvgFilename=filename;
+  progress.setStage('finalize', 'done', { meta: `${actualMB} MB`, detail: '' });
+  progress.bar(100);
+  progress.log(`Done — ${actualMB} MB, ${totalElements.toLocaleString()} elements`);
 
-  updateProgress('Done!',100);
-  await new Promise(r=>setTimeout(r,400));
-  hideProgress();
+  // Brief pause so the user registers the 100% state, then hide + reveal.
+  await new Promise(r=>setTimeout(r,250));
+  progress.end();
   showPreview(svg,filename);
   document.getElementById('btn-export').disabled=false;
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
@@ -1863,15 +2046,115 @@ function showFailedTileSummary(count) {
 function setStatus(msg,type){
   document.getElementById('status-text').textContent=msg;
   document.getElementById('status-bar').className=type||'';
-  // Also update the central progress overlay if it's showing
-  const overlay=document.getElementById('progress-overlay');
-  if (overlay.classList.contains('show')) document.getElementById('progress-label').textContent=msg;
 }
 function showToast(msg){const t=document.getElementById('map-toast');t.textContent=msg;t.classList.remove('hidden');}
 function hideToast(){document.getElementById('map-toast').classList.add('hidden');}
-function showProgress(label,pct){document.getElementById('progress-overlay').classList.add('show');updateProgress(label,pct);}
-function updateProgress(label,pct){document.getElementById('progress-label').textContent=label;document.getElementById('progress-bar').style.width=pct+'%';setStatus(label,'loading');}
-function hideProgress(){document.getElementById('progress-overlay').classList.remove('show');}
+
+// ── Granular run-progress view ────────────────────────────────────
+// Drives the overlay checklist: a fixed list of stages (pending / active /
+// done / failed), each with an optional meta counter and an active-only
+// detail line, plus a bounded scrolling activity log with elapsed-time
+// prefixes. Keeps setStatus in sync as a terse sidebar one-liner.
+const progress = (() => {
+  let t0 = 0, tick = null, stages = [], logLines = [];
+  const MAX_LOG = 12;
+
+  const fmtElapsed = () => {
+    const s = Math.max(0, Math.round((Date.now() - t0) / 1000));
+    return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+  };
+
+  const render = () => {
+    const ul = document.getElementById('progress-stages');
+    ul.innerHTML = stages.map(st => `
+      <li class="stage ${st.state}" data-id="${st.id}">
+        <div class="stage-row">
+          <span class="stage-icon"></span>
+          <span class="stage-label">${st.label}</span>
+          <span class="stage-meta">${st.meta || ''}</span>
+        </div>
+        <div class="stage-detail">${st.detail || ''}</div>
+      </li>
+    `).join('');
+  };
+
+  const renderLog = () => {
+    const box = document.getElementById('progress-log');
+    box.innerHTML = logLines.map(l =>
+      `<div class="log-line ${l.warn ? 'warn' : ''}"><span class="log-time">${l.t}</span>${l.msg}</div>`
+    ).join('');
+    box.scrollTop = box.scrollHeight;
+  };
+
+  return {
+    begin(initialStages) {
+      t0 = Date.now();
+      stages = initialStages.map(s => ({ state: 'pending', meta: '', detail: '', ...s }));
+      logLines = [];
+      document.getElementById('progress-overlay').classList.add('show');
+      document.getElementById('progress-overlay').classList.remove('fading');
+      document.getElementById('progress-bar').style.width = '0%';
+      document.getElementById('progress-pct').textContent = '0%';
+      document.getElementById('progress-elapsed').textContent = '00:00';
+      render();
+      renderLog();
+      if (tick) clearInterval(tick);
+      tick = setInterval(() => {
+        document.getElementById('progress-elapsed').textContent = fmtElapsed();
+      }, 500);
+    },
+    addStage(stage, beforeId) {
+      const s = { state: 'pending', meta: '', detail: '', ...stage };
+      if (beforeId) {
+        const i = stages.findIndex(x => x.id === beforeId);
+        if (i >= 0) { stages.splice(i, 0, s); render(); return; }
+      }
+      stages.push(s);
+      render();
+    },
+    removeStage(id) {
+      stages = stages.filter(s => s.id !== id);
+      render();
+    },
+    setStage(id, state, patch = {}) {
+      const s = stages.find(x => x.id === id);
+      if (!s) return;
+      // Auto-close any stage we pass over by marking pending ones before this one as done.
+      if (state === 'active') {
+        for (const prev of stages) {
+          if (prev.id === id) break;
+          if (prev.state === 'active') prev.state = 'done';
+        }
+      }
+      s.state = state;
+      if ('meta' in patch) s.meta = patch.meta;
+      if ('detail' in patch) s.detail = patch.detail;
+      render();
+      // Keep sidebar status in sync with whatever is active right now.
+      if (state === 'active') setStatus(s.label + (patch.detail ? ' — ' + patch.detail : '…'), 'loading');
+    },
+    bar(pct) {
+      const n = Math.max(0, Math.min(100, Math.round(pct)));
+      document.getElementById('progress-bar').style.width = n + '%';
+      document.getElementById('progress-pct').textContent = n + '%';
+    },
+    log(msg, opts = {}) {
+      logLines.push({ t: fmtElapsed(), msg, warn: !!opts.warn });
+      if (logLines.length > MAX_LOG) logLines = logLines.slice(-MAX_LOG);
+      renderLog();
+    },
+    end() {
+      if (tick) { clearInterval(tick); tick = null; }
+      const overlay = document.getElementById('progress-overlay');
+      // Hide immediately — we tried a CSS fade but the big innerHTML parse in
+      // showPreview can block the main thread long enough that the timer
+      // races with the following DOM reveal. Preview panel appearing covers
+      // the transition visually.
+      overlay.classList.remove('show');
+      overlay.classList.remove('fading');
+    },
+  };
+})();
 
 // ════════════════════════════════════════════════════════════════
 //  BOOT

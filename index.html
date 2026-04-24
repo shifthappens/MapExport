@@ -114,8 +114,19 @@
     <div id="map"></div>
     <div class="map-toast" id="map-toast">Pan to your city and click Draw rectangle</div>
     <div id="progress-overlay">
-      <div id="progress-label">Initialising…</div>
-      <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+      <div id="progress-box">
+        <div id="progress-header">
+          <span id="progress-title">Map export</span>
+          <span id="progress-elapsed">00:00</span>
+        </div>
+        <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+        <div id="progress-pct">0%</div>
+        <ul id="progress-stages"></ul>
+        <div id="progress-log-wrap">
+          <div id="progress-log-label">Activity</div>
+          <div id="progress-log"></div>
+        </div>
+      </div>
     </div>
     <div id="preview-pane">
       <h4>Live preview</h4>
