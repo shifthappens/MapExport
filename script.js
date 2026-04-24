@@ -150,7 +150,7 @@ const LAYER_REGISTRY = [
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
     { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, reserves',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
-      overpassQuery:(b)=>`wr["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
+      overpassQuery:(b)=>`wr["leisure"="park"]["name"](${b});wr["leisure"="nature_reserve"]["name"](${b});wr["leisure"="recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
       tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
   ]},
   { group: 'Built environment', layers: [

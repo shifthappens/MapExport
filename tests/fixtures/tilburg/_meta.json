@@ -26,12 +26,12 @@
       "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "parks": {
-      "query_template": "way[\"leisure\"~\"park|nature_reserve|recreation_ground\"][\"name\"](${b});relation[\"leisure\"~\"park|nature_reserve|recreation_ground\"][\"name\"](${b});way[\"landuse\"=\"forest\"][\"name\"](${b});relation[\"landuse\"=\"forest\"][\"name\"](${b});way[\"natural\"=\"wood\"][\"name\"](${b});relation[\"natural\"=\"wood\"][\"name\"](${b});",
+      "query_template": "wr[\"leisure\"=\"park\"][\"name\"](${b});wr[\"leisure\"=\"nature_reserve\"][\"name\"](${b});wr[\"leisure\"=\"recreation_ground\"][\"name\"](${b});wr[\"landuse\"=\"forest\"][\"name\"](${b});wr[\"natural\"=\"wood\"][\"name\"](${b});",
       "element_count": 31,
       "response_bytes": 47489,
       "fixture_bytes": 3882,
-      "elapsed_ms": 1548,
-      "endpoint": "https://overpass-api.de/api/interpreter"
+      "elapsed_ms": 4858,
+      "endpoint": "https://overpass.private.coffee/api/interpreter"
     },
     "buildings": {
       "query_template": "wr[\"landuse\"~\"residential|commercial|retail|industrial\"](${b});",
