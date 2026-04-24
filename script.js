@@ -102,12 +102,10 @@ const PRESETS = {
       residential:   { fill:'#ffffff', casing:'#F4AFA7' },
       unclassified:  { fill:'#ffffff', casing:'#F4AFA7' },
       living_street: { fill:'#ffffff', casing:'#F4AFA7' },
-      service:       { fill:'#ffffff', casing:'#F4AFA7' },
       cycleway:      { fill:'#ffffff', casing:'#F4AFA7' },
       pedestrian:    { fill:'#ffffff', casing:'#F4AFA7' },
       footway:       { fill:'#ffffff', casing:'#F4AFA7' },
       path:          { fill:'#ffffff', casing:'#F4AFA7' },
-      track:         { fill:'#ffffff', casing:'#F4AFA7' },
       steps:         { fill:'#ffffff', casing:'#F4AFA7' },
     },
     water: '#A4DBF3', waterOp: 1,
@@ -150,16 +148,16 @@ const LAYER_REGISTRY = [
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
     { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, reserves',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
-      overpassQuery:(b)=>`wr["leisure"~"park|nature_reserve|recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
+      overpassQuery:(b)=>`wr["leisure"="park"]["name"](${b});wr["leisure"="nature_reserve"]["name"](${b});wr["leisure"="recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
       tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
   ]},
   { group: 'Built environment', layers: [
-    { id:'buildings',    label:'Buildings',         hint:'All building footprints',     color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:1.5, strokeColor:'#b8a890',
-      overpassQuery:(b)=>`wr["building"](${b});`,
-      tagFilter:el=>el.type!=='node'&&!!el.tags?.building },
+    { id:'buildings',    label:'City blocks',       hint:'Residential, commercial & industrial zones', color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:0, strokeColor:'#b8a890',
+      overpassQuery:(b)=>`wr["landuse"~"residential|commercial|retail|industrial"](${b});`,
+      tagFilter:el=>el.type!=='node'&&/^(residential|commercial|retail|industrial)$/.test(el.tags?.landuse||'') },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});`,
-      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track)$/.test(el.tags?.highway||'') },
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps)$/.test(el.tags?.highway||'') },
     { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true,  type:'labels',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway)$/.test(el.tags?.highway||'')&&el.tags?.name },
@@ -239,17 +237,16 @@ const ROAD_WIDTHS = {
   secondary:{fillW:48,casingW:6},    secondary_link:{fillW:30,casingW:6},
   tertiary:{fillW:42,casingW:6},     tertiary_link:{fillW:27,casingW:6},
   residential:{fillW:30,casingW:6},  unclassified:{fillW:27,casingW:6},
-  living_street:{fillW:24,casingW:6}, service:{fillW:18,casingW:6},
+  living_street:{fillW:24,casingW:6},
   cycleway:{fillW:12,casingW:6,dash:'6 3'},
   pedestrian:{fillW:27,casingW:6},
   footway:{fillW:9,casingW:6,dash:'4 2'},
   path:{fillW:7.5,casingW:6,dash:'4 2'},
-  track:{fillW:9,casingW:6,dash:'5 3'},
   steps:{fillW:9,casingW:6,dash:'2 2'},
   _default:{fillW:18,casingW:6},
 };
-const ROAD_DRAW_ORDER=['track','path','footway','steps','cycleway','pedestrian','service','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
-const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',service:'Service roads',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',track:'Tracks',steps:'Steps'};
+const ROAD_DRAW_ORDER=['path','footway','steps','cycleway','pedestrian','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
+const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',steps:'Steps'};
 
 // Label visibility per road category (controlled from UI)
 const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:false, cycleway:false, footway:false };
@@ -1487,7 +1484,7 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress) {
 // export driver can render layers one-by-one and yield to the event loop
 // between them (enabling per-layer progress + keeping the UI responsive).
 function renderLayerSVG({ layer, data }, ctx) {
-  const { b, pr, W, H, preset, EPS, precomputedBlocks } = ctx;
+  const { b, pr, W, H, preset, EPS } = ctx;
   if (!data?.elements?.length) return '';
   const elements = data.elements.filter(el => elementInBbox(el, b));
   if (!elements.length) return '';
@@ -1525,16 +1522,30 @@ function renderLayerSVG({ layer, data }, ctx) {
     if (!content) return '';
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
-  if (layer.id==='buildings' && precomputedBlocks && precomputedBlocks.length) {
-    fillColor=preset.building; strokeColor=preset.buildingStroke;
+  if (layer.id==='buildings') {
+    fillColor = preset.building;
     const fo = layer.fillOpacity ?? 0.8;
-    let content = '';
-    for (let i = 0; i < precomputedBlocks.length; i++) {
-      const bl = precomputedBlocks[i];
-      const pathD = bl.outer + (bl.holes.length ? ' ' + bl.holes.join(' ') : '');
-      content += `<path id="block_${i}" d="${pathD}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
-    }
-    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+    const categories = ['residential','commercial','retail','industrial'];
+    const buckets = Object.fromEntries(categories.map(c => [c, []]));
+    elements.forEach(el => {
+      const cat = el.tags?.landuse;
+      if (!buckets[cat]) return;
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
+      if (el.type === 'relation' && el.members) {
+        el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
+        d = d.trim();
+      }
+      if (!d) return;
+      const idx = buckets[cat].length + 1;
+      buckets[cat].push(`<path id="${cat}_block_${idx}" inkscape:label="${cat} block ${idx}" d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`);
+    });
+    const subgroups = categories
+      .filter(c => buckets[c].length)
+      .map(c => `    <g id="buildings_${c}" inkscape:label="${c[0].toUpperCase()}${c.slice(1)}" inkscape:groupmode="layer">\n      ${buckets[c].join('\n      ')}\n    </g>`)
+      .join('\n');
+    if (!subgroups) return '';
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
   }
 
   elements.forEach(el=>{
@@ -1569,13 +1580,12 @@ function renderLayerSVG({ layer, data }, ctx) {
 
 const LAYER_ORDER = ['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
 
-function buildSVGContext(b, W, precomputedBlocks) {
+function buildSVGContext(b, W) {
   const { pr, H } = makeProjector(b, W);
   return {
     b, pr, W, H,
     preset: PRESETS[activePreset],
     EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
-    precomputedBlocks,
   };
 }
 
@@ -1611,8 +1621,8 @@ function sortedResults(results) {
   return [...results].sort((a,z) => (LAYER_ORDER.indexOf(a.layer.id) || 999) - (LAYER_ORDER.indexOf(z.layer.id) || 999));
 }
 
-function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
-  const ctx = buildSVGContext(b, W, precomputedBlocks);
+function buildSVG(results, b, W, physicalWidthMm=null) {
+  const ctx = buildSVGContext(b, W);
   let layersSVG = '';
   for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);
   return wrapSVG(layersSVG, ctx, physicalWidthMm);
@@ -1630,14 +1640,7 @@ function scheduleLivePreview() {
     const filtered = lastResults.filter(r => selected.has(r.layer.id));
     if (!filtered.length) return;
 
-    // Compute blocks for preview if buildings layer is active
-    let blocks = null;
-    if (selected.has('buildings')) {
-      const {pr,H} = makeProjector(bbox, PREVIEW_W);
-      blocks = await computeBlocksAsync(filtered, pr, PREVIEW_W, H);
-    }
-
-    const svg = buildSVG(filtered, bbox, PREVIEW_W, null, blocks);
+    const svg = buildSVG(filtered, bbox, PREVIEW_W);
     const wrap = document.getElementById('preview-svg-wrap');
     wrap.innerHTML = svg;
     document.getElementById('preview-pane').classList.add('show');
@@ -1672,12 +1675,10 @@ async function doExport() {
   clearFailedTileOverlays();
   adaptiveTileDelay=350;
 
-  const hasBuildingsLayer = selected.some(l => l.id === 'buildings');
   const stages = [
     { id: 'plan_tiles',     label: 'Plan tiles' },
     { id: 'check_cache',    label: 'Check cache' },
     { id: 'fetch_tiles',    label: 'Fetch tiles' },
-    ...(hasBuildingsLayer ? [{ id: 'compute_blocks', label: 'Compute city blocks' }] : []),
     { id: 'render_svg',     label: 'Render SVG' },
     { id: 'finalize',       label: 'Finalize' },
   ];
@@ -1839,28 +1840,12 @@ async function doExport() {
   const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
   const estMB=(totalElements*0.0003).toFixed(1);
 
-  // Stage 4 — compute city blocks (only if buildings layer is selected)
-  let precomputedBlocks = null;
-  if (hasBuildingsLayer) {
-    progress.setStage('compute_blocks', 'active', { detail: 'Starting worker…' });
-    const {pr,H}=makeProjector(bbox,W);
-    let lastBlockMsg = '';
-    precomputedBlocks = await computeBlocksAsync(results, pr, W, H, (msg, pct) => {
-      progress.setStage('compute_blocks', 'active', { detail: msg });
-      progress.bar(70 + Math.round(pct * 0.2));
-      if (msg !== lastBlockMsg) { progress.log(`Blocks: ${msg}`); lastBlockMsg = msg; }
-    });
-    progress.setStage('compute_blocks', 'done', { meta: `${precomputedBlocks?.length||0} blocks`, detail: '' });
-    progress.bar(90);
-  }
-
-  // Stage 5 — render SVG, per-layer
+  // Stage 4 — render SVG, per-layer
   progress.setStage('render_svg', 'active', { detail: 'Preparing…' });
-  const ctx = buildSVGContext(bbox, W, precomputedBlocks);
+  const ctx = buildSVGContext(bbox, W);
   const ordered = sortedResults(results);
   let layersSVG = '';
-  const renderBase = hasBuildingsLayer ? 90 : 70;
-  const renderSpan = 100 - renderBase - 2; // leave 2% for finalize
+  const renderSpan = 98; // leave 2% for finalize
   for (let i = 0; i < ordered.length; i++) {
     const r = ordered[i];
     const n = r.data?.elements?.length || 0;
@@ -1869,13 +1854,13 @@ async function doExport() {
       detail: `${r.layer.label} (${n.toLocaleString()} elements)`,
     });
     layersSVG += renderLayerSVG(r, ctx);
-    progress.bar(renderBase + Math.round(((i+1)/ordered.length) * renderSpan));
+    progress.bar(70 + Math.round(((i+1)/ordered.length) * (renderSpan - 70)));
     // Yield to the event loop so the overlay actually repaints between layers.
     if (i < ordered.length - 1) await new Promise(r => setTimeout(r, 0));
   }
   progress.setStage('render_svg', 'done', { meta: `${ordered.length} layers`, detail: '' });
 
-  // Stage 6 — finalize
+  // Stage 5 — finalize
   progress.setStage('finalize', 'active', { detail: 'Wrapping SVG…' });
   await new Promise(r=>setTimeout(r,0));
   const svg = wrapSVG(layersSVG, ctx, physicalWidthMm);
