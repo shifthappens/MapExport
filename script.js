@@ -102,12 +102,10 @@ const PRESETS = {
       residential:   { fill:'#ffffff', casing:'#F4AFA7' },
       unclassified:  { fill:'#ffffff', casing:'#F4AFA7' },
       living_street: { fill:'#ffffff', casing:'#F4AFA7' },
-      service:       { fill:'#ffffff', casing:'#F4AFA7' },
       cycleway:      { fill:'#ffffff', casing:'#F4AFA7' },
       pedestrian:    { fill:'#ffffff', casing:'#F4AFA7' },
       footway:       { fill:'#ffffff', casing:'#F4AFA7' },
       path:          { fill:'#ffffff', casing:'#F4AFA7' },
-      track:         { fill:'#ffffff', casing:'#F4AFA7' },
       steps:         { fill:'#ffffff', casing:'#F4AFA7' },
     },
     water: '#A4DBF3', waterOp: 1,
@@ -158,8 +156,8 @@ const LAYER_REGISTRY = [
       overpassQuery:(b)=>`wr["landuse"~"residential|commercial|retail|industrial"](${b});`,
       tagFilter:el=>el.type!=='node'&&/^(residential|commercial|retail|industrial)$/.test(el.tags?.landuse||'') },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track"](${b});`,
-      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track)$/.test(el.tags?.highway||'') },
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps)$/.test(el.tags?.highway||'') },
     { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true,  type:'labels',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway)$/.test(el.tags?.highway||'')&&el.tags?.name },
@@ -239,17 +237,16 @@ const ROAD_WIDTHS = {
   secondary:{fillW:48,casingW:6},    secondary_link:{fillW:30,casingW:6},
   tertiary:{fillW:42,casingW:6},     tertiary_link:{fillW:27,casingW:6},
   residential:{fillW:30,casingW:6},  unclassified:{fillW:27,casingW:6},
-  living_street:{fillW:24,casingW:6}, service:{fillW:18,casingW:6},
+  living_street:{fillW:24,casingW:6},
   cycleway:{fillW:12,casingW:6,dash:'6 3'},
   pedestrian:{fillW:27,casingW:6},
   footway:{fillW:9,casingW:6,dash:'4 2'},
   path:{fillW:7.5,casingW:6,dash:'4 2'},
-  track:{fillW:9,casingW:6,dash:'5 3'},
   steps:{fillW:9,casingW:6,dash:'2 2'},
   _default:{fillW:18,casingW:6},
 };
-const ROAD_DRAW_ORDER=['track','path','footway','steps','cycleway','pedestrian','service','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
-const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',service:'Service roads',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',track:'Tracks',steps:'Steps'};
+const ROAD_DRAW_ORDER=['path','footway','steps','cycleway','pedestrian','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
+const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',steps:'Steps'};
 
 // Label visibility per road category (controlled from UI)
 const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:false, cycleway:false, footway:false };

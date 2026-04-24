@@ -42,12 +42,12 @@
       "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "roads": {
-      "query_template": "way[\"highway\"~\"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|service|cycleway|footway|path|pedestrian|steps|track\"](${b});",
-      "element_count": 13702,
-      "response_bytes": 6555500,
-      "fixture_bytes": 1568941,
-      "elapsed_ms": 747,
-      "endpoint": "https://overpass.private.coffee/api/interpreter"
+      "query_template": "way[\"highway\"~\"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps\"](${b});",
+      "element_count": 11305,
+      "response_bytes": 5615401,
+      "fixture_bytes": 1357686,
+      "elapsed_ms": 866,
+      "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "street_labels": {
       "query_template": "way[\"highway\"~\"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway\"][\"name\"](${b});",
