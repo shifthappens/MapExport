@@ -34,11 +34,11 @@
       "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "buildings": {
-      "query_template": "way[\"building\"](${b});relation[\"building\"](${b});",
-      "element_count": 86863,
-      "response_bytes": 53225370,
-      "fixture_bytes": 13091224,
-      "elapsed_ms": 1883,
+      "query_template": "wr[\"landuse\"~\"residential|commercial|retail|industrial\"](${b});",
+      "element_count": 46,
+      "response_bytes": 87295,
+      "fixture_bytes": 4545,
+      "elapsed_ms": 1222,
       "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "roads": {
