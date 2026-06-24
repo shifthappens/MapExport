@@ -152,9 +152,11 @@ const LAYER_REGISTRY = [
       tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
   ]},
   { group: 'Built environment', layers: [
-    { id:'buildings',    label:'City blocks',       hint:'Residential, commercial & industrial zones', color:'#d4c8b4', defaultOn:true,  type:'area', fillOpacity:0.8, strokeWidth:0, strokeColor:'#b8a890',
-      overpassQuery:(b)=>`wr["landuse"~"residential|commercial|retail|industrial"](${b});`,
-      tagFilter:el=>el.type!=='node'&&/^(residential|commercial|retail|industrial)$/.test(el.tags?.landuse||'') },
+    // City blocks are derived, not fetched: the worker fills the negative space of
+    // the road/rail/water/park network (each road-bounded face = one solid block,
+    // curb-to-curb). No overpassQuery → the Overpass fetch loop skips this layer; it
+    // renders from ctx.precomputedBlocks, computed from the roads/water/parks results.
+    { id:'city_blocks',  label:'City blocks',       hint:'Solid blocks filling the space between streets', color:'#d4c8b4', defaultOn:true,  type:'derived', fillOpacity:1, strokeWidth:0, strokeColor:'#b8a890' },
     { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps"](${b});`,
       tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps)$/.test(el.tags?.highway||'') },
@@ -231,19 +233,19 @@ function supersededQuery(layer, b, inFetchSet) {
 //  ROAD STYLE TABLE (widths — colours come from active preset)
 // ════════════════════════════════════════════════════════════════
 const ROAD_WIDTHS = {
-  motorway:{fillW:66,casingW:6},     trunk:{fillW:60,casingW:6},
-  motorway_link:{fillW:42,casingW:6}, trunk_link:{fillW:42,casingW:6},
-  primary:{fillW:54,casingW:6},      primary_link:{fillW:36,casingW:6},
-  secondary:{fillW:48,casingW:6},    secondary_link:{fillW:30,casingW:6},
-  tertiary:{fillW:42,casingW:6},     tertiary_link:{fillW:27,casingW:6},
-  residential:{fillW:30,casingW:6},  unclassified:{fillW:27,casingW:6},
-  living_street:{fillW:24,casingW:6},
-  cycleway:{fillW:12,casingW:6,dash:'6 3'},
-  pedestrian:{fillW:27,casingW:6},
-  footway:{fillW:9,casingW:6,dash:'4 2'},
-  path:{fillW:7.5,casingW:6,dash:'4 2'},
-  steps:{fillW:9,casingW:6,dash:'2 2'},
-  _default:{fillW:18,casingW:6},
+  motorway:{fillW:66,casingW:12},     trunk:{fillW:60,casingW:12},
+  motorway_link:{fillW:42,casingW:12}, trunk_link:{fillW:42,casingW:12},
+  primary:{fillW:54,casingW:12},      primary_link:{fillW:36,casingW:12},
+  secondary:{fillW:48,casingW:12},    secondary_link:{fillW:30,casingW:12},
+  tertiary:{fillW:42,casingW:12},     tertiary_link:{fillW:27,casingW:12},
+  residential:{fillW:30,casingW:12},  unclassified:{fillW:27,casingW:12},
+  living_street:{fillW:24,casingW:12},
+  cycleway:{fillW:12,casingW:12,dash:'6 3'},
+  pedestrian:{fillW:27,casingW:12},
+  footway:{fillW:9,casingW:12,dash:'4 2'},
+  path:{fillW:7.5,casingW:12,dash:'4 2'},
+  steps:{fillW:9,casingW:12,dash:'2 2'},
+  _default:{fillW:18,casingW:12},
 };
 const ROAD_DRAW_ORDER=['path','footway','steps','cycleway','pedestrian','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
 const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',steps:'Steps'};
@@ -284,8 +286,8 @@ function initMap() {
     maxZoom:19, crossOrigin:true
   }).addTo(map);
   failedTileLayerGroup = L.layerGroup().addTo(map);
-  // Keep Leaflet's cached container size in sync with the real element size.
-  // Fires on initial layout settle, window resize, and header height changes.
+  // Keep Leaflet's cached container size in sync with the real element size —
+  // fires on initial layout settle, window resize, and header height changes.
   new ResizeObserver(() => map.invalidateSize()).observe(mapEl);
 }
 
@@ -566,7 +568,7 @@ function mergeElements(arrays) {
 // ════════════════════════════════════════════════════════════════
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
-const OVERPASS_ENDPOINTS=['https://overpass.private.coffee/api/interpreter','https://overpass-api.de/api/interpreter'];
+const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
 const MAX_TILE_RETRIES=3;
 
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
@@ -756,6 +758,54 @@ async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgres
     }
   }
   return fetched;
+}
+
+// Race the combined query across ALL currently-available endpoints and return
+// the first successful response, aborting the losers. Used for single-tile
+// exports (small areas): the old worker-pool handed the one tile to whichever
+// endpoint grabbed it first, so a single slow/overloaded server could stall the
+// whole export while the others sat idle. Racing makes the fastest server win.
+async function fetchTileCombinedRace(layers, tile, onProgress=null) {
+  const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
+  const inFetchSet = new Set(layers.map(l => l.id));
+  const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
+  const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
+  const body = 'data=' + encodeURIComponent(q);
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const eps = OVERPASS_ENDPOINTS.filter(ep => { const bk = endpointBackoff[ep]; return !bk || Date.now() >= bk.until; });
+    if (!eps.length) {
+      const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+      await sleep(Math.max(0, soonest - Date.now()) + 200);
+      continue;
+    }
+    const reqStart = Date.now();
+    let ttfb = null;
+    const label = `racing ${eps.length} server${eps.length>1?'s':''}`;
+    if (onProgress) {
+      onProgress({ phase:'waiting', elapsed:0, endpoint: label });
+      ttfb = setInterval(() => onProgress({ phase:'waiting', elapsed: Math.round((Date.now()-reqStart)/1000), endpoint: label }), 500);
+    }
+    const controllers = eps.map(() => new AbortController());
+    const attempts = eps.map((ep, i) => (async () => {
+      const res = await fetch(ep, { method:'POST', headers, body, mode:'cors', signal: controllers[i].signal });
+      if (res.status === 429) { recordEndpoint429(ep); throw new Error('429 ' + ep); }
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + ep);
+      return { json: await res.json(), ep };
+    })());
+    try {
+      const winner = await Promise.any(attempts);
+      controllers.forEach((c, i) => { if (eps[i] !== winner.ep) c.abort(); });
+      if (ttfb) clearInterval(ttfb);
+      if (onProgress) onProgress({ phase:'downloading', received:0, total:0, endpoint: winner.ep });
+      return winner.json;
+    } catch (e) {
+      if (ttfb) clearInterval(ttfb);
+      // every endpoint failed this round — one retry, then give up
+    }
+  }
+  return null;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1195,10 +1245,6 @@ function getEps() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  CITY BLOCKS (ClipperLib: buffer roads → union → subtract from bbox)
-// ════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════
 //  CITY BLOCKS — Web Worker + ClipperLib
 //  Produces individual <path> elements for each block between roads.
 //  Runs in a Web Worker so the UI never freezes.
@@ -1293,7 +1339,7 @@ self.onmessage = function(e) {
   const voidUnion = new CLP.Paths();
   uc.Execute(CLP.ClipType.ctUnion, voidUnion, CLP.PolyFillType.pftNonZero, CLP.PolyFillType.pftNonZero);
 
-  self.postMessage({ type:'progress', msg:'Simplifying…', pct:65 });
+  self.postMessage({ type:'progress', msg:'Simplifying…', pct:60 });
 
   // Clean the union result
   const voidClean = [];
@@ -1302,22 +1348,24 @@ self.onmessage = function(e) {
     if (cl && cl.length >= 3) voidClean.push(cl);
   }
 
-  self.postMessage({ type:'progress', msg:'Cutting blocks…', pct:75 });
-
-  // Diff: bbox minus voids = blocks
-  const bbox = [
+  const bboxPath = [
     { X:0, Y:0 }, { X: Math.round(W), Y:0 },
     { X: Math.round(W), Y: Math.round(H) }, { X:0, Y: Math.round(H) }
   ];
+
+  self.postMessage({ type:'progress', msg:'Cutting blocks…', pct:72 });
+
+  // Stylised USE-IT city blocks: the city block is the negative space BETWEEN
+  // the streets — the whole canvas minus the road/rail/water/park network. Each
+  // road-bounded face becomes one solid shape, filled curb-to-curb (no building
+  // detail, no gaps). Diff: bbox − voids = blocks.
   const dc = new CLP.Clipper();
-  dc.AddPath(bbox, CLP.PolyType.ptSubject, true);
-  for (const vp of voidClean) {
-    dc.AddPath(vp, CLP.PolyType.ptClip, true);
-  }
+  dc.AddPath(bboxPath, CLP.PolyType.ptSubject, true);
+  for (const vp of voidClean) dc.AddPath(vp, CLP.PolyType.ptClip, true);
   const tree = new CLP.PolyTree();
   dc.Execute(CLP.ClipType.ctDifference, tree, CLP.PolyFillType.pftNonZero, CLP.PolyFillType.pftNonZero);
 
-  self.postMessage({ type:'progress', msg:'Tracing blocks…', pct:85 });
+  self.postMessage({ type:'progress', msg:'Tracing blocks…', pct:86 });
 
   // Collect raw block contours from PolyTree
   const rawBlocks = []; // { outer: ClipperPath, holes: [ClipperPath] }
@@ -1352,18 +1400,19 @@ self.onmessage = function(e) {
   }
 
   for (const raw of rawBlocks) {
-    // Skip blocks whose centroid is inside a water body
+    // Skip blocks whose centroid is inside a water body (safety check —
+    // water is already in voidClean, but partial coverage can leave slivers)
     const c = raw.outer;
     let cx = 0, cy = 0;
     for (const p of c) { cx += p.X; cy += p.Y; }
     cx /= c.length; cy /= c.length;
-    let inWater = false;
     if (waterPolys && waterPolys.length) {
+      let inWater = false;
       for (const wp of waterPolys) {
         if (pointInPoly(cx, cy, wp)) { inWater = true; break; }
       }
+      if (inWater) continue;
     }
-    if (inWater) continue;
 
     const outer = toD(raw.outer);
     if (!outer) continue;
@@ -1383,10 +1432,12 @@ function getBlockWorkerUrl() {
   return blockWorkerUrl;
 }
 
-// Prepare geometry data for the worker (project + simplify on main thread)
+// Prepare geometry data for the worker (project + simplify on main thread).
+// Collects the street/rail/water/park network whose negative space forms the
+// city blocks.
 function prepareBlockData(allResults, pr, W, H) {
   const sf = getScaleFactor(W);
-  const eps = 8.0; // aggressive simplification — blocks are simple shapes
+  const eps = 8.0; // aggressive simplification — cutters are coarse shapes
 
   const BLOCK_ROADS = new Set(['motorway','trunk','primary','secondary','tertiary',
     'residential','unclassified','living_street','pedestrian',
@@ -1486,6 +1537,18 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress) {
 // between them (enabling per-layer progress + keeping the UI responsive).
 function renderLayerSVG({ layer, data }, ctx) {
   const { b, pr, W, H, preset, EPS } = ctx;
+  // City blocks render from precomputed worker geometry, not from fetched
+  // elements — check this before the empty-elements guard below.
+  if (layer.id==='city_blocks') {
+    const blocks = ctx.precomputedBlocks || [];
+    if (!blocks.length) return '';
+    const fo = layer.fillOpacity ?? 0.8;
+    const paths = blocks.map((blk, i) => {
+      const d = blk.outer + (blk.holes.length ? ' ' + blk.holes.join(' ') : '');
+      return `<path id="block_${i+1}" inkscape:label="Block ${i+1}" d="${d}" fill="${preset.building}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
+    }).join('\n    ');
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+  }
   if (!data?.elements?.length) return '';
   const elements = data.elements.filter(el => elementInBbox(el, b));
   if (!elements.length) return '';
@@ -1523,32 +1586,6 @@ function renderLayerSVG({ layer, data }, ctx) {
     if (!content) return '';
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
-  if (layer.id==='buildings') {
-    fillColor = preset.building;
-    const fo = layer.fillOpacity ?? 0.8;
-    const categories = ['residential','commercial','retail','industrial'];
-    const buckets = Object.fromEntries(categories.map(c => [c, []]));
-    elements.forEach(el => {
-      const cat = el.tags?.landuse;
-      if (!buckets[cat]) return;
-      let d = '';
-      if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
-      if (el.type === 'relation' && el.members) {
-        el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
-        d = d.trim();
-      }
-      if (!d) return;
-      const idx = buckets[cat].length + 1;
-      buckets[cat].push(`<path id="${cat}_block_${idx}" inkscape:label="${cat} block ${idx}" d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`);
-    });
-    const subgroups = categories
-      .filter(c => buckets[c].length)
-      .map(c => `    <g id="buildings_${c}" inkscape:label="${c[0].toUpperCase()}${c.slice(1)}" inkscape:groupmode="layer">\n      ${buckets[c].join('\n      ')}\n    </g>`)
-      .join('\n');
-    if (!subgroups) return '';
-    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
-  }
-
   elements.forEach(el=>{
     if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
       const [x,y]=pr(el.lat,el.lon);
@@ -1579,14 +1616,15 @@ function renderLayerSVG({ layer, data }, ctx) {
   return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
 }
 
-const LAYER_ORDER = ['landuse_residential','landuse_industrial','water_bodies','waterways','buildings','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
+const LAYER_ORDER = ['landuse_residential','landuse_industrial','water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
 
-function buildSVGContext(b, W) {
+function buildSVGContext(b, W, precomputedBlocks) {
   const { pr, H } = makeProjector(b, W);
   return {
     b, pr, W, H,
     preset: PRESETS[activePreset],
     EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
+    precomputedBlocks: precomputedBlocks || null,
   };
 }
 
@@ -1622,8 +1660,8 @@ function sortedResults(results) {
   return [...results].sort((a,z) => (LAYER_ORDER.indexOf(a.layer.id) || 999) - (LAYER_ORDER.indexOf(z.layer.id) || 999));
 }
 
-function buildSVG(results, b, W, physicalWidthMm=null) {
-  const ctx = buildSVGContext(b, W);
+function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
+  const ctx = buildSVGContext(b, W, precomputedBlocks);
   let layersSVG = '';
   for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);
   return wrapSVG(layersSVG, ctx, physicalWidthMm);
@@ -1638,7 +1676,7 @@ function scheduleLivePreview() {
   previewDebounce = setTimeout(async () => {
     const PREVIEW_W = 600;
     const selected = new Set(getAllSelectedLayers().map(l => l.id));
-    const filtered = lastResults.filter(r => selected.has(r.layer.id));
+    const filtered = lastResults.filter(r => selected.has(r.layer.id) && r.layer.id !== 'city_blocks');
     if (!filtered.length) return;
 
     const svg = buildSVG(filtered, bbox, PREVIEW_W);
@@ -1676,10 +1714,16 @@ async function doExport() {
   clearFailedTileOverlays();
   adaptiveTileDelay=350;
 
+  const needsBlocks = selected.some(l => l.id === 'city_blocks');
+  // city_blocks has no overpassQuery — its buildings come from vector tiles.
+  // The Overpass fetch pipeline (cache keys, tile fetch, results) only handles
+  // layers that actually query Overpass.
+  const overpassLayers = selected.filter(l => typeof l.overpassQuery === 'function');
   const stages = [
     { id: 'plan_tiles',     label: 'Plan tiles' },
     { id: 'check_cache',    label: 'Check cache' },
     { id: 'fetch_tiles',    label: 'Fetch tiles' },
+    ...(needsBlocks ? [{ id: 'compute_blocks', label: 'Compute blocks' }] : []),
     { id: 'render_svg',     label: 'Render SVG' },
     { id: 'finalize',       label: 'Finalize' },
   ];
@@ -1717,7 +1761,7 @@ async function doExport() {
   // Stage 2 — cache probe
   progress.setStage('check_cache', 'active');
   const allKeys=[];
-  for (const tile of tiles) for (const layer of selected) allKeys.push(tileCacheKey(layer,tile));
+  for (const tile of tiles) for (const layer of overpassLayers) allKeys.push(tileCacheKey(layer,tile));
   const existingKeys=await cacheExistsBatch(allKeys);
   const cachedCount = existingKeys.size, totalKeys = allKeys.length, uncachedCount = totalKeys - cachedCount;
   progress.setStage('check_cache', 'done', { meta: `${cachedCount}/${totalKeys} cached` });
@@ -1735,7 +1779,7 @@ async function doExport() {
       const { tile, idx } = queue.shift();
       const uncachedLayers = [];
 
-      const cacheReads = selected.map(async layer => {
+      const cacheReads = overpassLayers.map(async layer => {
         const key = tileCacheKey(layer, tile);
         if (!existingKeys.has(key)) return { layer, cached: null };
         return { layer, cached: await cacheGet(key) };
@@ -1785,7 +1829,12 @@ async function doExport() {
         });
       };
 
-      const combined = await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
+      // Single-tile exports: race all endpoints (the fastest wins) instead of
+      // pinning to this worker's one endpoint. Multi-tile already parallelizes
+      // across endpoints via the worker pool, so keep the pinned path there.
+      const combined = tiles.length === 1
+        ? await fetchTileCombinedRace(uncachedLayers, tile, onFetchProgress)
+        : await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
       if (!combined) {
         console.warn(`Tile ${idx+1}/${tiles.length} failed after retries`);
         totalFailedTiles++;
@@ -1825,8 +1874,11 @@ async function doExport() {
     layer,
     data:{ elements: mergeElements([layerElements[layer.id]]), failedTiles:[] }
   }));
-  const failCount=results.filter(r=>!r.data.elements.length).length;
-  if (failCount===selected.length) {
+  // Abort only if there's nothing left to render: every Overpass layer came back
+  // empty AND we're not about to build blocks from vector tiles.
+  const overpassResults = results.filter(r => overpassLayers.includes(r.layer));
+  const allOverpassFailed = overpassResults.length > 0 && overpassResults.every(r => !r.data.elements.length);
+  if (allOverpassFailed && !needsBlocks) {
     progress.log('All fetches failed — aborting export', { warn: true });
     progress.end();
     document.getElementById('btn-export').disabled=false;
@@ -1841,11 +1893,25 @@ async function doExport() {
   const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
   const estMB=(totalElements*0.0003).toFixed(1);
 
-  // Stage 4 — render SVG, per-layer
+  // Stage — compute city blocks (negative space of the street/water/park network)
+  let precomputedBlocks = null;
+  if (needsBlocks) {
+    progress.setStage('compute_blocks', 'active', { detail: 'Starting worker…' });
+    const { pr: blockPr, H: blockH } = makeProjector(bbox, W);
+    precomputedBlocks = await computeBlocksAsync(results, blockPr, W, blockH, (msg, pct) => {
+      progress.setStage('compute_blocks', 'active', { detail: msg });
+      progress.bar(70 + Math.round(pct * 0.20));
+    });
+    progress.setStage('compute_blocks', 'done', { meta: `${precomputedBlocks.length} blocks` });
+    progress.log(`Computed ${precomputedBlocks.length} city blocks`);
+  }
+
+  // Stage — render SVG, per-layer
   progress.setStage('render_svg', 'active', { detail: 'Preparing…' });
-  const ctx = buildSVGContext(bbox, W);
+  const ctx = buildSVGContext(bbox, W, precomputedBlocks);
   const ordered = sortedResults(results);
   let layersSVG = '';
+  const renderStart = needsBlocks ? 90 : 70;
   const renderSpan = 98; // leave 2% for finalize
   for (let i = 0; i < ordered.length; i++) {
     const r = ordered[i];
@@ -1855,7 +1921,7 @@ async function doExport() {
       detail: `${r.layer.label} (${n.toLocaleString()} elements)`,
     });
     layersSVG += renderLayerSVG(r, ctx);
-    progress.bar(70 + Math.round(((i+1)/ordered.length) * (renderSpan - 70)));
+    progress.bar(renderStart + Math.round(((i+1)/ordered.length) * (renderSpan - renderStart)));
     // Yield to the event loop so the overlay actually repaints between layers.
     if (i < ordered.length - 1) await new Promise(r => setTimeout(r, 0));
   }

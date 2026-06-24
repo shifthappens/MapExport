@@ -14,7 +14,7 @@ type: project
 ## Architecture
 - **Single-page app**: `index.html` + `script.js` + `style.css` (no framework)
 - **Data source**: Overpass API (OpenStreetMap), fetched tile-by-tile with adaptive delay
-- **Buildings/landuse**: Direct OSM `landuse` polygons (residential, commercial, retail, industrial) — fetched and rendered as individual named `<path>` elements, grouped into per-category Inkscape sublayers. Web Worker block computation was removed (Apr 2026).
+- **City blocks**: stylised USE-IT blocks = the **negative space between streets**. A Web Worker fills the whole canvas, then subtracts the buffered road/rail/water/park network; each road-bounded face becomes one solid cream shape, curb-to-curb. Derived from the existing Overpass roads/water/parks layers, not separately fetched. See "City blocks" section below.
 - **Output**: SVG with named Inkscape-compatible layers (`inkscape:label`, `inkscape:groupmode="layer"`)
 - **Caching**: Server-side PHP cache (`cache.php`) with 7-day TTL; cache key = `mapexport_v3_{layerId}_{qHash}_{s}_{w}`. Query hash auto-retires stale entries on any query change.
 - **Minification**: `minify.sh` (terser for JS, custom node script for CSS), runs via pre-commit hook on the user's local machine
@@ -35,10 +35,10 @@ type: project
 - Water (all): `#A4DBF3`
 - Parks/green: `#51A886`
 - Roads fill: `#ffffff`
-- Road casing: `#F4AFA7` (uniform width: 6)
+- Road casing: `#F4AFA7` (uniform width: 12 — bumped from 6 Jun 2026 so streets "pop" like the USE-IT Ghent reference)
 
 ## Layer render order (bottom to top)
-`water_bodies → waterways → buildings → parks → roads → rail → tram → metro → transit_stops → labels`
+`water_bodies → waterways → city_blocks → parks → roads → rail → tram → metro → transit_stops → labels`
 
 Key rendering decisions:
 - Buildings (blocks) render BEFORE roads — so road strokes cover block edges
@@ -46,15 +46,41 @@ Key rendering decisions:
 - Each named park is a separate selectable `<path>` with its name as `id`
 - Tram and metro OFF by default in UI
 
-## Buildings / City blocks (landuse, Apr 2026)
-The old approach (Web Worker + ClipperLib computing blocks from road geometry) was removed. The `buildings` layer now:
-- Queries `wr["landuse"~"residential|commercial|retail|industrial"]` — neighbourhood-scale polygons, far fewer elements than individual building footprints
-- Renders directly as filled paths (same geometry pipeline as parks)
-- Groups by category into **per-category Inkscape sublayers**: `buildings_residential`, `buildings_commercial`, `buildings_retail`, `buildings_industrial`
-- Names each polygon individually: `residential_block_1`, `commercial_block_1`, etc. — so every zone is selectable in Inkscape
-- Layer label in UI: "City blocks" (id stays `buildings` for downstream compatibility)
+## City blocks (road-bounded faces / negative space, Jun 2026)
+Layer id `city_blocks` (type `derived`). Renders the **stylised USE-IT look**: the
+space between streets filled solid curb-to-curb as one cream shape per block — no
+building detail, no gaps. Matches the USE-IT Ghent reference map exactly.
 
-Web Worker code (`BLOCK_WORKER_SRC`, `getBlockWorkerUrl`, `prepareBlockData`, `computeBlocksAsync`) remains in `script.js` as dead code — clean it up in a separate pass.
+**Why this and not buildings:** earlier in the session we built a "merge real building
+footprints" version (OpenFreeMap vector tiles + morphological close). It was
+technically faithful but the user rejected it — too realistic/cluttered, not the
+stylised flat-block look. The USE-IT maps fill each road-enclosed face solid. All the
+vector-tile/MVT code was removed.
+
+**Algorithm (Web Worker `BLOCK_WORKER_SRC`):**
+- `prepareBlockData` collects the cutter network from the normal Overpass layers:
+  roads (buffered by `(fillW+casingW)·sf/2` per type), rail/tram/metro, waterways
+  (buffered lines), parks + water bodies (closed areas).
+- Worker buffers/unions those into `voidClean`, then `blocks = bboxCanvas − voidClean`
+  via a `ctDifference` PolyTree. Each top-level face = one block (holes for interior
+  parks/water). `minArea` culls slivers; light `dpS(2.0)` simplify on output.
+- Each block → its own `<path id="block_N" inkscape:label="Block N">` (selectable).
+
+**Colours (USE-IT preset, match Ghent):** block fill `#FEF6ED`, street fill `#ffffff`,
+road casing `#F4AFA7`, water `#A4DBF3`, parks `#51A886`, bg white. Render order puts
+`city_blocks` before parks/roads so the white road fill + coral casing sit on top
+(flush curb-to-curb). Road casing looks faint in small previews but scales with export
+width (A3 = 4961px ≈ 3.5× a 1400px preview).
+
+**Wiring gotchas:**
+- `city_blocks` has NO `overpassQuery`/`tagFilter` → excluded from the Overpass fetch
+  loop via `overpassLayers = selected.filter(l => l.overpassQuery)` in `doExport`. It's
+  computed from the roads/water/parks results, so those must be selected (all `defaultOn`).
+- `renderLayerSVG` checks the `city_blocks` branch **before** the empty-elements guard
+  (no fetched elements; renders from `ctx.precomputedBlocks`).
+- Live preview skips `city_blocks` (too heavy to recompute on debounce).
+- Verified against the Ghent bbox `51.06024,3.71797,51.06589,3.73428`: 65 blocks,
+  cream curb-to-curb, matches the reference.
 
 ## Parks filtering
 - Only named parks from OSM (`["name"]` in Overpass query)
@@ -88,6 +114,7 @@ All verified against the Tilburg fixture baseline (`51.530,5.040,51.590,5.130`).
 - **§1.1 layer supersession** (`05cc571`) — `SUPERSESSIONS` table + `supersededQuery(layer, b, inFetchSet)` strip sub-statements from a subordinate layer's query when ALL required superseders are in the same fetch. Current rules: `street_labels ← roads`, and three `water_labels` sub-statements covered by `waterways` / `water_bodies`. tagFilter picks the subordinate's elements out of the superseder's response.
   - Adding a rule: declare `{ strip: b => '...literal...', requires: ['superseder_id'] }`. The `strip` literal must appear verbatim in the subordinate's `overpassQuery('BBOX')` — `tests/supersession.mjs` enforces this.
 - **§2.1 endpoint-parallel tile fetches** (`700b399`) — `doExport` tile loop is now a worker pool: one worker pinned per endpoint in `OVERPASS_ENDPOINTS`, `preferredEndpoint` threaded through `fetchTileCombined`. Halves wall-clock on multi-tile exports. Per-endpoint backoff still honored.
+- **Endpoint racing for single-tile (Jun 2026)** — small/single-tile exports used only ONE endpoint (whichever worker grabbed the lone tile first), so a slow/overloaded server stalled the whole export for minutes. Fix: `OVERPASS_ENDPOINTS` reordered to put `overpass-api.de` first (+ added `overpass.kumi.systems`), and `fetchTileCombinedRace` fires the combined query at ALL available endpoints via `Promise.any`, returns the first success, aborts the losers. `doExport` uses the race when `tiles.length === 1`, the pinned pool otherwise. Brought a 1.5 km export from minutes to ~10–15 s (Overpass server compute now dominates; cached tiles are instant on re-export).
 - **§4.1 iterative Douglas-Peucker** (`2198ea7`) — `dpSimplify` rewritten with an explicit stack + `Uint8Array` keep-bitset. Identical output to the recursive version (no ordering change); avoids O(n) slice allocations per frame.
 
 ### Roads query (Apr 2026)

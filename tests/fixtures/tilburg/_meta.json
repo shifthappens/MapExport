@@ -33,14 +33,6 @@
       "elapsed_ms": 4858,
       "endpoint": "https://overpass.private.coffee/api/interpreter"
     },
-    "buildings": {
-      "query_template": "wr[\"landuse\"~\"residential|commercial|retail|industrial\"](${b});",
-      "element_count": 46,
-      "response_bytes": 87295,
-      "fixture_bytes": 4545,
-      "elapsed_ms": 1222,
-      "endpoint": "https://overpass-api.de/api/interpreter"
-    },
     "roads": {
       "query_template": "way[\"highway\"~\"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps\"](${b});",
       "element_count": 11305,
