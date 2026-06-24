@@ -277,15 +277,16 @@ function initMap() {
     mapEl.style.height = (window.innerHeight - document.getElementById('hdr').offsetHeight) + 'px';
   }
   setMapHeight();
-  window.addEventListener('resize', () => { setMapHeight(); map && map.invalidateSize(); });
+  window.addEventListener('resize', setMapHeight);
   map = L.map('map', { zoomControl:true }).setView([51.5555, 5.0913], 13);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom:19, crossOrigin:true
   }).addTo(map);
   failedTileLayerGroup = L.layerGroup().addTo(map);
-  setTimeout(() => map.invalidateSize(), 100);
-  setTimeout(() => map.invalidateSize(), 500);
+  // Keep Leaflet's cached container size in sync with the real element size.
+  // Fires on initial layout settle, window resize, and header height changes.
+  new ResizeObserver(() => map.invalidateSize()).observe(mapEl);
 }
 
 // ════════════════════════════════════════════════════════════════
