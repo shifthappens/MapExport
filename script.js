@@ -907,6 +907,90 @@ function getScaleFactor(W) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  ROAD SEGMENT MERGING — stitch adjacent same-name ways into runs
+// ════════════════════════════════════════════════════════════════
+// OSM splits a street at every intersection and tag change, so one road
+// becomes dozens of fragments (Ringbaan-Zuid = 105 ways). This stitches
+// ways sharing the SAME name AND highway class into maximal continuous
+// polylines ("runs"), matched exactly on shared node IDs (out body geom
+// gives each way a `nodes` array index-aligned with `geometry`). Each run
+// is shaped like a way ({type,id,tags,geometry}) so the renderer and the
+// labeler consume it unchanged. Unnamed ways pass through untouched.
+function mergeNamedWays(elements) {
+  // Endpoint key: prefer the OSM node id; fall back to a rounded coordinate
+  // so the stitcher still works if a data source omits `nodes`.
+  const endKey = (el, end) => {
+    const nodes = el.nodes;
+    if (nodes && nodes.length) return 'n' + (end === 0 ? nodes[0] : nodes[nodes.length - 1]);
+    const g = el.geometry, p = end === 0 ? g[0] : g[g.length - 1];
+    return p.lat.toFixed(7) + ',' + p.lon.toFixed(7);
+  };
+  const runs = [];
+  const groups = new Map(); // `${highway} ${name}` -> [ways]
+  for (const el of elements) {
+    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
+    const name = el.tags?.name;
+    if (!name) { runs.push(el); continue; } // unnamed: passes through unchanged
+    const key = (el.tags?.highway || '_default') + ' ' + name;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(el);
+  }
+  for (const ways of groups.values()) {
+    if (ways.length === 1) { runs.push(ways[0]); continue; }
+    for (const coords of stitchWays(ways, endKey))
+      runs.push({ type: 'way', id: ways[0].id, tags: ways[0].tags, geometry: coords });
+  }
+  return runs;
+}
+
+// Decompose one same-name+type group into continuous coordinate runs,
+// broken at nodes that aren't a clean degree-2 pass-through (dead ends,
+// forks/T-junctions). Leftover pure cycles (ring roads, roundabouts) are
+// each emitted as one closed run. Connections are endpoint-to-endpoint.
+function stitchWays(ways, endKey) {
+  const ends = ways.map(w => [endKey(w, 0), endKey(w, 1)]);
+  const at = new Map(); // endpoint key -> [way indices touching it]
+  ends.forEach(([a, b], i) => {
+    (at.get(a) || at.set(a, []).get(a)).push(i);
+    (at.get(b) || at.set(b, []).get(b)).push(i);
+  });
+  const degree = k => (at.get(k) || []).length;
+  const used = new Uint8Array(ways.length);
+  // geometry of way i oriented to begin at its endpoint `start` (0|1)
+  const oriented = (i, start) => start === 0 ? ways[i].geometry : ways[i].geometry.slice().reverse();
+  // Walk from way i, entering at endpoint `enterKey`, consuming clean
+  // degree-2 connections until a dead end or fork. Returns joined coords.
+  const buildChain = (i, enterKey) => {
+    const begin = ends[i][0] === enterKey ? 0 : 1;
+    const coords = oriented(i, begin).slice();
+    used[i] = 1;
+    let cur = i, far = ends[i][begin === 0 ? 1 : 0];
+    while (degree(far) === 2) {
+      const next = (at.get(far) || []).find(j => j !== cur && !used[j]);
+      if (next === undefined) break;
+      const ns = ends[next][0] === far ? 0 : 1;
+      const seg = oriented(next, ns);
+      for (let k = 1; k < seg.length; k++) coords.push(seg[k]); // skip shared node
+      used[next] = 1;
+      cur = next; far = ends[next][ns === 0 ? 1 : 0];
+    }
+    return coords;
+  };
+  const out = [];
+  // Pass 1: open chains seeded at every non-degree-2 endpoint.
+  for (let i = 0; i < ways.length; i++) {
+    for (const e of [0, 1]) {
+      if (!used[i] && degree(ends[i][e]) !== 2) out.push(buildChain(i, ends[i][e]));
+    }
+  }
+  // Pass 2: anything left is a pure degree-2 cycle — emit one run each.
+  for (let i = 0; i < ways.length; i++) {
+    if (!used[i]) out.push(buildChain(i, ends[i][0]));
+  }
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  ROADS BUILDER
 // ════════════════════════════════════════════════════════════════
 function buildRoadsLayer(elements, pr, W) {
@@ -914,8 +998,8 @@ function buildRoadsLayer(elements, pr, W) {
   const eps = getEps();
   const preset = PRESETS[activePreset];
   const byType = new Map();
-  elements.forEach(el => {
-    if (el.type!=='way'||!el.geometry?.length) return;
+  mergeNamedWays(elements).forEach(el => {
+    if (!el.geometry?.length) return;
     const hw = el.tags?.highway||'_default';
     if (!byType.has(hw)) byType.set(hw,[]);
     byType.get(hw).push(el);
@@ -1067,6 +1151,22 @@ function angleAtMid(pts){
     acc+=seg;
   } return 0;
 }
+// Point + reading angle at a given arc-length along a polyline. Used to
+// place repeated street labels at fixed intervals along a merged run.
+function pointAngleAtLength(pts,target){
+  let acc=0;
+  for(let i=1;i<pts.length;i++){
+    const dx=pts[i][0]-pts[i-1][0],dy=pts[i][1]-pts[i-1][1],seg=Math.hypot(dx,dy);
+    if(acc+seg>=target){
+      const t=seg===0?0:(target-acc)/seg;
+      let a=Math.atan2(dy,dx)*180/Math.PI;if(a>90)a-=180;if(a<-90)a+=180;
+      return {x:pts[i-1][0]+dx*t,y:pts[i-1][1]+dy*t,angle:a};
+    }
+    acc+=seg;
+  }
+  const last=pts[pts.length-1];
+  return {x:last[0],y:last[1],angle:0};
+}
 function makeCollisionGrid(){
   const placed=[];
   return {
@@ -1081,52 +1181,18 @@ function buildLabelsLayer(elements, pr, W, H) {
   const collision=makeCollisionGrid();
   const defs=[],texts=[];
   let pid=0;
-  const sorted=[...elements].sort((a,b)=>{
+  // Merge fragments into continuous runs first (same as the roads layer), so
+  // each street is named along one shape instead of once per OSM fragment.
+  // Merging also makes the old roundabout pre-pass and x-spacing dedupe
+  // unnecessary: a roundabout is now a single closed run, and a long street is
+  // a single run that we label at a fixed interval below.
+  const sorted=mergeNamedWays(elements).sort((a,b)=>{
     const order=['motorway','trunk','primary','secondary','tertiary','residential'];
     return (order.indexOf(a.tags?.highway||'')||99)-(order.indexOf(b.tags?.highway||'')||99);
   });
-  const placedNames=new Map();
-
-  // Pre-pass: group all roundabout segments by name so that a roundabout
-  // split into many short arcs (like Sint-Annaplein) still gets one label
-  // placed at the collective centroid of all its segments.
-  const roundaboutHandled=new Set();
-  const roundaboutGroups=new Map(); // name → {hw, elements:[]}
-  sorted.forEach(el=>{
-    if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
-    if (el.tags?.junction!=='roundabout') return;
-    const name=el.tags.name, hw=el.tags.highway||'_default';
-    if (!roundaboutGroups.has(name)) roundaboutGroups.set(name,{hw,elements:[]});
-    roundaboutGroups.get(name).elements.push(el);
-  });
-  roundaboutGroups.forEach(({hw,elements},name)=>{
-    elements.forEach(el=>roundaboutHandled.add(el.id));
-    if (LABEL_VISIBILITY.hasOwnProperty(hw)&&!LABEL_VISIBILITY[hw]) return;
-    const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
-    const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
-    const maxFontSize=roadW.fillW*sf*0.75;
-    const sz=Math.min(style.size*sf,maxFontSize);
-    if (sz<4) return;
-    const displayName=name.toUpperCase();
-    const ls=sz*0.08;
-    const textW=approxTextWidth(displayName,sz,ls);
-    const allPts=elements.flatMap(el=>el.geometry.map(g=>pr(g.lat,g.lon)));
-    const cx=allPts.reduce((s,p)=>s+p[0],0)/allPts.length;
-    const cy=allPts.reduce((s,p)=>s+p[1],0)/allPts.length;
-    const lastX=placedNames.get(name);
-    if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-    const lh=sz*1.4;
-    if (collision.overlaps(cx,cy,textW,lh)) return;
-    collision.add(cx,cy,textW,lh);
-    placedNames.set(name,cx);
-    const textId=`lbl_${safeName(name)}_${pid++}`;
-    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
-  });
 
   sorted.forEach(el=>{
-    if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
-    if (roundaboutHandled.has(el.id)) return; // already handled in pre-pass
+    if (!el.geometry?.length||!el.tags?.name) return;
     const name=el.tags.name, hw=el.tags.highway||'_default';
     // Check label visibility toggle
     if (LABEL_VISIBILITY.hasOwnProperty(hw) && !LABEL_VISIBILITY[hw]) return;
@@ -1139,21 +1205,18 @@ function buildLabelsLayer(elements, pr, W, H) {
     const ls=sz*0.08;
     const pts=el.geometry.map(g=>pr(g.lat,g.lon));
     const textW=approxTextWidth(displayName,sz,ls);
+    const lh=sz*1.4;
 
-    // Closed-loop named areas (squares, plazas): place a centered label at centroid.
+    // Closed-loop labels at centroid: plazas/pedestrian areas and roundabouts.
     const isClosed = pts.length>=3 &&
       Math.hypot(pts[0][0]-pts[pts.length-1][0], pts[0][1]-pts[pts.length-1][1]) < 2;
-    const isArea = isClosed && (hw==='pedestrian' || el.tags?.area==='yes');
+    const isArea = isClosed && (hw==='pedestrian' || el.tags?.area==='yes' || el.tags?.junction==='roundabout');
 
     if (isArea) {
       const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
       const cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
-      const lastX=placedNames.get(name);
-      if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-      const lh=sz*1.4;
       if (collision.overlaps(cx,cy,textW,lh)) return;
       collision.add(cx,cy,textW,lh);
-      placedNames.set(name,cx);
       const textId=`lbl_${safeName(name)}_${pid++}`;
       const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
       texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
@@ -1163,27 +1226,31 @@ function buildLabelsLayer(elements, pr, W, H) {
     const len=pathLength(pts);
     if (len<style.minLen*sf||len<textW*1.05) return;
     let pathPts=[...pts];
-    if (pathPts.length>=2&&pathPts[0][0]>pathPts[pathPts.length-1][0]) pathPts.reverse();
-    const mid=pathPts[Math.floor(pathPts.length/2)];
-    const cx=mid[0],cy=mid[1];
-    const lastX=placedNames.get(name);
-    if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-    const angle=angleAtMid(pathPts);
-    const lh=sz*1.4, pad=Math.abs(Math.sin(angle*Math.PI/180))*lh;
-    if (collision.overlaps(cx,cy,textW+pad,lh+pad)) return;
-    collision.add(cx,cy,textW+pad,lh+pad);
-    placedNames.set(name,cx);
+    if (pathPts[0][0]>pathPts[pathPts.length-1][0]) pathPts.reverse();
     const pathId=`lp${pid++}`;
-    const textId=`lbl_${safeName(name)}_${pid}`;
     let d=`M${pathPts[0][0].toFixed(1)},${pathPts[0][1].toFixed(1)}`;
     for(let i=1;i<pathPts.length;i++) d+=`L${pathPts[i][0].toFixed(1)},${pathPts[i][1].toFixed(1)}`;
-    defs.push(`<path id="${pathId}" inkscape:label="${escXml(name)} (path)" d="${d}"/>`);
-    const offset=Math.max(0,(len-textW)/2);
-    const offsetPct=((offset/len)*100).toFixed(1);
     const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} fill="${preset.labelColor}"><textPath xlink:href="#${pathId}" startOffset="${offsetPct}%">${escXml(displayName)}</textPath></text>`);
+    // Repeat the name every ~`spacing` along the run so a long merged street
+    // is labelled several times instead of once at the centre.
+    const count=Math.max(1,Math.floor(len/(style.spacing*sf)));
+    const localTexts=[];
+    for(let c=0;c<count;c++){
+      const center=len*(c+0.5)/count, start=center-textW/2;
+      if (start<0||start+textW>len) continue; // text wouldn't fit at this slot
+      const p=pointAngleAtLength(pathPts,center);
+      const pad=Math.abs(Math.sin(p.angle*Math.PI/180))*lh;
+      if (collision.overlaps(p.x,p.y,textW+pad,lh+pad)) continue;
+      collision.add(p.x,p.y,textW+pad,lh+pad);
+      const offsetPct=((start/len)*100).toFixed(1);
+      const textId=`lbl_${safeName(name)}_${pid++}`;
+      localTexts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} fill="${preset.labelColor}"><textPath xlink:href="#${pathId}" startOffset="${offsetPct}%">${escXml(displayName)}</textPath></text>`);
+    }
+    if (!localTexts.length) return;
+    defs.push(`<path id="${pathId}" inkscape:label="${escXml(name)} (path)" d="${d}"/>`);
+    localTexts.forEach(t=>texts.push(t));
   });
-  if (!defs.length) return '';
+  if (!texts.length) return '';
   return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
 }
 
