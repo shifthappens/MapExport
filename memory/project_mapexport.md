@@ -21,7 +21,7 @@ type: project
 - **Deployment**: `deploy.sh` — rsync to coen.at server (see `reference_deploy.md`)
 
 ## Key files
-- `script.js` — All application logic (~1944 lines). **This is the source of truth** — `script.min.js` is generated from it.
+- `script.js` — All application logic (~2500 lines). **This is the source of truth** — `script.min.js` is generated from it.
 - `index.html` — Loads `script.min.js`, `style.min.css`, ClipperLib CDN, Leaflet
 - `style.css` / `style.min.css` — UI styles
 - `minify.sh` — Build script (pre-commit hook, local only — not in repo)
@@ -38,7 +38,7 @@ type: project
 - Road casing: `#F4AFA7` (uniform width: 12 — bumped from 6 Jun 2026 so streets "pop" like the USE-IT Ghent reference)
 
 ## Layer render order (bottom to top)
-`water_bodies → waterways → city_blocks → parks → roads → rail → tram → metro → transit_stops → labels`
+`landuse_residential → landuse_industrial → water_bodies → waterways → city_blocks → parks → roads → rail → tram → metro → transit_stops → poi_amenity → poi_tourism → poi_shops → street_labels → water_labels`
 
 Key rendering decisions:
 - Buildings (blocks) render BEFORE roads — so road strokes cover block edges
@@ -122,8 +122,9 @@ All verified against the Tilburg fixture baseline (`51.530,5.040,51.590,5.130`).
 
 If users report missing driveways or farm tracks, restore `service` and/or `track` as a deliberate decision.
 
-### Minify pre-commit hook gotcha
-Every commit that touches `script.js` must also include the regenerated `script.min.js`. The pre-commit hook runs `minify.sh` but leaves the updated `.min.js` **unstaged** — after the initial commit, always follow with `git add script.min.js && git commit --amend --no-edit`. Otherwise deploys serve stale minified code.
+### Minify pre-commit hook
+The pre-commit hook runs `minify.sh` and auto-stages the regenerated `script.min.js`
+and `style.min.css`. No manual amend needed — just commit normally.
 
 ### Test harness
 See `tests/README.md`. Five scripts under `tests/`:
@@ -154,8 +155,9 @@ Declared up front in `doExport`:
 1. `plan_tiles` — result of `bboxToTiles(bbox)`; meta shows tile count + `· adaptive` flag when applicable.
 2. `check_cache` — batch probe via `cacheExistsBatch`; meta shows `cached/total`.
 3. `fetch_tiles` — drives the 0–70% range. `detail` shows current TTFB/download status.
-4. `render_svg` — per-layer tick, 70–98%. (The `compute_blocks` stage was removed when buildings switched to landuse polygons.)
-5. `finalize` — 98–100%, `wrapSVG` + history write.
+4. `compute_blocks` — Web Worker computes city blocks (conditional, only when layer selected).
+5. `render_svg` — per-layer tick, 70–98%.
+6. `finalize` — 98–100%, `wrapSVG` + history write.
 
 ### Split `buildSVG`
 - `renderLayerSVG({layer,data}, ctx)` — pure per-layer renderer.

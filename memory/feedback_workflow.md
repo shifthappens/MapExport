@@ -22,10 +22,5 @@ type: feedback
 
 ---
 
-**Check your environment before assuming local tools are available.** Claude Code sessions started from the iOS app (or any server-based sandbox) run on a remote VM, not the user's local machine. In that environment:
-- `minify.sh` will not exist — do not expect the pre-commit hook to work
-- `script.min.js` will be stale (the copy in git, not freshly built)
-- `deploy.sh` will not exist
-- The user's local worktree (with all local tooling) is separate
-
-To detect this: check whether `minify.sh` exists (`ls /home/user/MapExport/minify.sh`), or look at timestamps (`ls -la script*.js` — if `script.min.js` is older than `script.js`, it's stale). If stale, note it to the user and let them rebuild locally — do not try to install terser or a minifier yourself.
+**Local dev server:** use `lamp start` (localhost:8080, docroot `~/Sites`) for local
+testing — enables the PHP cache. See [[lamp-local-server]].

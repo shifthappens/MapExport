@@ -76,8 +76,8 @@ mirrors currently in script.js are dead):
 | overpass-api.de | global | full (slots + exact wait) | `*` | 0.34s | ok |
 | overpass.openstreetmap.fr | global | 404 (none) | `*` | 0.79s | ok |
 | maps.mail.ru (VK) | global | no throttle | `*` | 0.51s | ok (Russian-operated; avoid by default) |
-| overpass.private.coffee | global | dead | — | — | in script.js, DROP |
-| overpass.kumi.systems | global | dead | — | — | in script.js, DROP |
+| overpass.private.coffee | global | intermittent (timeouts) | `*` | variable | in script.js, sometimes unreliable |
+| overpass.kumi.systems | global | working (Jun 2026) | `*` | ~3s | in script.js, usable fallback |
 | overpass.osm.ch | CH only | none | `*` | 0.34s | regional |
 | overpass.atownsend.org.uk | GB/IE only | no throttle | `*` | 0.29s | regional |
 | overpass.maprva.org | VA only | no throttle | `*` | 1.19s | regional |
