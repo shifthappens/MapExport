@@ -2525,5 +2525,17 @@ document.addEventListener('DOMContentLoaded',()=>{
     if (e.target === document.getElementById('help-modal')) hideHelp();
   });
 
+  // Mobile notice
+  const mobileNotice = document.getElementById('mobile-notice');
+  if (mobileNotice) {
+    if (localStorage.getItem('mapexport_mobile_ok')) {
+      mobileNotice.classList.add('dismissed');
+    }
+    document.getElementById('btn-mobile-ok').addEventListener('click', () => {
+      mobileNotice.classList.add('dismissed');
+      localStorage.setItem('mapexport_mobile_ok', '1');
+    });
+  }
+
   setTimeout(()=>hideToast(),4000);
 });

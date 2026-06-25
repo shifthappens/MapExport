@@ -213,6 +213,17 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #help-modal-body strong{color:var(--ink);font-weight:700}
 #help-modal-body .tip{margin-top:12px;padding:10px 14px;background:var(--cream2);border-left:4px solid var(--orange);border-radius:0 2px 2px 0;font-family:var(--body);font-size:13px;color:var(--ink2)}
 
+/* ── Mobile notice ──────────────────────────────────── */
+#mobile-notice{display:none;position:fixed;inset:0;background:rgba(24,24,15,.6);z-index:9999;align-items:center;justify-content:center}
+#mobile-notice-box{background:var(--white);border:2.5px solid var(--border);border-radius:2px;width:min(320px,88vw);padding:24px 22px;text-align:center}
+#mobile-notice-box strong{font-family:var(--display);font-weight:900;font-size:16px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink);display:block;margin-bottom:10px}
+#mobile-notice-box p{font-family:var(--body);font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:18px}
+#btn-mobile-ok{width:100%;padding:12px 0;background:var(--orange);border:none;border-radius:2px;font-family:var(--display);font-weight:900;font-size:15px;color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:background .15s}
+#btn-mobile-ok:hover{background:var(--orange-dk)}
+@media(min-width:769px){#mobile-notice{display:none!important}}
+@media(max-width:768px){#mobile-notice{display:flex}}
+#mobile-notice.dismissed{display:none!important}
+
 /* ── Failed tile overlays ────────────────────────────── */
 .failed-tile-rect{cursor:pointer;transition:fill-opacity .15s}
 .failed-tile-rect:hover{fill-opacity:.45!important}
