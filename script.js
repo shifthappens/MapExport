@@ -18,11 +18,11 @@ const HELP = {
       <p>Click <strong>Draw rectangle</strong>, then drag a box on the map to define what gets exported. The bounding box coordinates (N/S/E/W) are shown after drawing.</p>
       <p>You can redraw at any time — the new selection replaces the old one.</p>
       <ul>
-        <li>Small areas (a few city blocks) export in seconds</li>
-        <li>Large city areas can take 30+ seconds</li>
-        <li>Very large areas may time out on the OSM API</li>
+        <li>Small areas (a few city blocks) export in under a minute</li>
+        <li>A typical city centre can take 2–5 minutes</li>
+        <li>Large areas may take 10+ minutes — the public OSM servers enforce rate limits, so the export pauses between requests</li>
       </ul>
-      <div class="tip">A warning appears automatically when the selected area is very large. Consider splitting large exports into smaller sections.</div>
+      <div class="tip">Exports can take a while because the public Overpass API rate-limits requests. A warning appears when the selected area is very large — consider splitting large exports into smaller sections.</div>
     `
   },
   step2: {
@@ -45,7 +45,7 @@ const HELP = {
         <li><strong>Buildings</strong> — building footprints</li>
         <li><strong>Labels</strong> — road name text (per road type)</li>
       </ul>
-      <div class="tip">Disable layers you don't need. Buildings in particular can add thousands of paths and slow down the export significantly.</div>
+      <div class="tip">Disable layers you don't need to make exports faster and files smaller.</div>
     `
   },
   step4: {
