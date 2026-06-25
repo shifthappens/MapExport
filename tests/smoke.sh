@@ -3,6 +3,14 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+echo "== road-merge (offline, stitcher unit test) =="
+node tests/road-merge.mjs
+
+echo
+echo "== abbreviate (offline, name-abbreviation unit test) =="
+node tests/abbreviate.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

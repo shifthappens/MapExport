@@ -250,8 +250,9 @@ const ROAD_WIDTHS = {
 const ROAD_DRAW_ORDER=['path','footway','steps','cycleway','pedestrian','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
 const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',steps:'Steps'};
 
-// Label visibility per road category (controlled from UI)
-const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:false, cycleway:false, footway:false };
+// Label visibility per road category (controlled from UI). Default to labelling
+// every named road type; the UI can switch individual categories off.
+const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:true, cycleway:true, footway:true };
 
 // ════════════════════════════════════════════════════════════════
 //  METRO PALETTE
@@ -907,6 +908,90 @@ function getScaleFactor(W) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  ROAD SEGMENT MERGING — stitch adjacent same-name ways into runs
+// ════════════════════════════════════════════════════════════════
+// OSM splits a street at every intersection and tag change, so one road
+// becomes dozens of fragments (Ringbaan-Zuid = 105 ways). This stitches
+// ways sharing the SAME name AND highway class into maximal continuous
+// polylines ("runs"), matched exactly on shared node IDs (out body geom
+// gives each way a `nodes` array index-aligned with `geometry`). Each run
+// is shaped like a way ({type,id,tags,geometry}) so the renderer and the
+// labeler consume it unchanged. Unnamed ways pass through untouched.
+function mergeNamedWays(elements) {
+  // Endpoint key: prefer the OSM node id; fall back to a rounded coordinate
+  // so the stitcher still works if a data source omits `nodes`.
+  const endKey = (el, end) => {
+    const nodes = el.nodes;
+    if (nodes && nodes.length) return 'n' + (end === 0 ? nodes[0] : nodes[nodes.length - 1]);
+    const g = el.geometry, p = end === 0 ? g[0] : g[g.length - 1];
+    return p.lat.toFixed(7) + ',' + p.lon.toFixed(7);
+  };
+  const runs = [];
+  const groups = new Map(); // `${highway} ${name}` -> [ways]
+  for (const el of elements) {
+    if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
+    const name = el.tags?.name;
+    if (!name) { runs.push(el); continue; } // unnamed: passes through unchanged
+    const key = (el.tags?.highway || '_default') + ' ' + name;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(el);
+  }
+  for (const ways of groups.values()) {
+    if (ways.length === 1) { runs.push(ways[0]); continue; }
+    for (const coords of stitchWays(ways, endKey))
+      runs.push({ type: 'way', id: ways[0].id, tags: ways[0].tags, geometry: coords });
+  }
+  return runs;
+}
+
+// Decompose one same-name+type group into continuous coordinate runs,
+// broken at nodes that aren't a clean degree-2 pass-through (dead ends,
+// forks/T-junctions). Leftover pure cycles (ring roads, roundabouts) are
+// each emitted as one closed run. Connections are endpoint-to-endpoint.
+function stitchWays(ways, endKey) {
+  const ends = ways.map(w => [endKey(w, 0), endKey(w, 1)]);
+  const at = new Map(); // endpoint key -> [way indices touching it]
+  ends.forEach(([a, b], i) => {
+    (at.get(a) || at.set(a, []).get(a)).push(i);
+    (at.get(b) || at.set(b, []).get(b)).push(i);
+  });
+  const degree = k => (at.get(k) || []).length;
+  const used = new Uint8Array(ways.length);
+  // geometry of way i oriented to begin at its endpoint `start` (0|1)
+  const oriented = (i, start) => start === 0 ? ways[i].geometry : ways[i].geometry.slice().reverse();
+  // Walk from way i, entering at endpoint `enterKey`, consuming clean
+  // degree-2 connections until a dead end or fork. Returns joined coords.
+  const buildChain = (i, enterKey) => {
+    const begin = ends[i][0] === enterKey ? 0 : 1;
+    const coords = oriented(i, begin).slice();
+    used[i] = 1;
+    let cur = i, far = ends[i][begin === 0 ? 1 : 0];
+    while (degree(far) === 2) {
+      const next = (at.get(far) || []).find(j => j !== cur && !used[j]);
+      if (next === undefined) break;
+      const ns = ends[next][0] === far ? 0 : 1;
+      const seg = oriented(next, ns);
+      for (let k = 1; k < seg.length; k++) coords.push(seg[k]); // skip shared node
+      used[next] = 1;
+      cur = next; far = ends[next][ns === 0 ? 1 : 0];
+    }
+    return coords;
+  };
+  const out = [];
+  // Pass 1: open chains seeded at every non-degree-2 endpoint.
+  for (let i = 0; i < ways.length; i++) {
+    for (const e of [0, 1]) {
+      if (!used[i] && degree(ends[i][e]) !== 2) out.push(buildChain(i, ends[i][e]));
+    }
+  }
+  // Pass 2: anything left is a pure degree-2 cycle — emit one run each.
+  for (let i = 0; i < ways.length; i++) {
+    if (!used[i]) out.push(buildChain(i, ends[i][0]));
+  }
+  return out;
+}
+
+// ════════════════════════════════════════════════════════════════
 //  ROADS BUILDER
 // ════════════════════════════════════════════════════════════════
 function buildRoadsLayer(elements, pr, W) {
@@ -914,8 +999,8 @@ function buildRoadsLayer(elements, pr, W) {
   const eps = getEps();
   const preset = PRESETS[activePreset];
   const byType = new Map();
-  elements.forEach(el => {
-    if (el.type!=='way'||!el.geometry?.length) return;
+  mergeNamedWays(elements).forEach(el => {
+    if (!el.geometry?.length) return;
     const hw = el.tags?.highway||'_default';
     if (!byType.has(hw)) byType.set(hw,[]);
     byType.get(hw).push(el);
@@ -1059,6 +1144,9 @@ const LABEL_STYLES={
 // Uppercase chars are wider than lowercase; include letter-spacing in estimate
 function approxTextWidth(t,fs,ls=0){return t.length*(fs*0.65+ls);}
 function pathLength(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
+// Real-world length of a lat/lon polyline in metres (zoom-independent), used
+// to decide whether a street is large enough to deserve a label.
+function geoLength(geom){let m=0;for(let i=1;i<geom.length;i++){const a=geom[i-1],b=geom[i];const dx=(b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180),dy=b.lat-a.lat;m+=Math.hypot(dx,dy);}return m*111320;}
 function angleAtMid(pts){
   const total=pathLength(pts); let acc=0,mid=total*0.5;
   for(let i=1;i<pts.length;i++){
@@ -1067,6 +1155,22 @@ function angleAtMid(pts){
     acc+=seg;
   } return 0;
 }
+// Point + reading angle at a given arc-length along a polyline. Used to
+// place repeated street labels at fixed intervals along a merged run.
+function pointAngleAtLength(pts,target){
+  let acc=0;
+  for(let i=1;i<pts.length;i++){
+    const dx=pts[i][0]-pts[i-1][0],dy=pts[i][1]-pts[i-1][1],seg=Math.hypot(dx,dy);
+    if(acc+seg>=target){
+      const t=seg===0?0:(target-acc)/seg;
+      let a=Math.atan2(dy,dx)*180/Math.PI;if(a>90)a-=180;if(a<-90)a+=180;
+      return {x:pts[i-1][0]+dx*t,y:pts[i-1][1]+dy*t,angle:a};
+    }
+    acc+=seg;
+  }
+  const last=pts[pts.length-1];
+  return {x:last[0],y:last[1],angle:0};
+}
 function makeCollisionGrid(){
   const placed=[];
   return {
@@ -1074,116 +1178,255 @@ function makeCollisionGrid(){
     add(cx,cy,w,h,pad=4){placed.push({cx,cy,hw:w/2+pad,hh:h/2+pad});}
   };
 }
+// Footprint collision for street labels. A label is modelled as a ribbon of
+// overlapping circles along its actual baseline (straight, diagonal OR curved),
+// so a vertical / bent / textPath label collides correctly — the old single
+// horizontal box mismodelled everything that wasn't roughly horizontal. Backed
+// by a spatial hash so stamping many circles stays cheap.
+function makeFootprintGrid(cell=80){
+  const map=new Map();
+  const cellsOf=(x,y,r)=>{const o=[];for(let gx=Math.floor((x-r)/cell);gx<=Math.floor((x+r)/cell);gx++)for(let gy=Math.floor((y-r)/cell);gy<=Math.floor((y+r)/cell);gy++)o.push(gx+'/'+gy);return o;};
+  return {
+    hits(x,y,r){for(const k of cellsOf(x,y,r)){const a=map.get(k);if(a)for(const b of a)if((x-b[0])**2+(y-b[1])**2<(r+b[2])**2)return true;}return false;},
+    put(x,y,r){const box=[x,y,r];for(const k of cellsOf(x,y,r)){const a=map.get(k);if(a)a.push(box);else map.set(k,[box]);}}
+  };
+}
+
+// Compact, multilingual street-name abbreviations, applied ONLY when the full
+// name will not fit (so a tight street can still carry a path-following label).
+// Suffix rules match the glued compound endings used by Germanic/Scandinavian
+// languages; the rest match standalone type-words and honorifics. The tokens
+// are distinct enough across languages that the whole set can be applied
+// without knowing the country, and anything unmatched is left as-is. This is a
+// bounded table, not an exhaustive per-country database.
+// Curated from the OSM Name finder/Abbreviations list, European languages only.
+// Suffix rules (anchored with $) match the glued compound endings of Germanic /
+// Scandinavian languages; the rest match standalone type-words and honorifics
+// with word boundaries. Distinct enough across languages that the whole set can
+// be applied safely; anything unmatched is left as-is.
+const ABBREV=[
+  // ── compound suffixes (Dutch / German / Scandinavian, glued to the name) ──
+  [/straat$/i,'str.'],[/stra(ß|ss)e$/i,'str.'],[/stræde$/i,'str.'],
+  [/gracht$/i,'gr.'],[/singel$/i,'sngl.'],[/steenweg$/i,'stwg.'],
+  [/plein$/i,'pl.'],[/platz$/i,'pl.'],[/plass(en)?$/i,'pl.'],
+  [/laan$/i,'ln.'],[/gasse$/i,'g.'],[/katu$/i,'k.'],
+  [/gatan$/i,'g.'],[/gata$/i,'g.'],[/gade$/i,'g.'],
+  [/vägen$/i,'v.'],[/veien$/i,'v.'],[/vegen$/i,'v.'],[/allee$/i,'al.'],
+  // ── standalone type-words (Romance / Slavic / Turkic / Finno-Ugric) ──
+  [/\bavenida\b/i,'Av.'],[/\bavinguda\b/i,'Av.'],[/\bavenue\b/i,'Av.'],
+  [/\bboulevard\b/i,'Bd'],[/\bbulevar\b/i,'Bd'],[/\bbulevardul\b/i,'Bd'],
+  [/\bpla(ç|c)a\b/i,'Pl.'],[/\bplace\b/i,'Pl.'],[/\bplaza\b/i,'Pl.'],
+  [/\brue\b/i,'R.'],[/\brua\b/i,'R.'],[/\bcalle\b/i,'C/'],[/\bcarrer\b/i,'C/'],
+  [/\bpasseig\b/i,'Pg.'],[/\bpassatge\b/i,'Ptge.'],[/\bpassage\b/i,'Pass.'],[/\bpaseo\b/i,'Po.'],
+  [/\brambla\b/i,'Rbla.'],[/\bcarretera\b/i,'Ctra.'],[/\bcamino\b/i,'Cno.'],[/\bchemin\b/i,'Ch.'],[/\bestrada\b/i,'Estr.'],
+  [/\bviale\b/i,'V.le'],[/\bvicolo\b/i,'V.lo'],[/\bcorso\b/i,'C.so'],[/\bpiazza\b/i,'P.za'],[/\blargo\b/i,'L.go'],[/\bvia\b/i,'V.'],
+  [/\bpraça\b/i,'Pç.'],[/\btravessa\b/i,'Tv.'],[/\balameda\b/i,'Al.'],
+  [/\bulica\b/i,'ul.'],[/\bulice\b/i,'ul.'],[/\baleja\b/i,'al.'],[/\baleea\b/i,'Al.'],[/\bplac\b/i,'pl.'],
+  [/\bstrada\b/i,'Str.'],[/\bnám(ě|e)stí\b/i,'nám.'],[/\btřída\b/i,'tř.'],
+  [/\bcaddesi\b/i,'Cad.'],[/\bsoka(k|ğı)\b/i,'Sk.'],[/\bbulvarı\b/i,'Bul.'],[/\bmeydanı\b/i,'Mey.'],
+  [/\butca\b/i,'u.'],
+  // ── honorifics / titles ──
+  [/\bprofessor\b/i,'Prof.'],[/\bprofesora\b/i,'prof.'],[/\bdo[ck]tora?\b/i,'Dr.'],[/\bingenieur\b/i,'Ir.'],[/\bmeester\b/i,'Mr.'],
+  [/\b(generaal|general|général|generała)\b/i,'Gen.'],[/\bkolonel\b/i,'Kol.'],
+  [/\bburgemeester\b/i,'Burg.'],[/\bminister\b/i,'Min.'],[/\bpresident\b/i,'Pres.'],
+  [/\bkoningin\b/i,'Kon.'],[/\bkoning\b/i,'Kon.'],[/\bprins(es)?\b/i,'Pr.'],
+  [/\bpastoor\b/i,'Past.'],[/\bmonseigneur\b/i,'Mgr.'],[/\bkardina[ae]l\b/i,'Kard.'],[/\bbroeder\b/i,'Br.'],[/\bzuster\b/i,'Zr.'],
+  [/\b(sint|saint|sankt)\b/i,'St.'],[/\bsanta\b/i,'Sta.'],[/\bsanto\b/i,'Sto.'],[/\bsan\b/i,'S.'],[/\bsão\b/i,'S.'],
+  [/\bświętego\b/i,'św.'],[/\bświętej\b/i,'św.'],[/\bksiędza\b/i,'ks.'],[/\bmarszałka\b/i,'marsz.'],
+  [/\bsvatého\b/i,'sv.'],
+  // ── Cyrillic prefixes (whole word, surrounded by space/edges) ──
+  [/(^|\s)улица(\s|$)/i,'$1ул.$2'],[/(^|\s)вулиця(\s|$)/i,'$1вул.$2'],
+  [/(^|\s)площад[ьья]?(\s|$)/i,'$1пл.$2'],[/(^|\s)проспект(\s|$)/i,'$1просп.$2'],
+  [/(^|\s)(бул[еь]вар|булевард)(\s|$)/i,'$1бул.$3'],[/(^|\s)набережная(\s|$)/i,'$1наб.$2'],
+];
+function abbreviateName(name){
+  let s=name;
+  for(const [re,rep] of ABBREV) if(re.test(s)) s=s.replace(re,rep);
+  return s;
+}
 
 function buildLabelsLayer(elements, pr, W, H) {
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
-  const collision=makeCollisionGrid();
+  const grid=makeFootprintGrid();
   const defs=[],texts=[];
   let pid=0;
-  const sorted=[...elements].sort((a,b)=>{
-    const order=['motorway','trunk','primary','secondary','tertiary','residential'];
-    return (order.indexOf(a.tags?.highway||'')||99)-(order.indexOf(b.tags?.highway||'')||99);
-  });
-  const placedNames=new Map();
+  // Suppress same-name labels that land close together (e.g. the two
+  // carriageways of a divided road) while still allowing a long street to
+  // repeat its name far apart. Keyed by name → already-placed [x,y] centres.
+  const placedByName=new Map();
+  const nearName=(name,x,y,gap)=>{const a=placedByName.get(name);if(!a)return false;for(const p of a)if(Math.hypot(x-p[0],y-p[1])<gap)return true;return false;};
+  const recordName=(name,x,y)=>{const a=placedByName.get(name);if(a)a.push([x,y]);else placedByName.set(name,[[x,y]]);};
+  // Footprint helpers: a label occupies a ribbon of circles (radius = half the
+  // text height plus a small gap) along its baseline. fits() rejects if any
+  // circle hits an already-placed one; stamp() registers them.
+  const fpR=fs=>fs*0.62+Math.max(3,fs*0.22);
+  const fpLine=(x0,y0,x1,y1,r)=>{const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/r)),o=[];for(let k=0;k<=n;k++){const t=k/n;o.push([x0+(x1-x0)*t,y0+(y1-y0)*t]);}return o;};
+  const fpPath=(pp,s0,s1,r)=>{const len=Math.max(1,s1-s0),n=Math.max(1,Math.ceil(len/r)),o=[];for(let k=0;k<=n;k++){const p=pointAngleAtLength(pp,s0+len*k/n);o.push([p.x,p.y]);}return o;};
+  const fpFits=(fp,r)=>{for(const p of fp)if(grid.hits(p[0],p[1],r))return false;return true;};
+  const fpStamp=(fp,r)=>{for(const p of fp)grid.put(p[0],p[1],r);};
+  // Total heading change (degrees) over an arc — how much a label placed there
+  // would wrap. Sums the turn at every actual path vertex in range (so a sharp
+  // kink/hairpin is caught, not stepped over) to prefer straight stretches.
+  const bendOver=(pp,cum,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(cum[i]<=s0||cum[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
+  // Each label gets its OWN baseline sub-path covering just its extent, oriented
+  // to read left-to-right (or bottom-to-top when vertical). This is what stops
+  // labels rendering mirrored/upside-down when they land on a stretch of road
+  // that runs right-to-left — a whole-path reverse can't fix that per-label.
+  const ptAt=(pp,cum,s)=>{for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];};
+  const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
+  const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
+  // Emit one path-following label centred on its own oriented sub-path.
+  const emitPath=(name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`);};
 
-  // Pre-pass: group all roundabout segments by name so that a roundabout
-  // split into many short arcs (like Sint-Annaplein) still gets one label
-  // placed at the collective centroid of all its segments.
-  const roundaboutHandled=new Set();
-  const roundaboutGroups=new Map(); // name → {hw, elements:[]}
-  sorted.forEach(el=>{
-    if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
-    if (el.tags?.junction!=='roundabout') return;
-    const name=el.tags.name, hw=el.tags.highway||'_default';
-    if (!roundaboutGroups.has(name)) roundaboutGroups.set(name,{hw,elements:[]});
-    roundaboutGroups.get(name).elements.push(el);
-  });
-  roundaboutGroups.forEach(({hw,elements},name)=>{
-    elements.forEach(el=>roundaboutHandled.add(el.id));
-    if (LABEL_VISIBILITY.hasOwnProperty(hw)&&!LABEL_VISIBILITY[hw]) return;
-    const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
-    const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
-    const maxFontSize=roadW.fillW*sf*0.75;
-    const sz=Math.min(style.size*sf,maxFontSize);
-    if (sz<4) return;
-    const displayName=name.toUpperCase();
-    const ls=sz*0.08;
-    const textW=approxTextWidth(displayName,sz,ls);
-    const allPts=elements.flatMap(el=>el.geometry.map(g=>pr(g.lat,g.lon)));
-    const cx=allPts.reduce((s,p)=>s+p[0],0)/allPts.length;
-    const cy=allPts.reduce((s,p)=>s+p[1],0)/allPts.length;
-    const lastX=placedNames.get(name);
-    if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-    const lh=sz*1.4;
-    if (collision.overlaps(cx,cy,textW,lh)) return;
-    collision.add(cx,cy,textW,lh);
-    placedNames.set(name,cx);
-    const textId=`lbl_${safeName(name)}_${pid++}`;
-    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
-  });
+  const MIN_STREET_M=25;          // streets shorter than this overall get no label
+  // Cycle/foot paths are "minor": a street is never labelled on one of these
+  // when a real-road run of the same name exists.
+  const MINOR=new Set(['cycleway','footway','path','steps']);
+  // Importance order for which streets claim label space first.
+  const RANK=['motorway','trunk','primary','secondary','tertiary','unclassified','residential','living_street','pedestrian','cycleway','footway','path','steps'];
+  const rankOf=hw=>{const i=RANK.indexOf(hw);return i<0?RANK.length:i;};
+  // Square test must be language-free and must never mistake a bent/branched
+  // street for a square (a false positive writes a street name horizontally,
+  // which is exactly what we forbid). Geometry can't do this — bent streets are
+  // as "2D" as small plazas — so we trust only OSM's area mapping: an explicit
+  // place=square / area=yes, or a closed pedestrian/foot way (how a plaza is
+  // drawn). An under-mapped square just gets normal street treatment, which is
+  // never "written across".
+  const isClosedRun=r=>r.pts.length>=3 && Math.hypot(r.pts[0][0]-r.pts[r.pts.length-1][0],r.pts[0][1]-r.pts[r.pts.length-1][1])<2;
+  const looksLikeSquare=rs=>rs.some(r=>
+    r.el.tags?.place==='square' || r.el.tags?.area==='yes' ||
+    (isClosedRun(r) && (r.hw==='pedestrian'||r.hw==='footway'||r.hw==='living_street')));
 
-  sorted.forEach(el=>{
-    if (el.type!=='way'||!el.geometry?.length||!el.tags?.name) return;
-    if (roundaboutHandled.has(el.id)) return; // already handled in pre-pass
-    const name=el.tags.name, hw=el.tags.highway||'_default';
-    // Check label visibility toggle
-    if (LABEL_VISIBILITY.hasOwnProperty(hw) && !LABEL_VISIBILITY[hw]) return;
-    const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
-    const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
-    const maxFontSize=roadW.fillW*sf*0.75;
-    const sz=Math.min(style.size*sf, maxFontSize);
-    if (sz<4) return;
-    const displayName=name.toUpperCase();
-    const ls=sz*0.08;
+  // Merge fragments into continuous runs, project + measure each, drop hidden
+  // classes, and group by name so the label can be placed on the street's main
+  // (longest real-road) run rather than on whichever fragment sorts first.
+  const groups=new Map();
+  for (const el of mergeNamedWays(elements)) {
+    if (!el.geometry||el.geometry.length<2||!el.tags?.name) continue;
+    const hw=el.tags.highway||'_default';
+    if (LABEL_VISIBILITY.hasOwnProperty(hw)&&!LABEL_VISIBILITY[hw]) continue;
     const pts=el.geometry.map(g=>pr(g.lat,g.lon));
-    const textW=approxTextWidth(displayName,sz,ls);
+    const r={el,hw,pts,lenPx:pathLength(pts),lenM:geoLength(el.geometry)};
+    const a=groups.get(el.tags.name); if(a)a.push(r); else groups.set(el.tags.name,[r]);
+  }
+  // Per street: prefer real-road runs over cycle/footpaths, longest first; drop
+  // the whole street if even its main run is below the size gate; classify
+  // squares from geometry.
+  const streets=[];
+  for (const [name,rs] of groups) {
+    const nonMinor=rs.filter(r=>!MINOR.has(r.hw));
+    const pool=(nonMinor.length?nonMinor:rs).sort((a,b)=>b.lenPx-a.lenPx);
+    if (pool[0].lenM<MIN_STREET_M) continue;
+    // rank by the street's most important class, so a road that is mostly
+    // residential but has a tertiary stretch still claims space in the tertiary
+    // tier (and its long run wins collisions before the dense grid fills up).
+    const bestRank=Math.min(...pool.map(r=>rankOf(r.hw)));
+    const hasRoundabout=rs.some(r=>r.el.tags?.junction==='roundabout');
+    // Roundabouts follow the ring curve, so they are never "squares".
+    const isSquare = !hasRoundabout && looksLikeSquare(rs);
+    streets.push({name,pool,rs,bestRank,isSquare});
+  }
+  // Important/long streets claim label space first.
+  streets.sort((a,b)=>a.bestRank-b.bestRank||b.pool[0].lenPx-a.pool[0].lenPx);
 
-    // Closed-loop named areas (squares, plazas): place a centered label at centroid.
-    const isClosed = pts.length>=3 &&
-      Math.hypot(pts[0][0]-pts[pts.length-1][0], pts[0][1]-pts[pts.length-1][1]) < 2;
-    const isArea = isClosed && (hw==='pedestrian' || el.tags?.area==='yes');
+  for (const {name,pool,rs,isSquare} of streets) {
+    const displayName=name.toUpperCase();
 
-    if (isArea) {
-      const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
-      const cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
-      const lastX=placedNames.get(name);
-      if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-      const lh=sz*1.4;
-      if (collision.overlaps(cx,cy,textW,lh)) return;
-      collision.add(cx,cy,textW,lh);
-      placedNames.set(name,cx);
-      const textId=`lbl_${safeName(name)}_${pid++}`;
-      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="middle" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
-      return;
+    // ── Square / plaza: one horizontal label at the feature centroid, sized by
+    //    the most important class touching it ──
+    if (isSquare) {
+      const best=pool.reduce((a,b)=>rankOf(a.hw)<=rankOf(b.hw)?a:b);
+      const style=LABEL_STYLES[best.hw]||LABEL_STYLES._default;
+      const roadW=ROAD_WIDTHS[best.hw]||ROAD_WIDTHS._default;
+      const sz=Math.min(style.size*sf, roadW.fillW*sf*0.75); if(sz<3) continue;
+      const ls=sz*0.08, textW=approxTextWidth(displayName,sz,ls), nameGap=style.spacing*sf*0.85;
+      const all=rs.flatMap(r=>r.pts);
+      const cx=all.reduce((s,p)=>s+p[0],0)/all.length, cy=all.reduce((s,p)=>s+p[1],0)/all.length;
+      const r=fpR(sz), fp=fpLine(cx-textW/2,cy,cx+textW/2,cy,r);
+      if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
+      fpStamp(fp,r); recordName(name,cx,cy);
+      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
+      texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
+      continue;
     }
 
-    const len=pathLength(pts);
-    if (len<style.minLen*sf||len<textW*1.05) return;
-    let pathPts=[...pts];
-    if (pathPts.length>=2&&pathPts[0][0]>pathPts[pathPts.length-1][0]) pathPts.reverse();
-    const mid=pathPts[Math.floor(pathPts.length/2)];
-    const cx=mid[0],cy=mid[1];
-    const lastX=placedNames.get(name);
-    if (lastX!==undefined&&Math.abs(cx-lastX)<style.spacing*sf) return;
-    const angle=angleAtMid(pathPts);
-    const lh=sz*1.4, pad=Math.abs(Math.sin(angle*Math.PI/180))*lh;
-    if (collision.overlaps(cx,cy,textW+pad,lh+pad)) return;
-    collision.add(cx,cy,textW+pad,lh+pad);
-    placedNames.set(name,cx);
-    const pathId=`lp${pid++}`;
-    const textId=`lbl_${safeName(name)}_${pid}`;
-    let d=`M${pathPts[0][0].toFixed(1)},${pathPts[0][1].toFixed(1)}`;
-    for(let i=1;i<pathPts.length;i++) d+=`L${pathPts[i][0].toFixed(1)},${pathPts[i][1].toFixed(1)}`;
-    defs.push(`<path id="${pathId}" inkscape:label="${escXml(name)} (path)" d="${d}"/>`);
-    const offset=Math.max(0,(len-textW)/2);
-    const offsetPct=((offset/len)*100).toFixed(1);
-    const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" text-anchor="start" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-    texts.push(`<text id="${textId}" inkscape:label="${escXml(name)}" ${attrs} fill="${preset.labelColor}"><textPath xlink:href="#${pathId}" startOffset="${offsetPct}%">${escXml(displayName)}</textPath></text>`);
-  });
-  if (!defs.length) return '';
+    // ── Linear streets (and roundabouts): label each significant run ──
+    // Coverage-first placement: scan many positions along the run, and when
+    // every spot collides at full size, progressively shrink the font until a
+    // label fits. A street is only skipped when even a tiny label fits nowhere.
+    const MIN_FS=5;
+    for (const {el,hw,pts,lenPx,lenM} of pool) {
+      if (lenM<MIN_STREET_M) continue; // skip this street's tiny secondary stubs
+      const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
+      const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
+      const sz0=Math.min(style.size*sf, roadW.fillW*sf*0.75); if(sz0<3) continue;
+      const nameGap=style.spacing*sf*0.85;
+      const closed=pts.length>=3 && Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<2;
+      const ringLike = closed && el.tags?.junction==='roundabout';
+      // Abbreviate once the full name won't fit at the base size.
+      let label=displayName;
+      if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
+      let pathPts=[...pts];
+      const cum=[0]; for(let i=1;i<pathPts.length;i++) cum.push(cum[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
+      const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
+      const subFor=(c,lw)=>subPath(pathPts,cum,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
+
+      // Roundabout: name follows the ring curve (centre it if the ring is too small).
+      if (ringLike) {
+        const ls=sz0*0.08, lw=approxTextWidth(label,sz0,ls), r=fpR(sz0), attrs=attrsFor(sz0,ls);
+        if (lenPx>=lw) {
+          const fp=fpPath(pathPts,lenPx/2-lw/2,lenPx/2+lw/2,r);
+          const mid=pointAngleAtLength(pathPts,lenPx/2);
+          if (nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
+          fpStamp(fp,r); recordName(name,mid.x,mid.y);
+          emitPath(name,attrs,label,subFor(lenPx/2,lw));
+          continue;
+        }
+        const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length, cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+        const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
+        if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
+        fpStamp(fp,r); recordName(name,cx,cy);
+        texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`);
+        continue;
+      }
+
+      // Start at the largest font that fits the run length, then shrink ×0.8 on
+      // collision. At each size scan ~24 positions and place up to the ideal
+      // repeat count; stop shrinking as soon as ≥1 label lands.
+      const baseW=approxTextWidth(label,sz0,sz0*0.08);
+      const fitFs=lenPx>=baseW ? sz0 : sz0*lenPx/baseW*0.98;
+      const ideal=Math.max(1,Math.round(lenPx/(style.spacing*sf)));
+      for (let fs=fitFs; fs>=MIN_FS; fs*=0.8) {
+        const ls=fs*0.08, lw=approxTextWidth(label,fs,ls), r=fpR(fs);
+        if (lw>lenPx) continue;
+        const attrs=attrsFor(fs,ls);
+        const step=Math.max(8, lenPx/30);
+        // score every candidate by how much the label would wrap, then place
+        // the straightest first — so a label sits on a straight stretch rather
+        // than the first (possibly curved) spot that happens to fit.
+        const cands=[];
+        for (let center=lw/2; center<=lenPx-lw/2+0.5; center+=step)
+          cands.push({center, bend:bendOver(pathPts,cum,center-lw/2,center+lw/2)});
+        cands.sort((a,b)=>a.bend-b.bend);
+        const cap = fs<=MIN_FS*1.3 ? 120 : 80; // reject wrapped/cornered placements; relax a bit only as last resort
+        const placedC=[];
+        for (const c of cands) {
+          if (placedC.length>=ideal || c.bend>cap) break;
+          if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
+          const p=pointAngleAtLength(pathPts,c.center);
+          if (nearName(name,p.x,p.y,nameGap)) continue;
+          const fp=fpPath(pathPts,c.center-lw/2,c.center+lw/2,r); // ribbon along the actual baseline
+          if (!fpFits(fp,r)) continue;
+          fpStamp(fp,r); recordName(name,p.x,p.y);
+          emitPath(name,attrs,label,subFor(c.center,lw));
+          placedC.push(c.center);
+        }
+        if (placedC.length>0) break; // labelled at this size; no need to shrink further
+      }
+    }
+  }
+  if (!texts.length) return '';
   return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
 }
 

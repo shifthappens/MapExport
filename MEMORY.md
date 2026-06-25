@@ -2,3 +2,7 @@
 - [Deploy target](memory/reference_deploy.md) — SSH/rsync details for coen.at server
 - [Workflow preferences](memory/feedback_workflow.md) — Don't auto-deploy, minified files tracked, deploy.sh gitignored
 - [Reference materials](memory/reference_materials.md) — Tutorial PDF and Ghent .ai file in references/ folder
+- [Self-hosted Overpass](memory/reference_self_hosted_overpass.md) — Hardware/cost/difficulty of a private Europe-only Overpass server (future option, not in current plan)
+- [Roads merge + labels](memory/project_roads_merge_labels.md) — Road segment stitching + label engine rewrite (Jun 2026, branch roads-merge-segments)
+- [LAMP local server](memory/reference_lamp_server.md) — Use `lamp start` (localhost:8080) for local dev; enables PHP cache
+- [Label cartography](memory/feedback_label_cartography.md) — Labels must follow roads, never overflow, no horizontal on linear streets
