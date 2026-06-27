@@ -1276,10 +1276,22 @@ function buildLabelsLayer(elements, pr, W, H) {
   const ptAt=(pp,cum,s)=>{for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];};
   const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
-  // Emit one path-following label centred on its own oriented sub-path.
+  // Emit one path-following label centred on its own oriented sub-path. Used
+  // only for genuinely curved stretches: Illustrator imports <textPath> as one
+  // point-text object PER LETTER, so straight labels go through emitStraight.
   const emitPath=(name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`);};
+  // Emit one straight label as a single rotated <text> — a real, single
+  // editable text object (unlike <textPath>, which Illustrator explodes into
+  // one object per letter). Centred on (cx,cy) on the road centreline, rotated
+  // to the local road angle; same dominant-baseline centring as emitPath.
+  const emitStraight=(name,attrs,label,cx,cy,angle)=>{texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`);};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
+  // A chosen stretch bending less than this (degrees, total heading change over
+  // the label span) is emitted as a single rotated <text> rather than <textPath>
+  // — one editable object in Illustrator instead of one per letter. Curved
+  // stretches above it keep textPath so they still follow the road.
+  const STRAIGHT_BEND=12;
   // Cycle/foot paths are "minor": a street is never labelled on one of these
   // when a real-road run of the same name exists.
   const MINOR=new Set(['cycleway','footway','path','steps']);
@@ -1419,7 +1431,8 @@ function buildLabelsLayer(elements, pr, W, H) {
           const fp=fpPath(pathPts,c.center-lw/2,c.center+lw/2,r); // ribbon along the actual baseline
           if (!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,p.x,p.y);
-          emitPath(name,attrs,label,subFor(c.center,lw));
+          if (c.bend<=STRAIGHT_BEND) emitStraight(name,attrs,label,p.x,p.y,p.angle);
+          else emitPath(name,attrs,label,subFor(c.center,lw));
           placedC.push(c.center);
         }
         if (placedC.length>0) break; // labelled at this size; no need to shrink further
@@ -1950,8 +1963,10 @@ async function doExport() {
   const W=getExportWidth();
   const physicalWidthMm=PRINT_PHYSICAL_MM[document.getElementById('print-size').value]||null;
   const bboxStr=`${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
-  const date=new Date().toISOString().slice(0,10);
-  const filename=`map-${activePreset}-${date}.svg`;
+  // YYYY-MM-DD-HHMMSS (local time) so multiple exports on the same day don't collide.
+  const d=new Date(),p2=n=>String(n).padStart(2,'0');
+  const stamp=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+  const filename=`map-${activePreset}-${stamp}.svg`;
 
   document.getElementById('btn-export').disabled=true;
   clearFailedTileOverlays();
