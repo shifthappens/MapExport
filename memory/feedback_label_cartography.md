@@ -11,8 +11,12 @@ Street labels must make cartographic sense. The user will inspect the output clo
 overlapping, written across the road, overflowing past the street) break the product.
 
 **How to apply:**
-- Every linear street label must follow its road path (textPath). Never horizontal
-  across a linear street — only tag-mapped squares/plazas get centred horizontal text.
+- Every linear street label must read along its road. Near-straight stretches
+  (total bend ≤ STRAIGHT_BEND, ~12°) are emitted as a single rotated `<text>`
+  (one editable object — Illustrator imports `<textPath>` as one object PER
+  LETTER); curved stretches keep `<textPath>` so they still follow the bend.
+  Never horizontal across a linear street — only tag-mapped squares/plazas get
+  centred horizontal text.
 - Labels must never overflow past the road they sit on. If the name doesn't fit,
   abbreviate first, then shrink the font to fit. Small fonts are fine.
 - No overlapping labels. Verify with real rendered glyph extents, not axis-aligned

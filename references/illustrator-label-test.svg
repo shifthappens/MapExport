@@ -2,33 +2,44 @@
 <!--
   Illustrator label reproduction test (see PLAN.md).
 
-  Minimal artboard with the two ways MapExport emits label text:
-    1. Street label  -> <textPath> (text on a path), as in script.js:1280
-    2. Park label    -> plain <text x y>,            as in script.js:1474-1475
+  Minimal artboard reproducing, as faithfully as possible, the exact markup
+  MapExport writes for label text. Attribute order, number formatting,
+  ids/inkscape:labels and layer nesting all mirror the real export:
+
+    1. Street label  -> <textPath> inside the "Street labels" layer
+                        (script.js:1280, buildLabelsLayer)
+    2. Park label    -> halo <text> + fill <text>, two stacked elements,
+                        inside the "Water & park names" layer
+                        (script.js:1474-1475, buildFeatureLabelsLayer)
 
   Open in Adobe Illustrator to reproduce the reported bug:
     - the street name ("OUDE DIJK") imports as ONE point-text object PER LETTER,
       and sits high of the path centre (dominant-baseline ignored);
-    - the park name ("Stadspark Oude Dijk") imports as ONE editable text object.
+    - the park name ("Stadspark Oude Dijk") imports as ONE editable text object
+      (the white halo is a second, stroked copy underneath, via paint-order).
   Inkscape and browsers render BOTH correctly. The difference is Illustrator's
   SVG <textPath> / dominant-baseline import, not the markup.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
      width="900" height="400" viewBox="0 0 900 400">
   <rect width="900" height="400" fill="#ffffff"/>
 
-  <!-- ===== STREET LABEL: exactly how MapExport emits it (textPath) ===== -->
-  <!-- a curved street path -->
+  <!-- Visible road casing. In the real export this lives in the "roads" layer,
+       drawn separately from the label; here it is only a guide so the curve is
+       visible under the street label. -->
   <path d="M60,300 C250,150 650,150 840,300" fill="none" stroke="#F4AFA7" stroke-width="26"/>
-  <defs>
-    <path id="lp0" d="M60,300 C250,150 650,150 840,300"/>
-  </defs>
-  <text font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="500"
-        dominant-baseline="central" letter-spacing="2.7" text-anchor="middle" fill="#2a2a20">
-    <textPath xlink:href="#lp0" startOffset="50%">OUDE DIJK</textPath>
-  </text>
 
-  <!-- ===== PARK / FEATURE LABEL: how MapExport emits it (plain point text) ===== -->
-  <text x="450" y="90" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="400"
-        text-anchor="middle" dominant-baseline="middle" fill="#3a6a3a">Stadspark Oude Dijk</text>
+  <!-- ===== STREET LABELS layer (exactly as buildLabelsLayer emits) ===== -->
+  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">
+    <defs><path id="lp0" inkscape:label="Oude Dijk (path)" d="M60,300 C250,150 650,150 840,300"/></defs>
+    <g id="label_text"><text id="lbl_Oude_Dijk_1" inkscape:label="Oude Dijk" font-family="Arial,Helvetica,sans-serif" font-size="34.0" font-weight="500" dominant-baseline="central" letter-spacing="2.7" text-anchor="middle" fill="#2a2a20"><textPath xlink:href="#lp0" startOffset="50%">OUDE DIJK</textPath></text></g>
+  </g>
+
+  <!-- ===== WATER & PARK NAMES layer (exactly as buildFeatureLabelsLayer emits) ===== -->
+  <g id="water_labels" inkscape:label="Water &amp; park names" inkscape:groupmode="layer">
+    <text id="feat_Stadspark_Oude_Dijk_halo" inkscape:label="Stadspark Oude Dijk (halo)" x="450.0" y="90.0" font-family="Arial,Helvetica,sans-serif" font-size="30.0" font-weight="400" text-anchor="middle" dominant-baseline="middle" stroke="white" stroke-width="6.0" stroke-linejoin="round" fill="none" paint-order="stroke">Stadspark Oude Dijk</text>
+    <text id="feat_Stadspark_Oude_Dijk" inkscape:label="Stadspark Oude Dijk" x="450.0" y="90.0" font-family="Arial,Helvetica,sans-serif" font-size="30.0" font-weight="400" text-anchor="middle" dominant-baseline="middle" fill="#3a6a3a" opacity="0.9">Stadspark Oude Dijk</text>
+  </g>
 </svg>

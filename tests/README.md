@@ -35,6 +35,20 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
    bash tests/smoke.sh
    ```
 
+6. **Live real-world export + faithful visual check** (standard demo/verification of actual SVG output):
+   ```
+   node tests/real-export.mjs [s,w,n,e] [a4_300|a3_300|a2_300|a1_300]
+   ```
+   Runs the **shipped** `script.min.js` headlessly (vm + browser stubs) against the live `lamp` Apache on **:8080**: fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Requires `lamp start`.
+
+   Then **always** verify it in a real browser — never trust `qlmanage`/QuickLook (Apple's SVG rasterizer mishandles `dominant-baseline`, `paint-order` and `fill-rule`). Use the preview MCP on **:8889** (it can't share :8080 with Apache):
+   - `preview_start "MapExport (PHP)"`
+   - navigate to `http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/<name>.svg`
+   - `preview_resize` **after** the page reports `ready` (e.g. 1500×1380), then `preview_screenshot`
+   - inspect for sane cartography: labels centred on roads, no overflow/mirroring/stray labels, rotated `<text>` for straight streets and `textPath` for curved.
+
+   See `memory/reference_lamp_server.md` for the gotchas (resize-after-load, Overpass UA, two-port split).
+
 ## Files
 
 - `lib.mjs` — shared helpers: Tilburg bbox, Overpass POST, parse LAYER_REGISTRY out of script.js.
@@ -43,6 +57,8 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 - `pipeline-equivalence.mjs` — offline check against frozen fixtures.
 - `supersession.mjs` — offline check for `SUPERSESSIONS` rules + tagFilter coverage.
 - `smoke.sh` — runs query-equivalence + pipeline-equivalence.
+- `real-export.mjs` — live headless export against the :8080 stack → `exports/*.svg`.
+- `viewer.html` — renders an export inline for the faithful browser visual check (preview MCP on :8889).
 
 ## Notes
 
