@@ -16,10 +16,20 @@ maintenance rule is restated at the top of `CHANGELOG.md` itself.
 ## Source-of-truth & build
 
 - `script.js` is canonical. `script.min.js` and `style.min.css` are **generated**
-  — never hand-edit them. After editing `script.js`, regenerate the min file
-  (`npx terser script.js -c -m -o script.min.js`); `index.html` loads the min.
-- `index.html` and `tests/real-export.mjs` consume `script.min.js`, so a stale
-  min file means the app/tests don't reflect your change.
+  — never hand-edit them. `index.html` and `tests/real-export.mjs` load the
+  *minified* files, so a stale min file means the app/tests don't reflect your
+  change.
+- Regenerate via the tracked build script: **`bash tools/minify.sh`** (or
+  `tools/minify.sh js` / `css`). It uses terser for JS and clean-css for CSS,
+  preferring global installs and falling back to `npx`.
+- **Install the git hooks once per clone: `bash tools/setup-hooks.sh`.** This
+  points `core.hooksPath` at the tracked `.githooks/`. The `pre-commit` hook then
+  (a) re-minifies any staged source and re-stages the output, and (b) **enforces
+  the changelog rule below** — it blocks commits that touch app source
+  (`script.js`, `style.css`, `index.html`, `cache.php`) without a staged
+  `CHANGELOG.md`. Pure-internal churn can bypass with `SKIP_CHANGELOG=1 git commit`.
+- The tracked build lives in `tools/`. Any personal root-level `minify.sh` /
+  `deploy.sh` is gitignored and superseded — prefer `tools/minify.sh`.
 
 ## Testing
 

@@ -12,13 +12,19 @@ type: feedback
 
 ---
 
-**Minified files are tracked in git.** `script.min.js` and `style.min.css` are committed (removed from `.gitignore`). Pre-commit hook runs `minify.sh` automatically.
+**Minified files are tracked in git.** `script.min.js` and `style.min.css` are committed (removed from `.gitignore`). They must be in the repo so they deploy correctly and stay in sync with source.
 
-**Why:** Files need to be in the repo so they deploy correctly and are always in sync.
+**Build is tracked in-repo (since branch `claude/street-layers-alphabetical-v0hnyk`).**
+- `tools/minify.sh [js|css|all]` — canonical minifier (terser + clean-css, global-or-npx).
+- `.githooks/pre-commit` — re-minifies staged source + **enforces the changelog**
+  (blocks commits touching `script.js`/`style.css`/`index.html`/`cache.php` without a
+  staged `CHANGELOG.md`; bypass with `SKIP_CHANGELOG=1`).
+- Run `bash tools/setup-hooks.sh` once per clone to activate (sets `core.hooksPath`).
+- Any personal root-level `minify.sh` is gitignored (`/minify.sh`) and superseded.
 
 ---
 
-**deploy.sh is gitignored.** Don't try to `git add deploy.sh` — it will fail.
+**deploy.sh is gitignored** (`/deploy.sh`). Don't try to `git add deploy.sh` — it will fail.
 
 ---
 

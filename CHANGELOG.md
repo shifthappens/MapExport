@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-06-28 — Tracked build + changelog enforcement
+- The build is now version-controlled: `tools/minify.sh` (terser for JS,
+  clean-css for CSS) replaces the personal gitignored `minify.sh`.
+- A tracked pre-commit hook (`.githooks/pre-commit`, activated via
+  `bash tools/setup-hooks.sh`) re-minifies staged source and **rejects commits
+  that change app source without a `CHANGELOG.md` entry** (bypass:
+  `SKIP_CHANGELOG=1`). Keeps `script.min.js`/`style.min.css` and the changelog
+  from drifting.
+
 ### 2026-06-28 — Street layers grouped by class, alphabetical within
 - **Roads:** the exported SVG now sub-groups road paths by `highway=` class
   inside each rendering pass (`roads_casings_<hw>` / `roads_fills_<hw>`, e.g.

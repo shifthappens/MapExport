@@ -3,5 +3,6 @@
 test.txt
 cache/*.json
 cache/*.json.gz
-deploy.sh
-minify.sh
+# Personal, machine-specific scripts at repo root (the tracked build lives in tools/).
+/deploy.sh
+/minify.sh
