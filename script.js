@@ -1007,9 +1007,15 @@ function buildRoadsLayer(elements, pr, W) {
   });
   if (!byType.size) return '';
   const types=[...byType.keys()].sort((a,b)=>(ROAD_DRAW_ORDER.indexOf(a)||50)-(ROAD_DRAW_ORDER.indexOf(b)||50));
-  // Two-pass rendering: casings first (wider, darker), then fills (narrower, lighter)
-  // This creates proper bordered roads regardless of layer order
-  let allCasings='', allFills='';
+  // Two-pass rendering: ALL casings first (wider, darker), then ALL fills
+  // (narrower, lighter). SVG paint order = document order, so casings must all
+  // precede all fills for road borders to sit under crossing roads at every
+  // intersection — this is why casing and fill are NOT paired per street.
+  // Within each pass we sub-group by highway= class (kept in ROAD_DRAW_ORDER so
+  // minor classes still paint under major ones) and order streets alphabetically
+  // inside each class, so a designer can grab a whole class at once or find one
+  // named street fast. Casings and fills mirror the same class+alpha order.
+  let casingGroups='', fillGroups='';
   const uid=makeUidGen();
   types.forEach(hw => {
     const ways=byType.get(hw);
@@ -1019,8 +1025,16 @@ function buildRoadsLayer(elements, pr, W) {
     const casingTotalW=((w.fillW+w.casingW)*sf).toFixed(2);
     const fillW=(w.fillW*sf).toFixed(2);
     const label=TYPE_LABELS[hw]||hw;
+    // Alphabetical within the class (case-insensitive); named/ref'd ways sort
+    // before unnamed stubs, which fall back to a stable original order.
+    const sorted=ways.map((el,i)=>({el,i})).sort((a,b)=>{
+      const na=(a.el.tags?.name||a.el.tags?.ref||'').toLowerCase();
+      const nb=(b.el.tags?.name||b.el.tags?.ref||'').toLowerCase();
+      if(na&&nb) return na.localeCompare(nb)||a.i-b.i;
+      if(na) return -1; if(nb) return 1; return a.i-b.i;
+    });
     let casings='', fills='';
-    ways.forEach((el,i) => {
+    sorted.forEach(({el,i}) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
       if (s.length<2) return;
@@ -1029,14 +1043,14 @@ function buildRoadsLayer(elements, pr, W) {
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
-      casings+=`\n      <path id="${pid}_casing" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
-      fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
+      casings+=`\n        <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
+      fills+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     });
-    if (casings) allCasings+=casings;
-    if (fills) allFills+=fills;
+    if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}">${casings}\n      </g>`;
+    if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}">${fills}\n      </g>`;
   });
-  if (!allCasings&&!allFills) return '';
-  return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">\n  <g id="roads_casings" inkscape:label="Road casings">${allCasings}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${allFills}\n  </g>\n  </g>\n`;
+  if (!casingGroups&&!fillGroups) return '';
+  return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">\n  <g id="roads_casings" inkscape:label="Road casings">${casingGroups}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${fillGroups}\n  </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1279,12 +1293,12 @@ function buildLabelsLayer(elements, pr, W, H) {
   // Emit one path-following label centred on its own oriented sub-path. Used
   // only for genuinely curved stretches: Illustrator imports <textPath> as one
   // point-text object PER LETTER, so straight labels go through emitStraight.
-  const emitPath=(name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`);};
+  const emitPath=(hw,name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
   // one object per letter). Centred on (cx,cy) on the road centreline, rotated
   // to the local road angle; same dominant-baseline centring as emitPath.
-  const emitStraight=(name,attrs,label,cx,cy,angle)=>{texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`);};
+  const emitStraight=(hw,name,attrs,label,cx,cy,angle)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
   // A chosen stretch bending less than this (degrees, total heading change over
@@ -1359,7 +1373,7 @@ function buildLabelsLayer(elements, pr, W, H) {
       if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
       fpStamp(fp,r); recordName(name,cx,cy);
       const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`);
+      texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
     }
 
@@ -1392,14 +1406,14 @@ function buildLabelsLayer(elements, pr, W, H) {
           const mid=pointAngleAtLength(pathPts,lenPx/2);
           if (nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,mid.x,mid.y);
-          emitPath(name,attrs,label,subFor(lenPx/2,lw));
+          emitPath(hw,name,attrs,label,subFor(lenPx/2,lw));
           continue;
         }
         const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length, cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
         const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
         if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
         fpStamp(fp,r); recordName(name,cx,cy);
-        texts.push(`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`);
+        texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
         continue;
       }
 
@@ -1431,8 +1445,8 @@ function buildLabelsLayer(elements, pr, W, H) {
           const fp=fpPath(pathPts,c.center-lw/2,c.center+lw/2,r); // ribbon along the actual baseline
           if (!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,p.x,p.y);
-          if (c.bend<=STRAIGHT_BEND) emitStraight(name,attrs,label,p.x,p.y,p.angle);
-          else emitPath(name,attrs,label,subFor(c.center,lw));
+          if (c.bend<=STRAIGHT_BEND) emitStraight(hw,name,attrs,label,p.x,p.y,p.angle);
+          else emitPath(hw,name,attrs,label,subFor(c.center,lw));
           placedC.push(c.center);
         }
         if (placedC.length>0) break; // labelled at this size; no need to shrink further
@@ -1440,7 +1454,21 @@ function buildLabelsLayer(elements, pr, W, H) {
     }
   }
   if (!texts.length) return '';
-  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>\n    <g id="label_text">${texts.join('')}</g>\n  </g>\n`;
+  // Split labels into one sub-group per highway= class (ordered by importance,
+  // matching the road tiers) and alphabetically within each, so a designer can
+  // hide/restyle a whole class at once or find a single name fast. Paint order
+  // among labels is irrelevant — the collision engine guarantees they never
+  // overlap — so this reordering is purely organisational, with no visual change.
+  const byHw=new Map();
+  for (const t of texts){ if(!byHw.has(t.hw)) byHw.set(t.hw,[]); byHw.get(t.hw).push(t); }
+  const hwOrder=[...byHw.keys()].sort((a,b)=>rankOf(a)-rankOf(b)||a.localeCompare(b));
+  let labelGroups='';
+  for (const hw of hwOrder){
+    const arr=byHw.get(hw).sort((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const lbl=TYPE_LABELS[hw]||hw;
+    labelGroups+=`\n    <g id="labels_${hw}" inkscape:label="${escXml(lbl)}">${arr.map(t=>t.svg).join('')}</g>`;
+  }
+  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>${labelGroups}\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
