@@ -1186,8 +1186,8 @@ function pointAngleAtLength(pts,target){
   return {x:last[0],y:last[1],angle:0};
 }
 // Interpolated point at arc-length s along a polyline, given precomputed
-// cumulative lengths (cum[i] = arc-length up to pts[i]).
-function pointAtCum(pp,cum,s){for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];}
+// cumulative lengths (arcLens[i] = arc-length up to pts[i]).
+function pointAtArcLen(pp,arcLens,s){for(let i=1;i<pp.length;i++)if(arcLens[i]>=s){const t=(s-arcLens[i-1])/((arcLens[i]-arcLens[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];}
 // Best straight baseline for a label span [s0,s1]: least-squares line through
 // evenly resampled points of the arc. Returns the sample centroid (where a
 // straight label should be anchored), the reading angle of the fitted line,
@@ -1195,10 +1195,10 @@ function pointAtCum(pp,cum,s){for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=
 // tangent at the span's midpoint is NOT a substitute: on an asymmetric bend
 // it tilts the label by up to the whole bend and anchors it off the chord,
 // which is exactly what makes straight labels veer off slightly bendy roads.
-function fitStraightBaseline(pp,cum,s0,s1){
+function fitStraightBaseline(pp,arcLens,s0,s1){
   const len=Math.max(1,s1-s0), n=Math.max(8,Math.min(64,Math.ceil(len/8)));
   const smp=[]; let sx=0,sy=0;
-  for(let k=0;k<=n;k++){const p=pointAtCum(pp,cum,s0+len*k/n);smp.push(p);sx+=p[0];sy+=p[1];}
+  for(let k=0;k<=n;k++){const p=pointAtArcLen(pp,arcLens,s0+len*k/n);smp.push(p);sx+=p[0];sy+=p[1];}
   const cx=sx/(n+1), cy=sy/(n+1);
   let sxx=0,sxy=0,syy=0;
   for(const p of smp){const dx=p[0]-cx,dy=p[1]-cy;sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy;}
@@ -1306,12 +1306,12 @@ function buildLabelsLayer(elements, pr, W, H) {
   // Total heading change (degrees) over an arc — how much a label placed there
   // would wrap. Sums the turn at every actual path vertex in range (so a sharp
   // kink/hairpin is caught, not stepped over) to prefer straight stretches.
-  const bendOver=(pp,cum,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(cum[i]<=s0||cum[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
+  const bendOver=(pp,arcLens,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(arcLens[i]<=s0||arcLens[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
   // Each label gets its OWN baseline sub-path covering just its extent, oriented
   // to read left-to-right (or bottom-to-top when vertical). This is what stops
   // labels rendering mirrored/upside-down when they land on a stretch of road
   // that runs right-to-left — a whole-path reverse can't fix that per-label.
-  const subPath=(pp,cum,s0,s1)=>{const out=[pointAtCum(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(pointAtCum(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
+  const subPath=(pp,arcLens,s0,s1)=>{const out=[pointAtArcLen(pp,arcLens,s0)];for(let i=0;i<pp.length;i++)if(arcLens[i]>s0&&arcLens[i]<s1)out.push(pp[i]);out.push(pointAtArcLen(pp,arcLens,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
   // Emit one path-following label centred on its own oriented sub-path. Used
   // only for genuinely curved stretches: Illustrator imports <textPath> as one
@@ -1423,9 +1423,9 @@ function buildLabelsLayer(elements, pr, W, H) {
       let label=displayName;
       if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
       let pathPts=[...pts];
-      const cum=[0]; for(let i=1;i<pathPts.length;i++) cum.push(cum[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
+      const arcLens=[0]; for(let i=1;i<pathPts.length;i++) arcLens.push(arcLens[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
       const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-      const subFor=(c,lw)=>subPath(pathPts,cum,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
+      const subFor=(c,lw)=>subPath(pathPts,arcLens,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
 
       // Roundabout: name follows the ring curve (centre it if the ring is too small).
       if (ringLike) {
@@ -1462,14 +1462,14 @@ function buildLabelsLayer(elements, pr, W, H) {
         // than the first (possibly curved) spot that happens to fit.
         const cands=[];
         for (let center=lw/2; center<=lenPx-lw/2+0.5; center+=step)
-          cands.push({center, bend:bendOver(pathPts,cum,center-lw/2,center+lw/2)});
+          cands.push({center, bend:bendOver(pathPts,arcLens,center-lw/2,center+lw/2)});
         cands.sort((a,b)=>a.bend-b.bend);
         const cap = fs<=MIN_FS*1.3 ? 120 : 80; // reject wrapped/cornered placements; relax a bit only as last resort
         const placedC=[];
         for (const c of cands) {
           if (placedC.length>=ideal || c.bend>cap) break;
           if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
-          const fit=fitStraightBaseline(pathPts,cum,c.center-lw/2,c.center+lw/2);
+          const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
           const straight=fit.maxDev<=fs*STRAIGHT_MAX_DEV;
           const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
           if (nearName(name,p.x,p.y,nameGap)) continue;

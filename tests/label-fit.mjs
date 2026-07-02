@@ -1,5 +1,5 @@
 // Unit test for the straight-label baseline fit (fitStraightBaseline /
-// pointAtCum). These are pure top-level functions in script.js with no
+// pointAtArcLen). These are pure top-level functions in script.js with no
 // browser globals, so we slice their source out of the file and eval it in
 // isolation — same trick road-merge.mjs uses for the way stitcher.
 //
@@ -12,18 +12,18 @@ import assert from 'node:assert/strict';
 import { SCRIPT_PATH, fs } from './lib.mjs';
 
 const src = fs.readFileSync(SCRIPT_PATH, 'utf8');
-const start = src.indexOf('function pointAtCum(');
+const start = src.indexOf('function pointAtArcLen(');
 const end = src.indexOf('function makeCollisionGrid(');
-assert.ok(start !== -1 && end > start, 'could not locate pointAtCum/fitStraightBaseline in script.js');
-const { fitStraightBaseline, pointAtCum } =
-  new Function(src.slice(start, end) + '\nreturn { fitStraightBaseline, pointAtCum };')();
+assert.ok(start !== -1 && end > start, 'could not locate pointAtArcLen/fitStraightBaseline in script.js');
+const { fitStraightBaseline, pointAtArcLen } =
+  new Function(src.slice(start, end) + '\nreturn { fitStraightBaseline, pointAtArcLen };')();
 
 let pass = 0, fail = 0;
 function check(label, cond) {
   if (cond) { pass++; console.log(`  ok   ${label}`); }
   else { fail++; console.log(`  FAIL ${label}`); }
 }
-const cumOf = pts => {
+const arcLensOf = pts => {
   const c = [0];
   for (let i = 1; i < pts.length; i++)
     c.push(c[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -33,7 +33,7 @@ const cumOf = pts => {
 // 1. Straight horizontal span: angle 0, no deviation, centroid at the middle.
 {
   const pts = [[0, 0], [50, 0], [200, 0]];
-  const f = fitStraightBaseline(pts, cumOf(pts), 20, 180);
+  const f = fitStraightBaseline(pts, arcLensOf(pts), 20, 180);
   check('straight: angle 0', Math.abs(f.angle) < 1e-6);
   check('straight: maxDev 0', f.maxDev < 1e-6);
   check('straight: centred at span middle', Math.abs(f.cx - 100) < 1e-6 && Math.abs(f.cy) < 1e-6);
@@ -46,11 +46,11 @@ const cumOf = pts => {
 {
   const a = 12 * Math.PI / 180;
   const pts = [[0, 0], [100, 0], [100 + 100 * Math.cos(a), 100 * Math.sin(a)]];
-  const cum = cumOf(pts);
-  const f = fitStraightBaseline(pts, cum, 0, cum[2]);
+  const arcLens = arcLensOf(pts);
+  const f = fitStraightBaseline(pts, arcLens, 0, arcLens[2]);
   check('kink: fitted angle between the legs', f.angle > 3 && f.angle < 9);
   check('kink: deviation reported', f.maxDev > 1);
-  const mid = pointAtCum(pts, cum, cum[2] / 2);
+  const mid = pointAtArcLen(pts, arcLens, arcLens[2] / 2);
   check('kink: centroid off the on-path midpoint', Math.hypot(f.cx - mid[0], f.cy - mid[1]) > 1);
 }
 
@@ -60,8 +60,8 @@ const cumOf = pts => {
 {
   const pts = [];
   for (let k = 0; k <= 20; k++) { const x = k * 10; pts.push([x, 10 * Math.sin(Math.PI * k / 20)]); }
-  const cum = cumOf(pts);
-  const f = fitStraightBaseline(pts, cum, 0, cum[20]);
+  const arcLens = arcLensOf(pts);
+  const f = fitStraightBaseline(pts, arcLens, 0, arcLens[20]);
   check('bow: chord angle', Math.abs(f.angle) < 0.5);
   check('bow: centroid below the apex', f.cy > 0.5 && f.cy < 9.5);
   check('bow: deviation ~ sagitta share', f.maxDev > 2 && f.maxDev < 10);
@@ -74,8 +74,8 @@ const cumOf = pts => {
   const a = 10 * Math.PI / 180;
   const mk = L => {
     const pts = [[0, 0], [L, 0], [L + L * Math.cos(a), L * Math.sin(a)]];
-    const cum = cumOf(pts);
-    return fitStraightBaseline(pts, cum, 0, cum[2]).maxDev;
+    const arcLens = arcLensOf(pts);
+    return fitStraightBaseline(pts, arcLens, 0, arcLens[2]).maxDev;
   };
   const d1 = mk(100), d3 = mk(300);
   check('length-aware: deviation scales with span length', d3 > 2.5 * d1 && d3 < 3.5 * d1);
@@ -85,19 +85,19 @@ const cumOf = pts => {
 // downstream), fit still exact.
 {
   const pts = [[0, 0], [0, 100], [0, 300]];
-  const f = fitStraightBaseline(pts, cumOf(pts), 0, 300);
+  const f = fitStraightBaseline(pts, arcLensOf(pts), 0, 300);
   check('vertical: |angle| = 90', Math.abs(Math.abs(f.angle) - 90) < 1e-6);
   check('vertical: maxDev 0', f.maxDev < 1e-6);
 }
 
-// 6. pointAtCum interpolates and clamps past the end.
+// 6. pointAtArcLen interpolates and clamps past the end.
 {
   const pts = [[0, 0], [10, 0], [10, 10]];
-  const cum = cumOf(pts);
-  const p = pointAtCum(pts, cum, 15);
-  check('pointAtCum: interpolates onto second leg', Math.abs(p[0] - 10) < 1e-6 && Math.abs(p[1] - 5) < 1e-6);
-  const q = pointAtCum(pts, cum, 999);
-  check('pointAtCum: clamps to last point', q[0] === 10 && q[1] === 10);
+  const arcLens = arcLensOf(pts);
+  const p = pointAtArcLen(pts, arcLens, 15);
+  check('pointAtArcLen: interpolates onto second leg', Math.abs(p[0] - 10) < 1e-6 && Math.abs(p[1] - 5) < 1e-6);
+  const q = pointAtArcLen(pts, arcLens, 999);
+  check('pointAtArcLen: clamps to last point', q[0] === 10 && q[1] === 10);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
