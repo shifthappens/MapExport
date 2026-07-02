@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-03 — Multi-city visual test harness
+- `tests/real-export.mjs` accepts named test areas (`tilburg`, `ghent`, `paris`,
+  `bremerhaven`, `oulu`) besides raw bboxes; the city is now part of the export
+  filename. `tests/visual-cities.sh` runs the four extra cities in one go.
+- The extra cities are **gated**: they run only after the standard Tilburg
+  export passed visual inspection and Coen approved it (`tests/README.md` §7).
+  Each area is a Tilburg-sized chunk chosen to surface bugs Tilburg can't
+  (medieval core, boulevards, harbour, 65°N projection).
+- `tests/IMPROVEMENTS.md` records prioritized findings on harness gaps (no
+  assertions in real-export, subjective visual check, Tilburg-only fixtures).
+
 ### 2026-06-28 — Tracked build + changelog enforcement
 - The build is now version-controlled: `tools/minify.sh` (terser for JS,
   clean-css for CSS) replaces the personal gitignored `minify.sh`.
