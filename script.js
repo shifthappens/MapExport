@@ -1185,6 +1185,30 @@ function pointAngleAtLength(pts,target){
   const last=pts[pts.length-1];
   return {x:last[0],y:last[1],angle:0};
 }
+// Interpolated point at arc-length s along a polyline, given precomputed
+// cumulative lengths (cum[i] = arc-length up to pts[i]).
+function pointAtCum(pp,cum,s){for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];}
+// Best straight baseline for a label span [s0,s1]: least-squares line through
+// evenly resampled points of the arc. Returns the sample centroid (where a
+// straight label should be anchored), the reading angle of the fitted line,
+// and the worst perpendicular deviation of the road from it. The local
+// tangent at the span's midpoint is NOT a substitute: on an asymmetric bend
+// it tilts the label by up to the whole bend and anchors it off the chord,
+// which is exactly what makes straight labels veer off slightly bendy roads.
+function fitStraightBaseline(pp,cum,s0,s1){
+  const len=Math.max(1,s1-s0), n=Math.max(8,Math.min(64,Math.ceil(len/8)));
+  const smp=[]; let sx=0,sy=0;
+  for(let k=0;k<=n;k++){const p=pointAtCum(pp,cum,s0+len*k/n);smp.push(p);sx+=p[0];sy+=p[1];}
+  const cx=sx/(n+1), cy=sy/(n+1);
+  let sxx=0,sxy=0,syy=0;
+  for(const p of smp){const dx=p[0]-cx,dy=p[1]-cy;sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy;}
+  const th=0.5*Math.atan2(2*sxy,sxx-syy);
+  const ux=Math.cos(th),uy=Math.sin(th);
+  let maxDev=0;
+  for(const p of smp){const d=Math.abs((p[1]-cy)*ux-(p[0]-cx)*uy);if(d>maxDev)maxDev=d;}
+  let a=th*180/Math.PI; if(a>90)a-=180; if(a<-90)a+=180;
+  return {cx,cy,angle:a,maxDev};
+}
 function makeCollisionGrid(){
   const placed=[];
   return {
@@ -1287,8 +1311,7 @@ function buildLabelsLayer(elements, pr, W, H) {
   // to read left-to-right (or bottom-to-top when vertical). This is what stops
   // labels rendering mirrored/upside-down when they land on a stretch of road
   // that runs right-to-left — a whole-path reverse can't fix that per-label.
-  const ptAt=(pp,cum,s)=>{for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];};
-  const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
+  const subPath=(pp,cum,s0,s1)=>{const out=[pointAtCum(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(pointAtCum(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
   // Emit one path-following label centred on its own oriented sub-path. Used
   // only for genuinely curved stretches: Illustrator imports <textPath> as one
@@ -1296,16 +1319,22 @@ function buildLabelsLayer(elements, pr, W, H) {
   const emitPath=(hw,name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
-  // one object per letter). Centred on (cx,cy) on the road centreline, rotated
-  // to the local road angle; same dominant-baseline centring as emitPath.
+  // one object per letter). Centred on (cx,cy) — the centroid of the span's
+  // fitted baseline — and rotated to the fitted angle, so the label averages
+  // a gentle bend instead of inheriting one segment's heading; same
+  // dominant-baseline centring as emitPath.
   const emitStraight=(hw,name,attrs,label,cx,cy,angle)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
-  // A chosen stretch bending less than this (degrees, total heading change over
-  // the label span) is emitted as a single rotated <text> rather than <textPath>
-  // — one editable object in Illustrator instead of one per letter. Curved
-  // stretches above it keep textPath so they still follow the road.
-  const STRAIGHT_BEND=12;
+  // A chosen stretch is emitted as a single rotated <text> (one editable
+  // object in Illustrator instead of one per letter) when the road never
+  // wanders more than this fraction of the font size from the span's fitted
+  // baseline. A deviation test, not a degrees test: total heading change is
+  // length-blind (a 10° drift across a long label displaces its ends by far
+  // more than across a short one), which is what used to let long straight
+  // labels veer visibly off gently-bending streets. Spans that deviate more
+  // keep <textPath> so they still follow the road.
+  const STRAIGHT_MAX_DEV=0.3;
   // Cycle/foot paths are "minor": a street is never labelled on one of these
   // when a real-road run of the same name exists.
   const MINOR=new Set(['cycleway','footway','path','steps']);
@@ -1440,12 +1469,18 @@ function buildLabelsLayer(elements, pr, W, H) {
         for (const c of cands) {
           if (placedC.length>=ideal || c.bend>cap) break;
           if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
-          const p=pointAngleAtLength(pathPts,c.center);
+          const fit=fitStraightBaseline(pathPts,cum,c.center-lw/2,c.center+lw/2);
+          const straight=fit.maxDev<=fs*STRAIGHT_MAX_DEV;
+          const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
           if (nearName(name,p.x,p.y,nameGap)) continue;
-          const fp=fpPath(pathPts,c.center-lw/2,c.center+lw/2,r); // ribbon along the actual baseline
+          // Footprint matches what is actually drawn: a straight ribbon along
+          // the fitted baseline, or a ribbon along the road for textPath.
+          const rad=fit.angle*Math.PI/180, hx=Math.cos(rad)*lw/2, hy=Math.sin(rad)*lw/2;
+          const fp=straight?fpLine(fit.cx-hx,fit.cy-hy,fit.cx+hx,fit.cy+hy,r)
+                           :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
           if (!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,p.x,p.y);
-          if (c.bend<=STRAIGHT_BEND) emitStraight(hw,name,attrs,label,p.x,p.y,p.angle);
+          if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle);
           else emitPath(hw,name,attrs,label,subFor(c.center,lw));
           placedC.push(c.center);
         }

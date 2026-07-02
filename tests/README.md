@@ -68,6 +68,7 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 - `query-equivalence.mjs` — post-change regression check (hits Overpass, rate-limited).
 - `pipeline-equivalence.mjs` — offline check against frozen fixtures.
 - `supersession.mjs` — offline check for `SUPERSESSIONS` rules + tagFilter coverage.
+- `label-fit.mjs` — offline unit test for the straight-label baseline fit (`fitStraightBaseline`): centroid/angle anchoring and the length-aware deviation criterion.
 - `smoke.sh` — runs query-equivalence + pipeline-equivalence.
 - `real-export.mjs` — live headless export against the :8080 stack → `exports/*.svg`. Takes a named city (`tilburg`/`ghent`/`paris`/`bremerhaven`/`oulu`) or a raw bbox.
 - `visual-cities.sh` — the four extra cities in one go (gated on Tilburg approval, see §7).
