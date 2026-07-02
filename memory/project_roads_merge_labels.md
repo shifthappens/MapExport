@@ -22,10 +22,24 @@ stay separate since they don't share nodes.
 
 Both `buildRoadsLayer` and `buildLabelsLayer` consume the merged runs.
 
-### 2. Casing/fill groups kept
+### 2. Casing/fill groups kept (now sub-grouped by class)
 The two-pass casing+fill rendering was kept deliberately: drawing all casings then
 all fills is what keeps junctions seamless. Merging only reduces the *number of
 paths inside* each group, it doesn't replace the structure.
+
+Update (branch `claude/street-layers-alphabetical-v0hnyk`): inside each pass the
+paths are now sub-grouped by `highway=` class — `roads_casings_<hw>` and
+`roads_fills_<hw>` (labelled e.g. "Residential streets") — with streets ordered
+alphabetically within each class. The class subgroups stay in `ROAD_DRAW_ORDER`
+so minor classes still paint under major ones, and *all* casings still precede
+*all* fills, so junctions remain seamless. Casing paths now also carry
+`inkscape:label` (the street name), mirroring the fills. Rationale: let designers
+grab/hide/restyle a whole class at once (their real workflow) or find one named
+street fast, without breaking paint order. Pairing casing+fill per street was
+explicitly rejected — it would stamp a crossing road's casing over the other
+road's fill at every intersection. `street_labels` is split the same way into
+`labels_<hw>` subgroups (ordered by importance via `RANK`, alphabetical within);
+label paint order is irrelevant since the collision engine prevents overlap.
 
 ### 3. Street label engine — complete rewrite of `buildLabelsLayer`
 The labeler was rewritten from scratch over several iterations. Architecture:

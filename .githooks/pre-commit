@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit — tracked hook for MapExport.
+#
+# Install once per clone:  bash tools/setup-hooks.sh   (sets core.hooksPath)
+#
+# Does two things:
+#   1. Regenerates the tracked minified assets for any staged source and
+#      re-stages them, so script.min.js / style.min.css never drift from source.
+#   2. Enforces the changelog rule: a commit that touches app source must also
+#      stage a CHANGELOG.md entry. Bypass for pure-internal churn with
+#      SKIP_CHANGELOG=1 git commit ...
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+
+# ── 1. keep minified assets in sync ────────────────────────────────
+if grep -qx 'script.js' <<<"$staged"; then
+  bash tools/minify.sh js
+  git add script.min.js
+fi
+if grep -qx 'style.css' <<<"$staged"; then
+  bash tools/minify.sh css
+  git add style.min.css
+fi
+
+# ── 2. enforce changelog on feature/behaviour changes ──────────────
+if [ "${SKIP_CHANGELOG:-}" != "1" ]; then
+  if grep -qE '^(script\.js|style\.css|index\.html|cache\.php)$' <<<"$staged"; then
+    if ! grep -qx 'CHANGELOG.md' <<<"$staged"; then
+      echo "" >&2
+      echo "✖ CHANGELOG.md not staged, but you changed app source." >&2
+      echo "  Add an entry to the top of the 'Unreleased' section (newest first)," >&2
+      echo "  then 'git add CHANGELOG.md' and commit again." >&2
+      echo "  Pure-internal churn (no feature/behaviour change)?  bypass with:" >&2
+      echo "      SKIP_CHANGELOG=1 git commit ..." >&2
+      echo "" >&2
+      exit 1
+    fi
+  fi
+fi

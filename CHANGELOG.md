@@ -1,0 +1,55 @@
+# Changelog
+
+All notable changes to MapExport are recorded here, **newest at the top**.
+
+> **Maintenance rule (for humans and AI assistants alike):** every commit that
+> adds, changes, or removes a feature/behaviour MUST add an entry to the top of
+> the "Unreleased" section below in the same commit. Keep entries short and
+> user-facing — describe *what changed and why*, not every line touched. Group
+> related work under one dated entry. Pure-internal churn (formatting, comment
+> typos, regenerating `script.min.js`) does not need its own entry.
+
+## Unreleased
+
+### 2026-06-28 — Tracked build + changelog enforcement
+- The build is now version-controlled: `tools/minify.sh` (terser for JS,
+  clean-css for CSS) replaces the personal gitignored `minify.sh`.
+- A tracked pre-commit hook (`.githooks/pre-commit`, activated via
+  `bash tools/setup-hooks.sh`) re-minifies staged source and **rejects commits
+  that change app source without a `CHANGELOG.md` entry** (bypass:
+  `SKIP_CHANGELOG=1`). Keeps `script.min.js`/`style.min.css` and the changelog
+  from drifting.
+
+### 2026-06-28 — Street layers grouped by class, alphabetical within
+- **Roads:** the exported SVG now sub-groups road paths by `highway=` class
+  inside each rendering pass (`roads_casings_<hw>` / `roads_fills_<hw>`, e.g.
+  "Residential streets"), ordered alphabetically within each class. The two-pass
+  structure (all casings, then all fills) and `ROAD_DRAW_ORDER` are preserved, so
+  junctions stay seamless and minor roads still paint under major ones. Casing
+  paths now also carry `inkscape:label`. Designers can grab/hide/restyle a whole
+  class at once, or find one named street fast.
+- **Street labels:** split into `labels_<hw>` subgroups (importance-ordered,
+  alphabetical within). No visual change — labels never overlap, so paint order
+  is irrelevant.
+- Casing+fill were deliberately *not* paired per street: that would stamp a
+  crossing road's casing over the other road's fill at every intersection.
+
+### 2026-06-28 — Illustrator-editable labels + headless export harness
+- Straight street labels emit as a single rotated `<text>` (one editable object
+  in Illustrator) instead of per-letter `<textPath>`; curved stretches keep
+  `<textPath>`. Export filenames use local time.
+- Added a headless export + visual-check harness (`tests/real-export.mjs`) that
+  runs the shipped `script.min.js` outside a browser.
+
+### 2026-06-25 — Road segment merging + street label engine
+- `mergeNamedWays` stitches OSM ways sharing name + highway class into maximal
+  polylines, cutting SVG path count and improving label placement.
+- Name-centric label engine: collision detection, abbreviation, straightest-run
+  placement, no upside-down labels.
+
+### 2026-06-25 — Developer documentation
+- Added a comprehensive README and a mobile usability notice.
+
+---
+
+_Earlier history predates this changelog; see `git log` for the full record._
