@@ -11,8 +11,12 @@
 //
 // Usage:
 //   node tests/real-export.mjs                          # default Tilburg bbox, A3
+//   node tests/real-export.mjs ghent                    # named test area (see CITIES)
 //   node tests/real-export.mjs 51.545,5.07,51.562,5.1 a3_300
-//   node tests/real-export.mjs <s,w,n,e> <a4_300|a3_300|a2_300|a1_300>
+//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300>
+//
+// Tilburg is the gate: run + visually verify Tilburg first, and run the other
+// cities only after the Tilburg result has been approved (see tests/README.md).
 import fs from 'node:fs';
 import os from 'node:os';
 import vm from 'node:vm';
@@ -26,9 +30,23 @@ const BASE = 'http://localhost:8080/mapexport/';
 const OVERPASS_UA = 'MapExport/1.0 (+https://coen.at; hello@coen.at)';
 const CLIPPER_URL = 'https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js';
 
+// ── named test areas (s,w,n,e) ────────────────────────────────────
+// Comparable city chunks with mixed cartographic content (water, rail, parks,
+// dense + sparse streets). Tilburg is the default and the approval gate; the
+// others exist to surface layout bugs Tilburg doesn't (medieval core, grand
+// boulevards, harbour, high-latitude grid).
+const CITIES = {
+  tilburg:     '51.545,5.07,51.562,5.1',
+  ghent:       '51.03438,3.70857,51.06093,3.74599',
+  paris:       '48.81896,2.33906,48.84935,2.39433',
+  bremerhaven: '53.51265,8.56247,53.56336,8.61380',
+  oulu:        '64.99163,25.43747,65.02165,25.51197',
+};
+
 // ── args ──────────────────────────────────────────────────────────
-const [, , bboxArg, sizeArg = 'a3_300'] = process.argv;
-const [south, west, north, east] = (bboxArg || '51.545,5.07,51.562,5.1').split(',').map(Number);
+const [, , areaArg, sizeArg = 'a3_300'] = process.argv;
+const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
+const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[citySlug]).split(',').map(Number);
 const bbox = { south, west, north, east };
 const bboxStr = `${south},${west},${north},${east}`;
 
@@ -103,7 +121,7 @@ const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
 const fetchable = allLayers.filter(l => l.defaultOn && l.overpassQuery);
 const cityBlocks = allLayers.find(l => l.id === 'city_blocks');
 
-console.log(`bbox ${bboxStr}  size ${sizeArg} (${W}px / ${physicalWidthMm}mm)`);
+console.log(`area ${citySlug}  bbox ${bboxStr}  size ${sizeArg} (${W}px / ${physicalWidthMm}mm)`);
 const results = [];
 for (const layer of fetchable) {
   const t0 = Date.now();
@@ -127,7 +145,7 @@ const svg = X.buildSVG(results, bbox, W, physicalWidthMm, blocks);
 // YYYY-MM-DD-HHMMSS (local time), matching the web app, so same-day exports don't collide.
 const d = new Date(), p2 = n => String(n).padStart(2, '0');
 const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-const filename = `map-${X.activePreset}-${stamp}.svg`;
+const filename = `map-${X.activePreset}-${citySlug}-${stamp}.svg`;
 const dir = path.join(REPO, 'exports');
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, filename), svg);
