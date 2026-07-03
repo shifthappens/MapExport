@@ -19,14 +19,27 @@
   //   2. navigate here with ?file=/mapexport/exports/<name>.svg
   //   3. preview_resize AFTER load (this actually resizes the capture window)
   //   4. preview_screenshot  -> high-res full-map overview, readable labels
-  const file = new URLSearchParams(location.search).get('file');
+  //
+  // ?crop=x,y,w,h (map px) zooms into a detail region at 1:1 — a 1500px
+  // screenshot of a 4961px map hides label defects; crop a few regions per
+  // city and screenshot those too.
+  const params = new URLSearchParams(location.search);
+  const file = params.get('file');
   fetch(file)
     .then(r => { if (!r.ok) throw new Error(r.status + ' ' + file); return r.text(); })
     .then(t => {
       document.getElementById('wrap').innerHTML = t;
       const s = document.querySelector('#wrap svg');
       if (!s) throw new Error('no <svg> in ' + file);
-      s.removeAttribute('width'); s.removeAttribute('height'); s.setAttribute('width', '100%');
+      s.removeAttribute('width'); s.removeAttribute('height');
+      const crop = (params.get('crop') || '').split(',').map(Number);
+      if (crop.length === 4 && crop.every(Number.isFinite) && crop[2] > 0 && crop[3] > 0) {
+        s.setAttribute('viewBox', crop.join(' '));      // zoom to the region…
+        s.setAttribute('width', crop[2] + 'px');        // …at 1:1 map pixels
+        document.getElementById('wrap').style.width = crop[2] + 'px';
+      } else {
+        s.setAttribute('width', '100%');
+      }
       document.title = 'ready';
     })
     .catch(e => { document.getElementById('err').textContent = 'ERR ' + e.message; document.title = 'error'; });

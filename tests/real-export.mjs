@@ -13,7 +13,13 @@
 //   node tests/real-export.mjs                          # default Tilburg bbox, A3
 //   node tests/real-export.mjs ghent                    # named test area (see CITIES)
 //   node tests/real-export.mjs 51.545,5.07,51.562,5.1 a3_300
-//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300>
+//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300> [--record]
+//
+// This is a TEST, not just a demo: it exits non-zero when the export is
+// broken — a default-on layer under its per-city floor (tests/expectations.json),
+// zero roads/labels, or any svg-lint error (NaN, empty/mirrored/upside-down
+// labels, dangling textPath refs). --record captures this run's counts ×0.5
+// as the named city's floors; do that only on a visually APPROVED run.
 //
 // Tilburg is the gate: run + visually verify Tilburg first, and run the other
 // cities only after the Tilburg result has been approved (see tests/README.md).
@@ -22,6 +28,7 @@ import os from 'node:os';
 import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lintSvg } from './svg-lint.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://localhost:8080/mapexport/';
@@ -44,24 +51,44 @@ const CITIES = {
 };
 
 // ── args ──────────────────────────────────────────────────────────
-const [, , areaArg, sizeArg = 'a3_300'] = process.argv;
+const flags = process.argv.slice(2).filter(a => a.startsWith('--'));
+const [areaArg, sizeArg = 'a3_300'] = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const recordExpectations = flags.includes('--record');
 const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
 const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[citySlug]).split(',').map(Number);
 const bbox = { south, west, north, east };
 const bboxStr = `${south},${west},${north},${east}`;
+
+// ── staleness gate: this harness runs script.min.js, you edit script.js ──
+// A forgotten `bash tools/minify.sh` used to silently test the PREVIOUS
+// version. Fresh checkouts get near-identical mtimes, so only a clearly
+// newer source (>2s) fails.
+{
+  const srcM = fs.statSync(path.join(REPO, 'script.js')).mtimeMs;
+  const minM = fs.statSync(path.join(REPO, 'script.min.js')).mtimeMs;
+  if (srcM - minM > 2000) {
+    console.error(`STALE: script.js is ${((srcM - minM) / 1000).toFixed(0)}s newer than script.min.js — run \`bash tools/minify.sh\` first.`);
+    process.exit(3);
+  }
+}
 
 // ── load shipped code into a vm sandbox with browser stubs ─────────
 let src = fs.readFileSync(path.join(REPO, 'script.min.js'), 'utf8')
   + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,PRINT_SIZES,PRINT_PHYSICAL_MM,activePreset};';
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
+const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
 const realFetch = globalThis.fetch;
 async function shimFetch(url, opts) {
   if (typeof url === 'string' && !/^https?:/.test(url)) {
-    const res = await realFetch(BASE + url, opts);
+    const p = realFetch(BASE + url, opts);
+    if (opts && opts.method === 'POST') {
+      tally.write++; console.log('   WRITE  ' + decodeURIComponent(url.slice(0, 88)));
+      pendingPosts.push(p.catch(() => {}));
+    }
+    const res = await p;
     const get = !opts || !opts.method || opts.method === 'GET';
     if (url.startsWith('cache.php?key=') && get) (res.headers.get('x-cache') === 'HIT' ? tally.hit++ : tally.miss++);
-    if (opts && opts.method === 'POST') { tally.write++; console.log('   WRITE  ' + decodeURIComponent(url.slice(0, 88))); }
     return res;
   }
   tally.overpass++; console.log('   OVERPASS ' + new URL(url).hostname);
@@ -123,11 +150,13 @@ const cityBlocks = allLayers.find(l => l.id === 'city_blocks');
 
 console.log(`area ${citySlug}  bbox ${bboxStr}  size ${sizeArg} (${W}px / ${physicalWidthMm}mm)`);
 const results = [];
+const layerCounts = {};
 for (const layer of fetchable) {
   const t0 = Date.now();
   const { elements } = await X.fetchLayer(layer, bboxStr, bbox);
   const kept = layer.tagFilter ? elements.filter(layer.tagFilter) : elements;
   results.push({ layer, data: { elements: kept } });
+  layerCounts[layer.id] = kept.length;
   console.log(`${layer.id.padEnd(14)} ${String(kept.length).padStart(6)} elements  (${Date.now() - t0}ms)`);
 }
 
@@ -150,14 +179,65 @@ const dir = path.join(REPO, 'exports');
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, filename), svg);
 
-// flush any fire-and-forget cacheSet POSTs before exiting
-await new Promise(r => setTimeout(r, 2000));
+// Drain the fire-and-forget cacheSet POSTs (the old fixed sleep(2000) raced
+// slow writes). Loop because a late cacheSet may still be compressing when
+// the first drain settles.
+for (let drained = 0; drained < pendingPosts.length; ) {
+  drained = pendingPosts.length;
+  await Promise.allSettled(pendingPosts);
+  await new Promise(r => setTimeout(r, 100));
+}
 
 const rot = (svg.match(/transform="rotate\(/g) || []).length;
 const tp = (svg.match(/<textPath /g) || []).length;
 console.log(`\ncache ${JSON.stringify(tally)}`);
 console.log(`labels: ${rot} single rotated <text>, ${tp} textPath`);
 console.log(`SVG ${(svg.length / 1048576).toFixed(2)} MB -> exports/${filename}`);
-console.log(`\nNext: visually verify in a browser via the preview MCP on :8889 (see tests/README.md):`);
+
+// ── assertions: this run must be self-evidently sane before anyone looks
+//    at a screenshot ──────────────────────────────────────────────────
+const failures = [];
+
+// 1. svg-lint: NaN/undefined in attributes, empty/mirrored/upside-down
+//    labels, dangling textPath refs, label-on-label overlap.
+const lint = lintSvg(svg);
+for (const e of lint.errors) failures.push(`lint: ${e}`);
+console.log(`lint: ${lint.errors.length} error(s), ${lint.warnings.length} warning(s) over ${lint.labelCount} labels`);
+
+// 2. structural floors that hold for ANY city.
+if (!layerCounts.roads) failures.push(`roads layer produced ${layerCounts.roads ?? 'no'} elements`);
+if (!lint.labelCount) failures.push('export contains zero labels');
+
+// 3. per-city floors captured from an approved run (--record), ~50% of that
+//    run's counts so OSM churn never trips them but a broken query/filter does.
+const expPath = path.join(REPO, 'tests', 'expectations.json');
+const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
+const exp = expectations[citySlug];
+if (exp) {
+  for (const [id, min] of Object.entries(exp.layers || {})) {
+    if ((layerCounts[id] ?? 0) < min) failures.push(`${id}: ${layerCounts[id] ?? 0} elements < expected floor ${min} for ${citySlug}`);
+  }
+  if (exp.labels && lint.labelCount < exp.labels) failures.push(`labels: ${lint.labelCount} < expected floor ${exp.labels} for ${citySlug}`);
+} else if (citySlug !== 'custom') {
+  console.log(`(no per-city floors for '${citySlug}' in tests/expectations.json — generic checks only; record them with --record on an approved run)`);
+}
+
+if (recordExpectations && citySlug !== 'custom' && !failures.length) {
+  const entry = { recorded_at: new Date().toISOString().slice(0, 10), from: filename, layers: {}, labels: Math.floor(lint.labelCount * 0.5) };
+  for (const [id, n] of Object.entries(layerCounts)) entry.layers[id] = Math.floor(n * 0.5);
+  expectations[citySlug] = entry;
+  fs.writeFileSync(expPath, JSON.stringify(expectations, null, 2) + '\n');
+  console.log(`recorded floors for ${citySlug} -> tests/expectations.json (counts ×0.5)`);
+} else if (recordExpectations && failures.length) {
+  console.log('NOT recording expectations: run has failures');
+}
+
+if (failures.length) {
+  console.error(`\nFAIL — ${failures.length} check(s):`);
+  for (const f of failures) console.error(`  ✗ ${f}`);
+  console.error(`(the SVG was still written for inspection)`);
+  process.exit(1);
+}
+console.log(`\nPASS — all checks. Next: visually verify in a browser via the preview MCP on :8889 (see tests/README.md):`);
 console.log(`  http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/${filename}`);
 

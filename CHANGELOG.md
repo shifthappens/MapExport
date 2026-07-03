@@ -11,6 +11,28 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-03 — Test harness can now fail: SVG lint, label unit tests, per-city floors
+- New `tests/svg-lint.mjs`: deterministic checks on any exported SVG — NaN/undefined
+  in attributes, empty/mirrored/upside-down labels, dangling `textPath` refs,
+  label-on-label overlap, labels outside the canvas (warning; known engine
+  behaviour). Guarded by its own `tests/svg-lint-selftest.mjs` (11 checks).
+- New `tests/label-placement.mjs` (31 checks): unit + integration tests for the
+  street-label engine — reading-angle normalisation, straight-vs-textPath choice,
+  reversed-geometry orientation, repeat spacing, same-name suppression, squares,
+  roundabouts — running the real `buildLabelsLayer` from `script.js`.
+- `tests/real-export.mjs` is now a test, not just a demo: it exits non-zero on
+  lint errors, zero roads/labels, or a layer under its per-city floor
+  (`tests/expectations.json`, captured at ×0.5 with `--record` on an approved
+  run; Tilburg + Ghent recorded). It also refuses to run against a stale
+  `script.min.js` and properly drains cache-write POSTs instead of sleeping 2s.
+- `tests/smoke.sh` now runs all six offline suites (incl. supersession) before
+  the Overpass round-trip; `OFFLINE_ONLY=1` skips the network step.
+  `tests/query-equivalence.mjs` warns on >1.5× over-fetch (accidentally widened
+  query). Scanner/parsing code deduplicated into `tests/lib.mjs`, which now
+  hard-fails if extraction stops matching `script.js` instead of silently
+  skipping layers.
+- `tests/viewer.html` accepts `?crop=x,y,w,h` for 1:1 detail screenshots.
+
 ### 2026-07-03 — Multi-city visual test harness
 - `tests/real-export.mjs` accepts named test areas (`tilburg`, `ghent`, `paris`,
   `bremerhaven`, `oulu`) besides raw bboxes; the city is now part of the export
