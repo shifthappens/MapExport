@@ -13,11 +13,12 @@ Tilburg/Ghent ones:
 1. **Labels land outside the visible canvas.** Roads extend past the export
    bbox and the label engine doesn't know where the canvas ends, so per export
    ~20 street names are placed *entirely* outside `[0,W]×[0,H]` (invisible —
-   clipped by `#map-clip`) and ~40 more are *partially* outside (visible as an
-   ugly half-name, violating the "labels never overflow" rule in
-   `memory/feedback_label_cartography.md`). Worse: an invisible placement
-   still calls `recordName` (`script.js:1273`), consuming that street's
-   same-name budget, so the street can end up **nameless in the visible part**.
+   clipped by `#map-clip`) and ~40 more are *partially* clipped at the edge.
+   A clipped repeat is fine per se (a long street naturally runs off the map);
+   the defects are (a) invisible placements, which still call `recordName`
+   (`script.js:1273`) and consume the street's same-name budget so it can end
+   up **nameless in the visible part**, and (b) streets whose *only* label is
+   a clipped one.
 
 2. **Street labels and feature labels can overlap each other.** Street labels
    share one footprint grid (`makeFootprintGrid`, `script.js:1200`); feature
@@ -46,31 +47,57 @@ errors once the engine is fixed.
 | `LAYER_ORDER` (build **and** paint order) | `:1903` |
 | `buildSVGContext` (per-export ctx — natural home for a shared grid) | `:1905` |
 
-## Fix 1 — never place a label off-canvas
+## Fix 1 — labels on the canvas: clipped only as a bonus, never as the only one
 
-**Policy:** a label's entire footprint must lie inside `[0,W]×[0,H]`. Not
-"mostly inside": partially clipped names violate the never-overflow rule, and
-the candidate scanner almost always has an alternative spot further along the
-road. If no fully-inside spot fits, the street gets no label — placing an
-invisible one has strictly worse consequences (budget burn, see Context).
+**Policy (per Coen, 2026-07-03):** a partially clipped label at the canvas
+edge is acceptable — but only as a *supplementary* placement. Per street
+(per name), if any label is placed at all, **at least one must be fully
+visible**. Concretely:
+
+- **Entirely outside** `[0,W]×[0,H]`: never place. Invisible, and it burns
+  the street's same-name budget (see Context). No exceptions.
+- **Partially clipped**: allowed only once the same street already has a
+  fully-visible label in this export. E.g. Hart van Brabantlaan repeats its
+  name several times, one of them cut off at the edge — fine.
+- **Street with no fully-inside spot that fits** (a sliver poking into the
+  map at the border): gets no label at all. Explicitly OK — such a street is
+  "too tiny to realistically be considered part of the map". Do not fall
+  back to a clipped-only label.
 
 Implementation:
 
-1. Inside `buildLabelsLayer`, add one helper next to `fpFits` (`:1280`):
-   `const fpInside=(fp,r)=>fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r);`
-   (`W`/`H` are already parameters; the circle radius `r` approximates the
-   text's half-height, so `center±r` inside ≈ glyphs inside.)
-2. Apply it at every emit site, in the same place the `fpFits` check runs:
-   - linear candidate loop `:1445–1446`: `if (!fpInside(fp,r)) continue;`
-     before the `fpFits` check (cheapest rejection first).
-   - roundabout ring `:1405–1407` and its centred fallback `:1413–1414`.
-   - square/plaza `:1372–1373`.
-3. `buildFeatureLabelsLayer`: same policy — skip a feature label whose
-   footprint isn't fully inside (it becomes a ribbon footprint under Fix 2;
-   until then use its box vs the canvas). Rivers/parks that straddle the edge
-   simply lose their name in this export — nudging the anchor inward is out
-   of scope (centroid labels that drift look wrong faster than they help).
-4. Optional refinement (skip unless trivial): the repeat count `ideal`
+1. Inside `buildLabelsLayer`, add two helpers next to `fpFits` (`:1280`):
+   ```js
+   const fpInside =(fp,r)=>fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r);
+   const fpVisible=(fp,r)=>fp.some (p=>p[0]>=-r&&p[0]<=W+r&&p[1]>=-r&&p[1]<=H+r);
+   ```
+   (`W`/`H` are already parameters; circle radius `r` approximates the text's
+   half-height, so `center±r` inside ≈ glyphs inside.)
+2. Track which street names already own a fully-visible label, next to
+   `placedByName` (`:1271`): `const fullyVisibleNames=new Set();`. This is
+   per-name across ALL of a street's runs (the `pool` loop), matching how
+   `nearName` budgeting works.
+3. Linear candidate loop (`:1426–1453`) — two-tier placement per size step:
+   - Split `cands` (already bend-sorted) into `inside` (passes `fpInside`)
+     and `clipped` (fails `fpInside` but passes `fpVisible`); discard the
+     entirely-outside rest.
+   - Place from `inside` first (existing logic unchanged). On the first
+     successful placement, `fullyVisibleNames.add(name)`.
+   - Then, only if `fullyVisibleNames.has(name)`, continue placing from
+     `clipped` up to the same `ideal`/spacing rules — these are the
+     legitimate cut-off-at-the-edge repeats.
+   - The font-shrink loop's early exit (`placedC.length>0` at `:1452`) stays
+     driven by inside placements: never shrink the font just to squeeze a
+     clipped label in.
+4. Single-placement sites require full visibility (no "supplementary" concept
+   applies): roundabout ring `:1405–1407`, its centred fallback `:1413–1414`,
+   square/plaza `:1372–1373` — all `fpInside` or skip.
+5. `buildFeatureLabelsLayer`: also single-placement → `fpInside` or skip (it
+   becomes a ribbon footprint under Fix 2; until then use its box vs the
+   canvas). Rivers/parks straddling the edge lose their name in this export —
+   nudging the anchor inward is out of scope (centroid labels that drift look
+   wrong faster than they help).
+6. Optional refinement (skip unless trivial): the repeat count `ideal`
    (`:1425`) still divides the *full* run length including off-canvas
    stretches. Harmless — placement filtering caps the real count — but
    clamping `lenPx` to the inside portion would make repeat spacing slightly
@@ -117,20 +144,27 @@ Implementation:
 
 1. `script.js` changed → `bash tools/minify.sh` (pre-commit hook re-minifies
    anyway) + CHANGELOG entry (hook enforces).
-2. `tests/svg-lint.mjs`: flip severities —
+2. `tests/svg-lint.mjs`: flip severities to match the policy —
    - "entirely outside the canvas" warning → **error**;
-   - "partially outside the canvas (clipped)" warning → **error**;
+   - "partially outside the canvas (clipped)": group street labels by name
+     (strip the `_<n>` suffix from `lbl_<safeName>_<n>`, or read
+     `inkscape:label`); clipped is fine when a same-name sibling label is
+     fully inside (keep as warning or drop to info), but **error** when ALL
+     of a name's labels are clipped — that's the clipped-only case the
+     engine must no longer produce. Feature labels: any clipped → error
+     (single-placement family).
    - cross-family overlap: drop the special-case warning branch, all label
      overlap becomes an **error** (delete the `L.kind === O.kind` fork).
-   Update the two `svg-lint-selftest.mjs` cases that assert warning-hood
-   (`label outside canvas → warning`, orphan-def stays a warning) and add a
-   cross-family overlap case (street `lbl_` + `feat_` on the same spot →
-   error).
+   Update `svg-lint-selftest.mjs`: the `label outside canvas → warning` case
+   becomes an error case; add clipped-with-visible-sibling (no error),
+   clipped-only street (error), and cross-family overlap (error) cases.
 3. `tests/label-placement.mjs`: add cases —
-   - street crossing the canvas edge → every emitted label position fully
-     inside; no `recordName` budget burn for outside stretches (assert the
-     visible part IS labelled);
+   - street crossing the canvas edge, long inside portion → at least one
+     fully-inside label; clipped repeats (if any) only in addition to it
+     (assert the visible part IS labelled — the budget-burn regression);
    - street entirely outside → no label;
+   - sliver street barely poking into the canvas, no inside spot fits → no
+     label at all (not a clipped-only one);
    - feature label first, street on the same spot → street label dodges
      (moved or absent), no overlap in `lintSvg` output;
    - feature label at the canvas edge → skipped.
