@@ -3,7 +3,8 @@
 MapExport is a browser-based tool that turns OpenStreetMap data into
 publication-ready, layered SVG city maps for USE-IT travel guides. See
 `README.md` for architecture, `MEMORY.md` for the curated memory index, and
-`PLAN.md` for the current plan.
+`plans/` for implementation plans (dated files; the **Status** line at the top
+of each says whether it is ready to implement, in progress, or retired).
 
 ## ⚠️ Changelog is mandatory
 

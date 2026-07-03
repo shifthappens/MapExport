@@ -1,5 +1,21 @@
 # Plan: Illustrator-interoperable label export
 
+**Status: RETIRED 2026-07-03** (moved here from the repo root `PLAN.md`).
+Partially implemented — what happened to each proposal:
+
+| Proposal | Outcome |
+|---|---|
+| A. Editable mode: straight labels as single rotated `<text>` | **Done** (commit `eb06193`; `emitStraight`, `STRAIGHT_BEND` gate) |
+| A. Explicit `dy` baseline offset besides `dominant-baseline` | Not done |
+| A. Outlined mode (opentype.js glyph tracing) | Not done |
+| B. Deliberate label font (replace hardcoded Arial) | Not done |
+| C. PDF export | Not done (evaluate-only item) |
+| D. `wrapSVG` width/height in mm | Not done (`script.js` still emits px) |
+| E. "Opening in Illustrator" UI guidance | Not done |
+
+The findings/analysis below remain valid reference. If the remaining items
+become priorities, start a fresh plan in `plans/` and lift from here.
+
 ## Context
 
 Designers exporting from MapExport and opening the SVG in **Adobe Illustrator**
