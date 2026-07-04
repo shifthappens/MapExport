@@ -1185,6 +1185,30 @@ function pointAngleAtLength(pts,target){
   const last=pts[pts.length-1];
   return {x:last[0],y:last[1],angle:0};
 }
+// Interpolated point at arc-length s along a polyline, given precomputed
+// cumulative lengths (arcLens[i] = arc-length up to pts[i]).
+function pointAtArcLen(pp,arcLens,s){for(let i=1;i<pp.length;i++)if(arcLens[i]>=s){const t=(s-arcLens[i-1])/((arcLens[i]-arcLens[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];}
+// Best straight baseline for a label span [s0,s1]: least-squares line through
+// evenly resampled points of the arc. Returns the sample centroid (where a
+// straight label should be anchored), the reading angle of the fitted line,
+// and the worst perpendicular deviation of the road from it. The local
+// tangent at the span's midpoint is NOT a substitute: on an asymmetric bend
+// it tilts the label by up to the whole bend and anchors it off the chord,
+// which is exactly what makes straight labels veer off slightly bendy roads.
+function fitStraightBaseline(pp,arcLens,s0,s1){
+  const len=Math.max(1,s1-s0), n=Math.max(8,Math.min(64,Math.ceil(len/8)));
+  const smp=[]; let sx=0,sy=0;
+  for(let k=0;k<=n;k++){const p=pointAtArcLen(pp,arcLens,s0+len*k/n);smp.push(p);sx+=p[0];sy+=p[1];}
+  const cx=sx/(n+1), cy=sy/(n+1);
+  let sxx=0,sxy=0,syy=0;
+  for(const p of smp){const dx=p[0]-cx,dy=p[1]-cy;sxx+=dx*dx;sxy+=dx*dy;syy+=dy*dy;}
+  const th=0.5*Math.atan2(2*sxy,sxx-syy);
+  const ux=Math.cos(th),uy=Math.sin(th);
+  let maxDev=0;
+  for(const p of smp){const d=Math.abs((p[1]-cy)*ux-(p[0]-cx)*uy);if(d>maxDev)maxDev=d;}
+  let a=th*180/Math.PI; if(a>90)a-=180; if(a<-90)a+=180;
+  return {cx,cy,angle:a,maxDev};
+}
 function makeCollisionGrid(){
   const placed=[];
   return {
@@ -1282,37 +1306,19 @@ function buildLabelsLayer(elements, pr, W, H) {
   // Total heading change (degrees) over an arc — how much a label placed there
   // would wrap. Sums the turn at every actual path vertex in range (so a sharp
   // kink/hairpin is caught, not stepped over) to prefer straight stretches.
-  const bendOver=(pp,cum,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(cum[i]<=s0||cum[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
+  const bendOver=(pp,arcLens,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(arcLens[i]<=s0||arcLens[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
   // Each label gets its OWN baseline sub-path covering just its extent, oriented
   // to read left-to-right (or bottom-to-top when vertical). This is what stops
   // labels rendering mirrored/upside-down when they land on a stretch of road
   // that runs right-to-left — a whole-path reverse can't fix that per-label.
-  const ptAt=(pp,cum,s)=>{for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];};
   // Reading-orientation rule: reverse unless the chord reads left-to-right,
   // or bottom-to-top when near-vertical. "Near-vertical" uses a deadband
   // RELATIVE to the height (10%) — a fixed ±0.5px band is razor thin on tall
   // chords, where a tiny end-hook in the road flips the classification back
   // and forth (a ~1.5°-off-vertical label is vertical for reading purposes).
   const misoriented=(dx,dy)=>{const t=Math.max(0.5,Math.abs(dy)*0.1);return dx<-t||(dx<=t&&dy>0);};
-  const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1];if(misoriented(b[0]-a[0],b[1]-a[1]))out.reverse();return out;};
+  const subPath=(pp,arcLens,s0,s1)=>{const out=[pointAtArcLen(pp,arcLens,s0)];for(let i=0;i<pp.length;i++)if(arcLens[i]>s0&&arcLens[i]<s1)out.push(pp[i]);out.push(pointAtArcLen(pp,arcLens,s1));const a=out[0],b=out[out.length-1];if(misoriented(b[0]-a[0],b[1]-a[1]))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
-  // Chord of the span [s0,s1] + the path's max perpendicular deviation from
-  // it. A straight rotated <text> renders along the chord, so it only stays
-  // inside the road fill when that deviation is small — the old local-angle
-  // placement let labels lift off the street wherever the road bent under
-  // them (the "name floats above/next to its street" defect).
-  const chordOf=(pp,cum,s0,s1)=>{
-    const a=ptAt(pp,cum,s0),b=ptAt(pp,cum,s1);
-    const dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1;
-    let dev=0;
-    for(let i=0;i<pp.length;i++){
-      if(cum[i]<=s0||cum[i]>=s1)continue;
-      const d=Math.abs(dy*pp[i][0]-dx*pp[i][1]+b[0]*a[1]-b[1]*a[0])/len;
-      if(d>dev)dev=d;
-    }
-    let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang>90)ang-=180;if(ang<-90)ang+=180;
-    return {cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2,angle:ang,dev};
-  };
   // Offset a reading-oriented polyline perpendicular ("down" in glyph terms)
   // by o px — used to shift textPath baselines so the ALPHABETIC baseline
   // sits at road-centre + capHeight/2. That bakes vertical centring into
@@ -1348,17 +1354,22 @@ function buildLabelsLayer(elements, pr, W, H) {
     const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
-  // one object per letter). (cx,cy) is on the road centreline; the baseline
-  // offset is baked into y and rotates with the anchor, so it stays a
-  // perpendicular offset at any angle.
+  // one object per letter). (cx,cy) is the centroid of the span's fitted
+  // baseline, rotated to the fitted angle (averages a gentle bend instead of
+  // inheriting one segment's heading); the baseline offset is baked into y
+  // and rotates with the anchor, so it stays perpendicular at any angle.
   const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
-  // A chosen stretch bending less than this (degrees, total heading change over
-  // the label span) is emitted as a single rotated <text> rather than <textPath>
-  // — one editable object in Illustrator instead of one per letter. Curved
-  // stretches above it keep textPath so they still follow the road.
-  const STRAIGHT_BEND=12;
+  // A chosen stretch is emitted as a single rotated <text> (one editable
+  // object in Illustrator instead of one per letter) when the road never
+  // wanders more than this fraction of the font size from the span's fitted
+  // baseline. A deviation test, not a degrees test: total heading change is
+  // length-blind (a 10° drift across a long label displaces its ends by far
+  // more than across a short one), which is what used to let long straight
+  // labels veer visibly off gently-bending streets. Spans that deviate more
+  // keep <textPath> so they still follow the road.
+  const STRAIGHT_MAX_DEV=0.3;
   // Cycle/foot paths are "minor": a street is never labelled on one of these
   // when a real-road run of the same name exists.
   const MINOR=new Set(['cycleway','footway','path','steps']);
@@ -1447,9 +1458,9 @@ function buildLabelsLayer(elements, pr, W, H) {
       let label=displayName;
       if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
       let pathPts=[...pts];
-      const cum=[0]; for(let i=1;i<pathPts.length;i++) cum.push(cum[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
+      const arcLens=[0]; for(let i=1;i<pathPts.length;i++) arcLens.push(arcLens[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
       const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
-      const subFor=(c,lw)=>subPath(pathPts,cum,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
+      const subFor=(c,lw)=>subPath(pathPts,arcLens,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
 
       // Roundabout: name follows the ring curve (centre it if the ring is too small).
       if (ringLike) {
@@ -1491,26 +1502,31 @@ function buildLabelsLayer(elements, pr, W, H) {
         // than the first (possibly curved) spot that happens to fit.
         const cands=[];
         for (let center=lw/2+endPad; center<=lenPx-lw/2-endPad+0.5; center+=step)
-          cands.push({center, bend:bendOver(pathPts,cum,center-lw/2,center+lw/2)});
+          cands.push({center, bend:bendOver(pathPts,arcLens,center-lw/2,center+lw/2)});
         cands.sort((a,b)=>a.bend-b.bend);
         const cap = fs<=MIN_FS*1.3 ? 120 : 80; // reject wrapped/cornered placements; relax a bit only as last resort
-        // A straight label renders along the CHORD of its span. It only stays
-        // inside the road fill when the path deviates from that chord by less
-        // than the room left between glyph edge and fill edge; otherwise the
-        // label must follow the road as a textPath. (The old local-angle test
-        // let straight labels lift off wherever the road bent under them.)
-        const devCap=Math.max(0.5,(roadW.fillW*sf)/2 - fs*0.36 - 1);
+        // A straight label is allowed only while the road stays close to the
+        // fitted baseline on BOTH measures: within the room between glyph
+        // edge and road-fill edge (so the letters stay inside the street),
+        // and within STRAIGHT_MAX_DEV×font (so a wide road can't carry a
+        // visibly off-road straight label). Beyond either, textPath.
+        const devCap=Math.min(fs*STRAIGHT_MAX_DEV, Math.max(0.5,(roadW.fillW*sf)/2 - fs*0.36 - 1));
         const placedC=[];
         for (const c of cands) {
           if (placedC.length>=ideal || c.bend>cap) break;
           if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
-          const p=pointAngleAtLength(pathPts,c.center);
+          const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
+          const straight=fit.maxDev<=devCap;
+          const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
           if (nearName(name,p.x,p.y,nameGap)) continue;
-          const fp=fpPath(pathPts,c.center-lw/2,c.center+lw/2,r); // ribbon along the actual baseline
+          // Footprint matches what is actually drawn: a straight ribbon along
+          // the fitted baseline, or a ribbon along the road for textPath.
+          const rad=fit.angle*Math.PI/180, hx=Math.cos(rad)*lw/2, hy=Math.sin(rad)*lw/2;
+          const fp=straight?fpLine(fit.cx-hx,fit.cy-hy,fit.cx+hx,fit.cy+hy,r)
+                           :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
           if (!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,p.x,p.y);
-          const ch=chordOf(pathPts,cum,c.center-lw/2,c.center+lw/2);
-          if (c.bend<=STRAIGHT_BEND && ch.dev<=devCap) emitStraight(hw,name,attrs,label,ch.cx,ch.cy,ch.angle,fs);
+          if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
           else emitPath(hw,name,attrs,label,subFor(c.center,lw),fs);
           placedC.push(c.center);
         }

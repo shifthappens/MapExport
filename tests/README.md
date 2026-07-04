@@ -84,6 +84,7 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 - `pipeline-equivalence.mjs` — offline check against frozen fixtures.
 - `supersession.mjs` — offline check for `SUPERSESSIONS` rules + tagFilter coverage.
 - `label-placement.mjs` — offline unit + integration tests for the street-label engine.
+- `label-fit.mjs` — offline unit test for the straight-label baseline fit (`fitStraightBaseline`): centroid/angle anchoring and the length-aware deviation criterion.
 - `svg-lint.mjs` — deterministic defect checks on an exported SVG (importable + CLI).
 - `svg-lint-selftest.mjs` — mutation tests guarding svg-lint itself.
 - `expectations.json` — per-city layer/label floors for real-export (write with `--record`).

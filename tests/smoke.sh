@@ -16,6 +16,10 @@ echo "== label-placement (offline, label-engine unit test) =="
 node tests/label-placement.mjs
 
 echo
+echo "== label-fit (offline, straight-baseline fit unit test) =="
+node tests/label-fit.mjs
+
+echo
 echo "== svg-lint-selftest (offline, guards the SVG linter) =="
 node tests/svg-lint-selftest.mjs
 

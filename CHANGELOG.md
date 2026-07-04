@@ -12,9 +12,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 ## Unreleased
 
 ### 2026-07-04 — Street labels stay inside their street, in every renderer
-- **Straight labels follow the chord of their span** with a hard geometric cap:
-  if the road bends away from that chord by more than the room between glyph
-  edge and road edge, the label falls back to a road-following `textPath`.
+- **Straight labels must stay inside the road fill**: merged with the
+  2026-07-02 fitted-baseline work below — a straight label is allowed only
+  while the road deviates from the span's least-squares baseline by less
+  than BOTH the room between glyph edge and road-fill edge AND 30% of the
+  font size; beyond either it falls back to a road-following `textPath`.
   Previously the label rotated to the road's *local* angle at its centre, so
   names lifted off the street wherever it curved under them (reported on
   Koopvaardijstraat, Sint Annastraat, Hooistraat, Professor Dondersstraat).
@@ -56,6 +58,30 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   now only flag invisible placements and streets with no fully visible label
   (tilburg: 21/24 such cases, ghent: 23/55 — the engine fix planned in
   `plans/2026-07-03_labels-canvas-clipping-and-unified-collision.md`).
+
+### 2026-07-04 — More realistic export-time estimates and a simpler layers tip
+- Step 1 (export area) help now quotes realistic export times (under a
+  minute / 2–5 min / 10+ min) instead of the old "seconds" estimate, and
+  notes that the public Overpass API's rate limiting causes pauses.
+- Step 2 (map layers) help replaces the buildings-specific slowdown note
+  with a generic "disable unneeded layers" tip.
+
+### 2026-07-02 — Straight street labels no longer veer off gently bending roads
+- Straight (rotated `<text>`) labels are now anchored on the **least-squares
+  baseline of the whole label span** — centroid position + fitted angle —
+  instead of the point and single-segment heading at the span's midpoint.
+  On a slightly bendy street the old anchor tilted the label by up to the
+  full bend and pushed it to the outside of the curve; the fit averages the
+  bend so the label sits centred on the street.
+- The straight-vs-`textPath` decision is now **deviation-based** (road may
+  wander at most 30% of the font size from the fitted baseline) instead of
+  the old 12°-total-bend rule, which was length-blind: long labels could
+  drift visibly off-road while short ones were needlessly exploded into
+  per-letter `textPath` objects. Spans that deviate more keep `textPath`.
+- Collision footprints for straight labels now follow the straight baseline
+  that is actually drawn (previously they were stamped along the curved
+  road, so the collision model disagreed with the render on exactly the
+  labels that veered). New offline regression test: `tests/label-fit.mjs`.
 
 ### 2026-07-03 — Multi-city visual test harness
 - `tests/real-export.mjs` accepts named test areas (`tilburg`, `ghent`, `paris`,
