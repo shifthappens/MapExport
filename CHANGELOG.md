@@ -11,6 +11,13 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-04 — More realistic export-time estimates and a simpler layers tip
+- Step 1 (export area) help now quotes realistic export times (under a
+  minute / 2–5 min / 10+ min) instead of the old "seconds" estimate, and
+  notes that the public Overpass API's rate limiting causes pauses.
+- Step 2 (map layers) help replaces the buildings-specific slowdown note
+  with a generic "disable unneeded layers" tip.
+
 ### 2026-07-02 — Straight street labels no longer veer off gently bending roads
 - Straight (rotated `<text>`) labels are now anchored on the **least-squares
   baseline of the whole label span** — centroid position + fitted angle —
