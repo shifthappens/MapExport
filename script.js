@@ -1288,7 +1288,13 @@ function buildLabelsLayer(elements, pr, W, H) {
   // labels rendering mirrored/upside-down when they land on a stretch of road
   // that runs right-to-left — a whole-path reverse can't fix that per-label.
   const ptAt=(pp,cum,s)=>{for(let i=1;i<pp.length;i++)if(cum[i]>=s){const t=(s-cum[i-1])/((cum[i]-cum[i-1])||1);return [pp[i-1][0]+(pp[i][0]-pp[i-1][0])*t,pp[i-1][1]+(pp[i][1]-pp[i-1][1])*t];}return pp[pp.length-1];};
-  const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
+  // Reading-orientation rule: reverse unless the chord reads left-to-right,
+  // or bottom-to-top when near-vertical. "Near-vertical" uses a deadband
+  // RELATIVE to the height (10%) — a fixed ±0.5px band is razor thin on tall
+  // chords, where a tiny end-hook in the road flips the classification back
+  // and forth (a ~1.5°-off-vertical label is vertical for reading purposes).
+  const misoriented=(dx,dy)=>{const t=Math.max(0.5,Math.abs(dy)*0.1);return dx<-t||(dx<=t&&dy>0);};
+  const subPath=(pp,cum,s0,s1)=>{const out=[ptAt(pp,cum,s0)];for(let i=0;i<pp.length;i++)if(cum[i]>s0&&cum[i]<s1)out.push(pp[i]);out.push(ptAt(pp,cum,s1));const a=out[0],b=out[out.length-1];if(misoriented(b[0]-a[0],b[1]-a[1]))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
   // Chord of the span [s0,s1] + the path's max perpendicular deviation from
   // it. A straight rotated <text> renders along the chord, so it only stays
@@ -1338,7 +1344,7 @@ function buildLabelsLayer(elements, pr, W, H) {
     // the emitted one). Re-check on the geometry actually emitted and flip —
     // reverse + re-offset, so the glyph side flips along with the direction.
     const oa=off[0],ob=off[off.length-1];
-    if(ob[0]-oa[0]<-0.5||(ob[0]-oa[0]<=0.5&&ob[1]-oa[1]>0)) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
+    if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
     const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into

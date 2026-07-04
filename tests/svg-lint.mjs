@@ -145,11 +145,13 @@ export function lintSvg(svg) {
       const pts = pathDs.get(tp[1]);
       if (!pts) { err(`${id}: textPath references missing path #${tp[1]}`); continue; }
       if (pts.length < 2) { err(`${id}: baseline path #${tp[1]} has <2 points`); continue; }
-      // Orientation rule from script.js subPath(): reversed unless the chord
-      // reads left-to-right, or bottom-to-top when near-vertical. A violation
+      // Orientation rule from script.js subPath()/misoriented(): reversed
+      // unless the chord reads left-to-right, or bottom-to-top when
+      // near-vertical (deadband relative to height, 10%). A violation
       // renders the label mirrored/upside-down.
       const dx = pts[pts.length - 1][0] - pts[0][0], dy = pts[pts.length - 1][1] - pts[0][1];
-      if (dx < -0.5 || (dx <= 0.5 && dy > 0))
+      const dead = Math.max(0.5, Math.abs(dy) * 0.1);
+      if (dx < -dead || (dx <= dead && dy > 0))
         err(`${id}: baseline #${tp[1]} oriented right-to-left/top-down (mirrored label)`);
       // Glyphs occupy the middle `lw` of the (1.1×lw) baseline path,
       // startOffset 50%. Cap top = baseline + CAP_H·fs along the local "up".
