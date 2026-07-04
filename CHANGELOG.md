@@ -11,6 +11,23 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-02 — Straight street labels no longer veer off gently bending roads
+- Straight (rotated `<text>`) labels are now anchored on the **least-squares
+  baseline of the whole label span** — centroid position + fitted angle —
+  instead of the point and single-segment heading at the span's midpoint.
+  On a slightly bendy street the old anchor tilted the label by up to the
+  full bend and pushed it to the outside of the curve; the fit averages the
+  bend so the label sits centred on the street.
+- The straight-vs-`textPath` decision is now **deviation-based** (road may
+  wander at most 30% of the font size from the fitted baseline) instead of
+  the old 12°-total-bend rule, which was length-blind: long labels could
+  drift visibly off-road while short ones were needlessly exploded into
+  per-letter `textPath` objects. Spans that deviate more keep `textPath`.
+- Collision footprints for straight labels now follow the straight baseline
+  that is actually drawn (previously they were stamped along the curved
+  road, so the collision model disagreed with the render on exactly the
+  labels that veered). New offline regression test: `tests/label-fit.mjs`.
+
 ### 2026-07-03 — Multi-city visual test harness
 - `tests/real-export.mjs` accepts named test areas (`tilburg`, `ghent`, `paris`,
   `bremerhaven`, `oulu`) besides raw bboxes; the city is now part of the export

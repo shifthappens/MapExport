@@ -12,9 +12,14 @@ overlapping, written across the road, overflowing past the street) break the pro
 
 **How to apply:**
 - Every linear street label must read along its road. Near-straight stretches
-  (total bend ≤ STRAIGHT_BEND, ~12°) are emitted as a single rotated `<text>`
-  (one editable object — Illustrator imports `<textPath>` as one object PER
-  LETTER); curved stretches keep `<textPath>` so they still follow the bend.
+  are emitted as a single rotated `<text>` (one editable object — Illustrator
+  imports `<textPath>` as one object PER LETTER), anchored on the span's
+  least-squares baseline (centroid + fitted angle from `fitStraightBaseline`),
+  never on the local tangent at the midpoint. Straight-vs-textPath is decided
+  by max deviation from that baseline (≤ STRAIGHT_MAX_DEV × font size) — a
+  degrees-of-bend threshold is length-blind and let long labels veer off
+  gently bending roads. Curved stretches keep `<textPath>` so they still
+  follow the bend.
   Never horizontal across a linear street — only tag-mapped squares/plazas get
   centred horizontal text.
 - Labels must never overflow past the road they sit on. If the name doesn't fit,
