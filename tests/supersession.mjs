@@ -15,97 +15,15 @@
 //
 // Usage:  node tests/supersession.mjs
 
-import { SCRIPT_PATH, FIXTURE_DIR, fs, path } from './lib.mjs';
+import { FIXTURE_DIR, extractLayerEntries, extractSupersessions, fs, path } from './lib.mjs';
 
 // ---- 1. parse SUPERSESSIONS + overpassQuery + tagFilter out of script.js ----
-const src = fs.readFileSync(SCRIPT_PATH, 'utf8');
-
-function skipLit(s, i) {
-  const q = s[i];
-  if (q === '`') {
-    for (i++; i < s.length; i++) {
-      if (s[i] === '\\') { i++; continue; }
-      if (s[i] === '`') return i;
-      if (s[i] === '$' && s[i + 1] === '{') i = skipBal(s, i + 1, '{', '}');
-    }
-    return s.length;
-  }
-  for (i++; i < s.length; i++) {
-    if (s[i] === '\\') { i++; continue; }
-    if (s[i] === q) return i;
-  }
-  return s.length;
-}
-function skipRe(s, i) {
-  let cl = false;
-  for (i++; i < s.length; i++) {
-    const c = s[i];
-    if (c === '\\') { i++; continue; }
-    if (c === '[') cl = true;
-    else if (c === ']') cl = false;
-    else if (c === '/' && !cl) {
-      while (i + 1 < s.length && /[a-z]/i.test(s[i + 1])) i++;
-      return i;
-    }
-  }
-  return s.length;
-}
-function skipBal(s, start, o, c) {
-  let d = 0;
-  for (let i = start; i < s.length; i++) {
-    const ch = s[i];
-    if (ch === "'" || ch === '"' || ch === '`') { i = skipLit(s, i); continue; }
-    if (ch === o) d++;
-    else if (ch === c) { d--; if (d === 0) return i; }
-  }
-  return s.length;
-}
-function scanEnd(s, i) {
-  let d = 0, p = ':';
-  for (; i < s.length; i++) {
-    const c = s[i];
-    if (/\s/.test(c)) continue;
-    if (c === "'" || c === '"' || c === '`') { i = skipLit(s, i); p = c; continue; }
-    if (c === '/' && /[=(,!&|?:;{[]/.test(p)) { i = skipRe(s, i); p = '/'; continue; }
-    if (c === '(' || c === '[' || c === '{') { d++; p = c; continue; }
-    if (c === ')' || c === ']' || c === '}') { if (d === 0) return i; d--; p = c; continue; }
-    if (c === ',' && d === 0) return i;
-    p = c;
-  }
-  return s.length;
-}
-
-// Pull tagFilter and overpassQuery per layer id.
+// Shared scanner in lib.mjs — throws on extraction drift instead of
+// silently skipping a layer (the old private copy swallowed eval errors).
 const layers = {};
-const idRe = /\{\s*id:'([a-z_]+)'/g;
-let m;
-while ((m = idRe.exec(src)) !== null) {
-  const id = m[1];
-  const entryEnd = skipBal(src, m.index, '{', '}');
-  const body = src.slice(m.index, entryEnd + 1);
+for (const e of extractLayerEntries()) layers[e.id] = e;
 
-  const tfIdx = body.search(/tagFilter:el=>/);
-  const tqIdx = body.search(/overpassQuery:\(b\)=>/);
-  const o = { id };
-  if (tfIdx >= 0) {
-    const s = tfIdx + 'tagFilter:'.length;
-    const e = scanEnd(body, s);
-    try { o.tagFilter = (0, eval)(`(${body.slice(s, e)})`); } catch {}
-  }
-  if (tqIdx >= 0) {
-    const s = tqIdx + 'overpassQuery:'.length;
-    const e = scanEnd(body, s);
-    try { o.overpassQuery = (0, eval)(`(${body.slice(s, e)})`); } catch {}
-  }
-  layers[id] = o;
-}
-
-// Locate the SUPERSESSIONS literal block and eval it.
-const susStart = src.indexOf('const SUPERSESSIONS =');
-if (susStart < 0) { console.error('[sup] could not locate SUPERSESSIONS table'); process.exit(2); }
-const openBrace = src.indexOf('{', susStart);
-const closeBrace = skipBal(src, openBrace, '{', '}');
-const SUPERSESSIONS = (0, eval)(`(${src.slice(openBrace, closeBrace + 1)})`);
+const SUPERSESSIONS = extractSupersessions();
 console.log(`[sup] parsed ${Object.keys(SUPERSESSIONS).length} subordinate(s) from SUPERSESSIONS`);
 
 // ---- 2. declared-rule-matches-query check ----

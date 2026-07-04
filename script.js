@@ -1311,19 +1311,54 @@ function buildLabelsLayer(elements, pr, W, H) {
   // to read left-to-right (or bottom-to-top when vertical). This is what stops
   // labels rendering mirrored/upside-down when they land on a stretch of road
   // that runs right-to-left — a whole-path reverse can't fix that per-label.
-  const subPath=(pp,arcLens,s0,s1)=>{const out=[pointAtArcLen(pp,arcLens,s0)];for(let i=0;i<pp.length;i++)if(arcLens[i]>s0&&arcLens[i]<s1)out.push(pp[i]);out.push(pointAtArcLen(pp,arcLens,s1));const a=out[0],b=out[out.length-1],dx=b[0]-a[0],dy=b[1]-a[1];if(dx<-0.5||(dx<=0.5&&dy>0))out.reverse();return out;};
+  // Reading-orientation rule: reverse unless the chord reads left-to-right,
+  // or bottom-to-top when near-vertical. "Near-vertical" uses a deadband
+  // RELATIVE to the height (10%) — a fixed ±0.5px band is razor thin on tall
+  // chords, where a tiny end-hook in the road flips the classification back
+  // and forth (a ~1.5°-off-vertical label is vertical for reading purposes).
+  const misoriented=(dx,dy)=>{const t=Math.max(0.5,Math.abs(dy)*0.1);return dx<-t||(dx<=t&&dy>0);};
+  const subPath=(pp,arcLens,s0,s1)=>{const out=[pointAtArcLen(pp,arcLens,s0)];for(let i=0;i<pp.length;i++)if(arcLens[i]>s0&&arcLens[i]<s1)out.push(pp[i]);out.push(pointAtArcLen(pp,arcLens,s1));const a=out[0],b=out[out.length-1];if(misoriented(b[0]-a[0],b[1]-a[1]))out.reverse();return out;};
   const subD=(sub)=>{let s=`M${sub[0][0].toFixed(1)},${sub[0][1].toFixed(1)}`;for(let i=1;i<sub.length;i++)s+=`L${sub[i][0].toFixed(1)},${sub[i][1].toFixed(1)}`;return s;};
-  // Emit one path-following label centred on its own oriented sub-path. Used
-  // only for genuinely curved stretches: Illustrator imports <textPath> as one
+  // Offset a reading-oriented polyline perpendicular ("down" in glyph terms)
+  // by o px — used to shift textPath baselines so the ALPHABETIC baseline
+  // sits at road-centre + capHeight/2. That bakes vertical centring into
+  // plain geometry: no dominant-baseline, which QuickLook and Illustrator
+  // ignore (labels rendered sitting ON the road axis instead of across it).
+  const offsetPolyline=(pts,o)=>{
+    const n=pts.length,out=[];
+    for(let i=0;i<n;i++){
+      const p0=pts[Math.max(0,i-1)],p1=pts[Math.min(n-1,i+1)];
+      const dx=p1[0]-p0[0],dy=p1[1]-p0[1],l=Math.hypot(dx,dy)||1;
+      out.push([pts[i][0]-dy/l*o,pts[i][1]+dx/l*o]);
+    }
+    return out;
+  };
+  // Vertical centring is BAKED INTO GEOMETRY everywhere: the alphabetic
+  // baseline is placed capHeight/2 (≈0.36em for Arial) below the road axis,
+  // numerically. No dominant-baseline attribute — browsers honour it but
+  // QuickLook and Illustrator don't, which made labels sit on/above their
+  // street in exactly the renderers designers use.
+  const CAP_HALF=0.36;
+  // Emit one path-following label centred on its own oriented sub-path (the
+  // sub-path itself is shifted perpendicular by capHeight/2). Used only for
+  // genuinely curved stretches: Illustrator imports <textPath> as one
   // point-text object PER LETTER, so straight labels go through emitStraight.
-  const emitPath=(hw,name,attrs,label,sub)=>{const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(sub)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
+  const emitPath=(hw,name,attrs,label,sub,fs)=>{
+    let off=offsetPolyline(sub,fs*CAP_HALF);
+    // The perpendicular shift can nudge a near-vertical chord across the
+    // reading-orientation deadband (subPath decided on the road chord, not
+    // the emitted one). Re-check on the geometry actually emitted and flip —
+    // reverse + re-offset, so the glyph side flips along with the direction.
+    const oa=off[0],ob=off[off.length-1];
+    if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
+    const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
-  // one object per letter). Centred on (cx,cy) — the centroid of the span's
-  // fitted baseline — and rotated to the fitted angle, so the label averages
-  // a gentle bend instead of inheriting one segment's heading; same
-  // dominant-baseline centring as emitPath.
-  const emitStraight=(hw,name,attrs,label,cx,cy,angle)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
+  // one object per letter). (cx,cy) is the centroid of the span's fitted
+  // baseline, rotated to the fitted angle (averages a gentle bend instead of
+  // inheriting one segment's heading); the baseline offset is baked into y
+  // and rotates with the anchor, so it stays perpendicular at any angle.
+  const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
   // A chosen stretch is emitted as a single rotated <text> (one editable
@@ -1401,8 +1436,8 @@ function buildLabelsLayer(elements, pr, W, H) {
       const r=fpR(sz), fp=fpLine(cx-textW/2,cy,cx+textW/2,cy,r);
       if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
       fpStamp(fp,r); recordName(name,cx,cy);
-      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
+      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
+      texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
     }
 
@@ -1424,7 +1459,7 @@ function buildLabelsLayer(elements, pr, W, H) {
       if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
       let pathPts=[...pts];
       const arcLens=[0]; for(let i=1;i<pathPts.length;i++) arcLens.push(arcLens[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
-      const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" dominant-baseline="central" letter-spacing="${ls.toFixed(1)}"`;
+      const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
       const subFor=(c,lw)=>subPath(pathPts,arcLens,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
 
       // Roundabout: name follows the ring curve (centre it if the ring is too small).
@@ -1435,14 +1470,14 @@ function buildLabelsLayer(elements, pr, W, H) {
           const mid=pointAngleAtLength(pathPts,lenPx/2);
           if (nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,mid.x,mid.y);
-          emitPath(hw,name,attrs,label,subFor(lenPx/2,lw));
+          emitPath(hw,name,attrs,label,subFor(lenPx/2,lw),sz0);
           continue;
         }
         const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length, cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
         const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
         if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
         fpStamp(fp,r); recordName(name,cx,cy);
-        texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
+        texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
         continue;
       }
 
@@ -1452,6 +1487,11 @@ function buildLabelsLayer(elements, pr, W, H) {
       const baseW=approxTextWidth(label,sz0,sz0*0.08);
       const fitFs=lenPx>=baseW ? sz0 : sz0*lenPx/baseW*0.98;
       const ideal=Math.max(1,Math.round(lenPx/(style.spacing*sf)));
+      // Keep the label text clear of the junction mouths at the run's ends —
+      // a label reaching s=0 or s=lenPx visually bleeds onto the crossing
+      // street (the reported "name pokes into another street"). If the inset
+      // range is empty at this size, the shrink loop tries a smaller font.
+      const endPad=((roadW.fillW+roadW.casingW)*sf)/2 + 4*sf;
       for (let fs=fitFs; fs>=MIN_FS; fs*=0.8) {
         const ls=fs*0.08, lw=approxTextWidth(label,fs,ls), r=fpR(fs);
         if (lw>lenPx) continue;
@@ -1461,16 +1501,22 @@ function buildLabelsLayer(elements, pr, W, H) {
         // the straightest first — so a label sits on a straight stretch rather
         // than the first (possibly curved) spot that happens to fit.
         const cands=[];
-        for (let center=lw/2; center<=lenPx-lw/2+0.5; center+=step)
+        for (let center=lw/2+endPad; center<=lenPx-lw/2-endPad+0.5; center+=step)
           cands.push({center, bend:bendOver(pathPts,arcLens,center-lw/2,center+lw/2)});
         cands.sort((a,b)=>a.bend-b.bend);
         const cap = fs<=MIN_FS*1.3 ? 120 : 80; // reject wrapped/cornered placements; relax a bit only as last resort
+        // A straight label is allowed only while the road stays close to the
+        // fitted baseline on BOTH measures: within the room between glyph
+        // edge and road-fill edge (so the letters stay inside the street),
+        // and within STRAIGHT_MAX_DEV×font (so a wide road can't carry a
+        // visibly off-road straight label). Beyond either, textPath.
+        const devCap=Math.min(fs*STRAIGHT_MAX_DEV, Math.max(0.5,(roadW.fillW*sf)/2 - fs*0.36 - 1));
         const placedC=[];
         for (const c of cands) {
           if (placedC.length>=ideal || c.bend>cap) break;
           if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
           const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
-          const straight=fit.maxDev<=fs*STRAIGHT_MAX_DEV;
+          const straight=fit.maxDev<=devCap;
           const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
           if (nearName(name,p.x,p.y,nameGap)) continue;
           // Footprint matches what is actually drawn: a straight ribbon along
@@ -1480,8 +1526,8 @@ function buildLabelsLayer(elements, pr, W, H) {
                            :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
           if (!fpFits(fp,r)) continue;
           fpStamp(fp,r); recordName(name,p.x,p.y);
-          if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle);
-          else emitPath(hw,name,attrs,label,subFor(c.center,lw));
+          if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
+          else emitPath(hw,name,attrs,label,subFor(c.center,lw),fs);
           placedC.push(c.center);
         }
         if (placedC.length>0) break; // labelled at this size; no need to shrink further
@@ -1547,8 +1593,12 @@ function buildFeatureLabelsLayer(elements, pr, W, H) {
     const italicAttr=waterway?'font-style="italic"':'';
     const fid=`feat_${safeName(name)}`;
     const eName=escXml(name);
-    labels+=`<text id="${fid}_halo" inkscape:label="${eName} (halo)" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none" paint-order="stroke">${eName}</text>`;
-    labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" dominant-baseline="middle" fill="${color}" opacity="0.9">${eName}</text>`;
+    // Vertical centring baked into y (mixed-case optical centre ≈ 0.35em
+    // below the middle) instead of dominant-baseline, which QuickLook and
+    // Illustrator ignore — same treatment as street labels.
+    const by=(cy+sz*0.35).toFixed(1);
+    labels+=`<text id="${fid}_halo" inkscape:label="${eName} (halo)" x="${cx.toFixed(1)}" y="${by}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none" paint-order="stroke">${eName}</text>`;
+    labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" fill="${color}" opacity="0.9">${eName}</text>`;
   });
 
   if (!labels) return '';

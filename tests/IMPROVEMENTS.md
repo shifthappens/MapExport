@@ -1,63 +1,63 @@
-# tests/ — verbeterpunten (bevindingen 2026-07-03)
+# tests/ — verbeterpunten
 
-Analyse van het hele test-harnas na het toevoegen van de multi-city visual
-check (ghent/paris/bremerhaven/oulu). Op volgorde van impact.
+Bevindingen 2026-07-03 na het toevoegen van de multi-city visual check;
+status bijgewerkt dezelfde dag nadat het merendeel is geïmplementeerd.
 
-## 1. `real-export.mjs` kan niet falen
+## Gedaan (2026-07-03)
 
-Print statistieken en exit altijd 0. Een run met 0 road-elementen of `NaN` in
-het SVG "slaagt". Toevoegen:
+1. ~~**`real-export.mjs` kan niet falen**~~ — DONE. Exit 1 bij lint-errors,
+   0 roads/labels of een laag onder z'n per-stad-ondergrens
+   (`expectations.json`, vastgelegd met `--record` op een goedgekeurde run,
+   tellingen ×0.5). Tilburg + Gent staan erin; de andere drie steden volgen
+   bij hun eerstvolgende goedgekeurde (gegate) run.
+2. ~~**Visuele check deels objectiveren**~~ — DONE. `svg-lint.mjs` checkt
+   NaN/undefined, lege labels, kapotte/gespiegelde `textPath`s, rotaties
+   buiten ±90°, label-overlap (errors) en labels buiten/half buiten het
+   canvas (warnings). Zelf bewaakt door `svg-lint-selftest.mjs`.
+3. ~~**Staleness `script.min.js` vs `script.js`**~~ — DONE. `real-export.mjs`
+   weigert te draaien (exit 3) als de bron >2s nieuwer is dan de min-file.
+4. ~~**Labelplaatsing heeft geen unit tests**~~ — DONE. `label-placement.mjs`
+   (31 checks) draait de echte `buildLabelsLayer` uit `script.js` via
+   `lib.mjs loadAppSandbox` op synthetische straten.
+5. Kleiner, ook gedaan: scanner-dedup naar `lib.mjs` (faalt hard bij
+   extraction-drift i.p.v. lagen stil over te slaan); over-fetch-warning in
+   `query-equivalence` (>1.5×); `supersession.mjs` + alle offline suites in
+   `smoke.sh` (`OFFLINE_ONLY=1` slaat netwerk over); `?crop=` in
+   `viewer.html`; de `sleep(2000)`-race vervangen door echte POST-drain.
 
-- fail als een default-on laag 0 elementen oplevert;
-- fail op `NaN` in het SVG;
-- per stad verwachte bandbreedtes (elementen per laag, labelaantallen) in een
-  klein meta-bestand, zoals `_meta.json` voor fixtures. Gent hoort ~5000 roads
-  te hebben; 500 = fail vóór er iemand naar een screenshot kijkt.
+## Gedaan (2026-07-04)
 
-## 2. Visuele check deels objectiveren
+6. ~~**Labels buiten hun straat**~~ — DONE (defectmelding Coen, vijf crops).
+   Engine: koorde-plaatsing met afwijkingslimiet t.o.v. de wegbreedte
+   (anders textPath), kruisingsmarge aan de uiteinden van een run, en
+   verticale centrering numeriek ingebakken (geen `dominant-baseline` meer —
+   QuickLook/Illustrator negeerden dat). Harnas: `svg-lint` heeft nu een
+   containment-check (glyfband vs. het witte wegvlak van de eigen straat, op
+   naam) zodat deze klasse voortaan de tests laat falen.
 
-Deterministisch uit het geëxporteerde SVG te controleren, zonder ogen:
+## Open
 
-- labels buiten de viewBox;
-- rotatiehoeken buiten ±90° (ondersteboven tekst);
-- `textPath`-referenties naar niet-bestaande path-ids;
-- lege labels;
-- label-op-label-overlap via bounding boxes.
-
-Dit vangt precies de foutklasse waarvoor de vijf steden bestaan. De
-screenshot-check blijft, maar als laatste stap in plaats van enige stap.
-
-## 3. Staleness: harness test `script.min.js`, jij bewerkt `script.js`
-
-`minify.sh` vergeten = vorige versie testen zonder het te merken. Fix:
-mtime-check of minify aanroepen vanuit de harness.
-
-## 4. Labelplaatsing heeft geen unit tests
-
-`road-merge.mjs` / `abbreviate.mjs` bewijzen dat pure functies uit `script.js`
-geïsoleerd testbaar zijn. De kern (hoekberekening, textPath-zijde,
-herhaalafstand langs lange straten) is ongetest — en dat is waar visuele
-checks steeds de fouten vinden. Zelfde slicing-truc, nieuwe testfile.
-
-## 5. Query-regressies alleen op Tilburg bewaakt
+### Query-regressies alleen op Tilburg bewaakt
 
 `query-equivalence`/`supersession` draaien op Tilburg-fixtures. Internationale
 tagging (Straße, Finse *katu*, havens in Bremerhaven) kan in queries sneuvelen
 zonder dat Tilburg het toont. Geslimde fixtures (`slimElement`: type/id/tags)
-voor de vier kleine gebieden zijn bescheiden in omvang. De README-regel
-"alleen Tilburg-fixtures" stamt van vóór het multi-city-doel.
+voor de vier kleine gebieden zijn bescheiden in omvang. Aanpak:
+`capture-fixtures.mjs` een stad-argument geven en `query-equivalence` over
+alle aanwezige fixture-dirs laten lopen. De README-regel "alleen
+Tilburg-fixtures" stamt van vóór het multi-city-doel.
 
-## Kleiner
+### Engine-bevinding uit de lint (niet het harnas zelf)
 
-- Drie source-parsers (`extractLayers` + gedupliceerde scanners in
-  `pipeline-equivalence.mjs` en `supersession.mjs`) slaan een laag stilletjes
-  over als het patroon niet matcht. Dedupliceren naar `lib.mjs`; falen als het
-  aantal geëxtraheerde lagen daalt.
-- `query-equivalence` checkt alleen verdwenen elementen, nooit over-fetch
-  (per ongeluk verbrede query). Soft warning bij bv. new/baseline > 1.5×.
-- `supersession.mjs` zit niet in `smoke.sh`.
-- Visuele check: één screenshot van 1500px van een 4961px-kaart maakt
-  labeldefecten onzichtbaar. `?crop=`-parameter in `viewer.html` voor een paar
-  1:1-detailregio's per stad.
-- `real-export.mjs` eindigt met een fire-and-forget `sleep(2000)` voor
-  cache-POSTs — race bij trage schrijfacties.
+Per export liggen ~20 labels **volledig buiten het canvas** (onzichtbaar,
+weggeclipt) en nog eens ~40 half erbuiten: het label-engine plaatst ook op
+weggedeelten voorbij de export-bbox, en zo'n plaatsing verbruikt het
+label-budget van die straat binnen beeld. Fix hoort in `buildLabelsLayer`
+(kandidaten buiten `[0,W]×[0,H]` overslaan of penaliseren). Tot die tijd
+rapporteert `svg-lint` dit als warning; daarna op error zetten.
+
+### Klein
+
+- Feature-labels (parken/water) en straatlabels delen geen collision-grid —
+  overlap tussen die families is mogelijk en komt voor (lint-warning, by
+  design/limitation). Eén gedeeld grid zou het oplossen.

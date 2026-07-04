@@ -37,7 +37,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 │   └── fixtures/tilburg/  # Baseline Overpass responses for regression
 ├── references/            # Design reference files (tutorial PDF, Ghent .ai sample)
 ├── memory/                # Architecture docs and session notes
-├── PLAN.md                # Current development plan
+├── plans/                 # Implementation plans (dated; Status line at top of each)
 └── LICENSE                # GPL-3.0
 ```
 

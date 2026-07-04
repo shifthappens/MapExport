@@ -11,6 +11,54 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-04 — Street labels stay inside their street, in every renderer
+- **Straight labels must stay inside the road fill**: merged with the
+  2026-07-02 fitted-baseline work below — a straight label is allowed only
+  while the road deviates from the span's least-squares baseline by less
+  than BOTH the room between glyph edge and road-fill edge AND 30% of the
+  font size; beyond either it falls back to a road-following `textPath`.
+  Previously the label rotated to the road's *local* angle at its centre, so
+  names lifted off the street wherever it curved under them (reported on
+  Koopvaardijstraat, Sint Annastraat, Hooistraat, Professor Dondersstraat).
+- **Labels keep clear of junction mouths**: placement is inset from both ends
+  of a street run, so a name can no longer poke into a crossing street.
+- **Vertical centring is baked into geometry** — baseline = road axis +
+  0.36×font-size (rotates with the anchor), and `textPath` baselines are
+  pre-shifted perpendicular. The `dominant-baseline` attribute is gone:
+  QuickLook and Adobe Illustrator ignore it and rendered every label sitting
+  on/above its street. Output is now identical in every renderer (also
+  resolves the baseline item from the retired Illustrator-interop plan).
+- `tests/svg-lint.mjs` gained a within-street containment check (label glyph
+  band vs the street's own white fill, matched by name), so this defect class
+  now fails the test run instead of needing eyes.
+
+### 2026-07-03 — Test harness can now fail: SVG lint, label unit tests, per-city floors
+- New `tests/svg-lint.mjs`: deterministic checks on any exported SVG — NaN/undefined
+  in attributes, empty/mirrored/upside-down labels, dangling `textPath` refs,
+  label-on-label overlap, labels outside the canvas (warning; known engine
+  behaviour). Guarded by its own `tests/svg-lint-selftest.mjs` (11 checks).
+- New `tests/label-placement.mjs` (31 checks): unit + integration tests for the
+  street-label engine — reading-angle normalisation, straight-vs-textPath choice,
+  reversed-geometry orientation, repeat spacing, same-name suppression, squares,
+  roundabouts — running the real `buildLabelsLayer` from `script.js`.
+- `tests/real-export.mjs` is now a test, not just a demo: it exits non-zero on
+  lint errors, zero roads/labels, or a layer under its per-city floor
+  (`tests/expectations.json`, captured at ×0.5 with `--record` on an approved
+  run; Tilburg + Ghent recorded). It also refuses to run against a stale
+  `script.min.js` and properly drains cache-write POSTs instead of sleeping 2s.
+- `tests/smoke.sh` now runs all six offline suites (incl. supersession) before
+  the Overpass round-trip; `OFFLINE_ONLY=1` skips the network step.
+  `tests/query-equivalence.mjs` warns on >1.5× over-fetch (accidentally widened
+  query). Scanner/parsing code deduplicated into `tests/lib.mjs`, which now
+  hard-fails if extraction stops matching `script.js` instead of silently
+  skipping layers.
+- `tests/viewer.html` accepts `?crop=x,y,w,h` for 1:1 detail screenshots.
+- svg-lint judges canvas clipping per street, not per label: a clipped repeat
+  next to a fully visible sibling label is fine (per Coen's rule); warnings
+  now only flag invisible placements and streets with no fully visible label
+  (tilburg: 21/24 such cases, ghent: 23/55 — the engine fix planned in
+  `plans/2026-07-03_labels-canvas-clipping-and-unified-collision.md`).
+
 ### 2026-07-04 — More realistic export-time estimates and a simpler layers tip
 - Step 1 (export area) help now quotes realistic export times (under a
   minute / 2–5 min / 10+ min) instead of the old "seconds" estimate, and

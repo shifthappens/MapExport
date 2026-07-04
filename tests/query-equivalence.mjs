@@ -9,6 +9,7 @@ import {
 } from './lib.mjs';
 
 const CHURN_TOLERANCE = 0.01; // 1% missing allowed for OSM edits between capture and run
+const OVERFETCH_WARN = 1.5;   // soft warning when a query returns >1.5× baseline (small layers exempt)
 
 const metaPath = path.join(FIXTURE_DIR, '_meta.json');
 if (!fs.existsSync(metaPath)) {
@@ -36,6 +37,12 @@ for (const layer of layers) {
     const ratio = baselineIds.size ? missing.length / baselineIds.size : 0;
     const status = ratio <= CHURN_TOLERANCE ? 'OK' : 'FAIL';
     console.log(`${status} · new=${newIds.size} baseline=${baselineIds.size} missing=${missing.length} (${(ratio*100).toFixed(2)}%) · ${(bytes/1024).toFixed(1)} KB`);
+    // superset direction is the hard check; also flag the opposite drift —
+    // a query that suddenly fetches far MORE than baseline was probably
+    // widened by accident (over-fetch costs Overpass quota + cache space)
+    if (baselineIds.size >= 20 && newIds.size > baselineIds.size * OVERFETCH_WARN) {
+      console.log(`       WARN over-fetch: ${newIds.size} elements vs baseline ${baselineIds.size} (>${OVERFETCH_WARN}×) — was the query widened intentionally?`);
+    }
     if (status === 'FAIL') {
       failed++;
       console.log(`       first missing: ${missing.slice(0,5).join(',')}`);
