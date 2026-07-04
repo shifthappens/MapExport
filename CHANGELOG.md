@@ -11,6 +11,25 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-04 — Street labels stay inside their street, in every renderer
+- **Straight labels follow the chord of their span** with a hard geometric cap:
+  if the road bends away from that chord by more than the room between glyph
+  edge and road edge, the label falls back to a road-following `textPath`.
+  Previously the label rotated to the road's *local* angle at its centre, so
+  names lifted off the street wherever it curved under them (reported on
+  Koopvaardijstraat, Sint Annastraat, Hooistraat, Professor Dondersstraat).
+- **Labels keep clear of junction mouths**: placement is inset from both ends
+  of a street run, so a name can no longer poke into a crossing street.
+- **Vertical centring is baked into geometry** — baseline = road axis +
+  0.36×font-size (rotates with the anchor), and `textPath` baselines are
+  pre-shifted perpendicular. The `dominant-baseline` attribute is gone:
+  QuickLook and Adobe Illustrator ignore it and rendered every label sitting
+  on/above its street. Output is now identical in every renderer (also
+  resolves the baseline item from the retired Illustrator-interop plan).
+- `tests/svg-lint.mjs` gained a within-street containment check (label glyph
+  band vs the street's own white fill, matched by name), so this defect class
+  now fails the test run instead of needing eyes.
+
 ### 2026-07-03 — Test harness can now fail: SVG lint, label unit tests, per-city floors
 - New `tests/svg-lint.mjs`: deterministic checks on any exported SVG — NaN/undefined
   in attributes, empty/mirrored/upside-down labels, dangling `textPath` refs,

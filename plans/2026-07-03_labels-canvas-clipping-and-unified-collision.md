@@ -2,7 +2,11 @@
 
 **Status: ready to implement** (written 2026-07-03, branch
 `claude/testing-harness-improvements-mcbrb5`; line numbers refer to
-`script.js` at commit `c9499f5`).
+`script.js` at commit `c9499f5` — the 2026-07-04 "labels stay inside their
+street" fix shifted them somewhat, but every named function/const still
+exists; re-locate by name. That fix also added `chordOf`/`offsetPolyline`
+and an `endPad` inset in the candidate loop, none of which conflict with
+this plan).
 
 ## Context
 

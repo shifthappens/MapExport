@@ -6,7 +6,7 @@ Partially implemented — what happened to each proposal:
 | Proposal | Outcome |
 |---|---|
 | A. Editable mode: straight labels as single rotated `<text>` | **Done** (commit `eb06193`; `emitStraight`, `STRAIGHT_BEND` gate) |
-| A. Explicit `dy` baseline offset besides `dominant-baseline` | Not done |
+| A. Explicit `dy` baseline offset besides `dominant-baseline` | **Done 2026-07-04**, stronger than proposed: `dominant-baseline` removed entirely; the offset is baked numerically into `y` / into the textPath baseline geometry |
 | A. Outlined mode (opentype.js glyph tracing) | Not done |
 | B. Deliberate label font (replace hardcoded Arial) | Not done |
 | C. PDF export | Not done (evaluate-only item) |

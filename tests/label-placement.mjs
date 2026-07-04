@@ -183,6 +183,58 @@ const tightArc = (reversed) => {
   check('square: horizontal (no rotate, no textPath)', texts.length === 1 && !texts[0].includes('rotate(') && !svg.includes('<textPath'));
 }
 
+// J. junction margin: label text stays clear of the run's ends (endPad),
+// so a name can't bleed onto a crossing street (defect report 2026-07-04)
+{
+  const svg = run([horiz(1, 'Randweg', 0.5, 0.05, 0.95)]);
+  const sf = W / 4961;
+  const endPad = ((30 + 12) * sf) / 2 + 4 * sf; // residential fillW+casingW
+  const x0 = 0.05 * W, x1 = 0.95 * W;
+  const els = [...svg.matchAll(/<text [^>]*font-size="([\d.]+)"[^>]*x="(-?[\d.]+)"[^>]*>([^<]+)</g)];
+  const ok_ = els.length > 0 && els.every(m => {
+    const lw = X.approxTextWidth(m[3], +m[1], +m[1] * 0.08);
+    return +m[2] - lw / 2 >= x0 + endPad - 2 && +m[2] + lw / 2 <= x1 - endPad + 2;
+  });
+  check('junction margin: no label reaches the run ends', ok_, `${els.length} labels`);
+}
+
+// K. vertical centring is baked into geometry: baseline y = rotation-anchor
+// y + 0.36·fs, and no dominant-baseline attribute anywhere (QuickLook and
+// Illustrator ignore it — the "name sits on/above its street" defect)
+{
+  const svg = run([horiz(1, 'Bakstraat', 0.5, 0.2, 0.8)]);
+  const els = [...svg.matchAll(/font-size="([\d.]+)"[^>]*rotate\((-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\)[^>]*x="(-?[\d.]+)" y="(-?[\d.]+)"/g)];
+  const ok_ = els.length > 0 && els.every(m => Math.abs((+m[6] - +m[4]) - 0.36 * +m[1]) < 0.06);
+  check('baked baseline: y = anchor + 0.36×font-size', ok_, els.map(m => (+m[6] - +m[4]).toFixed(2)).join(','));
+  check('no dominant-baseline attribute emitted', !svg.includes('dominant-baseline'));
+}
+
+// L/M. chord placement vs textPath fallback at a kink mid-label. Street
+// sized so EVERY candidate span includes the kink (total ≈120px vs
+// lw≈84px + endPad≈10px each side, 13-char name at fs 8.9). A 4° kink
+// deviates ~1.4px from the chord → stays straight, rotated to the CHORD
+// angle (between the two segment angles, not 0° or 4°). A 12° kink
+// deviates ~4.3px > devCap (~1.9px, residential fill at this scale) →
+// must fall back to a road-following textPath.
+{
+  const kinkStreet = (id, name, kinkDeg) => {
+    const lat0 = 51.003, lon0 = 5.006, mLon = 111320 * Math.cos(lat0 * Math.PI / 180);
+    const legM = 66.5; // ≈60 px per leg at this scale
+    const t = kinkDeg * Math.PI / 180;
+    return way(id, [
+      [lat0, lon0],
+      [lat0, lon0 + legM / mLon],
+      [lat0 - legM * Math.sin(t) / 111320, lon0 + (legM + legM * Math.cos(t)) / mLon],
+    ], { name, highway: 'residential' });
+  };
+  const gentle = run([kinkStreet(1, 'Knikkerstraat', 4)]);
+  const ang = gentle.match(/rotate\((-?[\d.]+)/);
+  check('4° kink: straight label at the chord angle (0°<θ<4°)', !!ang && !gentle.includes('<textPath') && +ang[1] > 0.7 && +ang[1] < 3.3, ang ? `angle=${ang[1]}` : gentle.slice(0, 200));
+  const sharp = run([kinkStreet(1, 'Knikkerstraat', 12)]);
+  check('12° kink: deviation exceeds road fill → textPath', sharp.includes('<textPath'), sharp.slice(0, 250));
+  check('12° kink: lints clean', lintFragment(sharp).errors.length === 0);
+}
+
 // I. label ids unique across a busy scene
 {
   const svg = run([

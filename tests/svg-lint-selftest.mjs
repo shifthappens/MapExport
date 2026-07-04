@@ -6,20 +6,29 @@
 // label engine's markup, this is the test that notices.
 import { lintSvg } from './svg-lint.mjs';
 
+// Mirrors the engine's post-2026-07-04 markup: no dominant-baseline — the
+// baseline offset is baked into y (straight) / into the lp path (textPath),
+// and road fill paths carry the street name so containment can be judged.
 const GOOD = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
      width="1000" height="800" viewBox="0 0 1000 800">
   <g id="map-content">
+    <g id="roads">
+      <g id="roads_fills">
+        <path id="Straight_St" inkscape:label="Straight St" d="M387.4,265.0L612.6,135.0" fill="none" stroke="#ffffff" stroke-width="30.00" stroke-linecap="round" stroke-linejoin="round"/>
+        <path id="Curved_Ln" inkscape:label="Curved Ln" d="M100.0,700.0L180.0,660.0L300.0,640.0" fill="none" stroke="#ffffff" stroke-width="27.00" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </g>
     <g id="street_labels">
-      <defs><path id="lp0" d="M100.0,700.0L180.0,660.0L300.0,640.0"/></defs>
+      <defs><path id="lp0" d="M102.6,705.1L182.6,665.1L302.6,645.1"/></defs>
       <g id="labels_residential">
-        <text id="lbl_Straight_St_1" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="200.0" fill="#2a2a20">STRAIGHT ST</text>
+        <text id="lbl_Straight_St_1" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="207.2" fill="#2a2a20">STRAIGHT ST</text>
         <text id="lbl_Curved_Ln_2" inkscape:label="Curved Ln" font-size="16.0" letter-spacing="1.0" text-anchor="middle" fill="#2a2a20"><textPath xlink:href="#lp0" startOffset="50%">CURVED LN</textPath></text>
       </g>
     </g>
     <g id="water_labels">
-      <text id="feat_Pond_halo" x="800.0" y="600.0" font-size="24.0" text-anchor="middle" stroke="white" fill="none">Pond</text>
-      <text id="feat_Pond" x="800.0" y="600.0" font-size="24.0" text-anchor="middle" fill="#3a6a9a">Pond</text>
+      <text id="feat_Pond_halo" x="800.0" y="608.4" font-size="24.0" text-anchor="middle" stroke="white" fill="none">Pond</text>
+      <text id="feat_Pond" x="800.0" y="608.4" font-size="24.0" text-anchor="middle" fill="#3a6a9a">Pond</text>
     </g>
   </g>
 </svg>`;
@@ -46,27 +55,30 @@ expectError('undefined in attribute', GOOD.replace('rotate(-30.0', 'rotate(undef
 expectError('empty label text', GOOD.replace('>STRAIGHT ST<', '><'), 'empty label');
 expectError('missing textPath target', GOOD.replace('#lp0"', '#lp404"'), 'missing path #lp404');
 expectError('rotation beyond ±90°', GOOD.replace('rotate(-30.0', 'rotate(-135.0'), 'outside ±90');
-expectError('mirrored baseline', GOOD.replace('M100.0,700.0L180.0,660.0L300.0,640.0', 'M300.0,640.0L180.0,660.0L100.0,700.0'), 'right-to-left');
+expectError('mirrored baseline', GOOD.replace('M102.6,705.1L182.6,665.1L302.6,645.1', 'M302.6,645.1L182.6,665.1L102.6,705.1'), 'right-to-left');
 expectError('two labels on the same spot',
-  GOOD.replace('</g>\n    </g>', `<text id="lbl_Clone_9" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="200.0" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>`),
+  GOOD.replace('</g>\n    </g>\n    <g id="water_labels">', `<text id="lbl_Clone_9" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="207.2" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>\n    <g id="water_labels">`),
   'overlaps');
+// within-street containment (the durable guard for "binnen de lijntjes")
+expectError('straight label shifted off its street', GOOD.replace('y="207.2"', 'y="245.0"'), 'leaves its street');
+expectError('textPath baseline shifted off its street', GOOD.replace('M102.6,705.1L182.6,665.1L302.6,645.1', 'M102.6,725.1L182.6,685.1L302.6,665.1'), 'leaves its street');
 
 {
-  const { warnings } = lintSvg(GOOD.replace('x="500.0" y="200.0"', 'x="-500.0" y="200.0"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 -500.0 200.0)'));
+  const { warnings } = lintSvg(GOOD.replace('x="500.0" y="207.2"', 'x="-500.0" y="207.2"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 -500.0 200.0)'));
   ok('label outside canvas → warning', warnings.some(w => w.includes('entirely outside')), warnings.join(' | '));
   ok('outside-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
 }
 {
   // clipped label whose street ALSO has a fully visible sibling → fine, no
   // per-street warning (policy: clipped repeats at the edge are OK)
-  const sibling = GOOD.replace('</g>\n    </g>',
-    `<text id="lbl_Straight_St_9" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" x="990.0" y="400.0" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>`);
+  const sibling = GOOD.replace('</g>\n    </g>\n    <g id="water_labels">',
+    `<text id="lbl_Straight_St_9" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" x="990.0" y="400.0" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>\n    <g id="water_labels">`);
   const { warnings, errors } = lintSvg(sibling);
-  ok('clipped repeat with visible sibling → no street warning', errors.length === 0 && !warnings.some(w => w.includes("street 'Straight St'")), warnings.join(' | '));
+  ok('clipped repeat with visible sibling → no street warning', errors.length === 0 && !warnings.some(w => w.includes("street 'Straight St'")), (errors.join(' | ') || warnings.join(' | ')));
 }
 {
   // street whose ONLY label is clipped → per-street warning
-  const clippedOnly = GOOD.replace('x="500.0" y="200.0"', 'x="995.0" y="200.0"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 995.0 200.0)');
+  const clippedOnly = GOOD.replace('x="500.0" y="207.2"', 'x="995.0" y="207.2"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 995.0 200.0)');
   const { warnings } = lintSvg(clippedOnly);
   ok('clipped-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
 }

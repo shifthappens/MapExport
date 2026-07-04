@@ -17,10 +17,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Same estimate the label engine uses (script.js approxTextWidth/fpR), so the
-// lint footprints match what the collision engine actually stamped.
+// Same estimates the label engine uses (script.js approxTextWidth/fpR/
+// CAP_HALF), so the lint footprints match what the engine actually placed.
 const approxTextWidth = (t, fs_, ls = 0) => t.length * (fs_ * 0.65 + ls);
 const fpR = fs_ => fs_ * 0.62 + Math.max(3, fs_ * 0.22);
+const CAP_HALF = 0.36; // baseline sits capHeight/2 below the road axis (baked into y)
+const CAP_H = 0.72;    // uppercase cap height in em — the glyph band above the baseline
+
+// distance from point p to polyline pts
+function distToPolyline(p, pts) {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const [x1, y1] = pts[i - 1], [x2, y2] = pts[i];
+    const dx = x2 - x1, dy = y2 - y1, ll = dx * dx + dy * dy;
+    const t = ll ? Math.max(0, Math.min(1, ((p[0] - x1) * dx + (p[1] - y1) * dy) / ll)) : 0;
+    const d = Math.hypot(p[0] - (x1 + dx * t), p[1] - (y1 + dy * t));
+    if (d < best) best = d;
+  }
+  return best;
+}
 
 function parseAttrs(tag) {
   const attrs = {};
@@ -85,6 +100,16 @@ export function lintSvg(svg) {
   const pathDs = new Map(); // id -> pts
   for (const m of svg.matchAll(/<path id="(lp\d+)"[^>]*\bd="([^"]+)"/g)) pathDs.set(m[1], parsePathD(m[2]));
 
+  // ── road fill paths, by street name — the ground truth for "a street
+  //    label stays inside its own street" (white stroke = road fill; the
+  //    same-name casing is wider, so fill is the strict test) ──
+  const roadsByName = new Map(); // name -> [{ pts, halfW }]
+  for (const m of svg.matchAll(/<path id="[^"]*" inkscape:label="([^"]+)" d="([^"]+)" fill="none" stroke="#ffffff" stroke-width="([\d.]+)"/g)) {
+    const arr = roadsByName.get(m[1]) || [];
+    arr.push({ pts: parsePathD(m[2]), halfW: parseFloat(m[3]) / 2 });
+    roadsByName.set(m[1], arr);
+  }
+
   // ── collect labels ──
   // Street labels: <text id="lbl_..."> either rotated straight text with x/y,
   // centred text (squares/small roundabouts), or a <textPath href="#lpN"> child.
@@ -112,6 +137,7 @@ export function lintSvg(svg) {
     const tp = inner.match(/<textPath [^>]*(?:xlink:)?href="#([^"]+)"/);
     let footprint = null;
     let angle = null;
+    let glyphSamples = null; // baseline + cap-top points, for the within-street check
 
     if (tp) {
       // curved street label riding its own oriented baseline sub-path
@@ -125,7 +151,33 @@ export function lintSvg(svg) {
       const dx = pts[pts.length - 1][0] - pts[0][0], dy = pts[pts.length - 1][1] - pts[0][1];
       if (dx < -0.5 || (dx <= 0.5 && dy > 0))
         err(`${id}: baseline #${tp[1]} oriented right-to-left/top-down (mirrored label)`);
-      footprint = samplePath(pts, Math.max(2, Math.ceil(pathLen(pts) / r)));
+      // Glyphs occupy the middle `lw` of the (1.1×lw) baseline path,
+      // startOffset 50%. Cap top = baseline + CAP_H·fs along the local "up".
+      // The collision footprint is built below from the glyph-band midline
+      // (the road axis), not this baseline, so it matches what the engine's
+      // collision grid stamped.
+      const L = pathLen(pts);
+      const g0 = Math.max(0, (L - lw) / 2), g1 = Math.min(L, (L + lw) / 2);
+      glyphSamples = [];
+      const nS = Math.max(2, Math.ceil((g1 - g0) / 6));
+      for (let k = 0; k <= nS; k++) {
+        const s = g0 + (g1 - g0) * k / nS;
+        // point + tangent at arc length s
+        let acc = 0, seg = 1;
+        while (seg < pts.length - 1 && acc + Math.hypot(pts[seg][0] - pts[seg - 1][0], pts[seg][1] - pts[seg - 1][1]) < s)
+          acc += Math.hypot(pts[seg][0] - pts[seg - 1][0], pts[seg][1] - pts[seg - 1][1]), seg++;
+      const sl = Math.hypot(pts[seg][0] - pts[seg - 1][0], pts[seg][1] - pts[seg - 1][1]) || 1;
+        const t = Math.min(1, Math.max(0, (s - acc) / sl));
+        const px = pts[seg - 1][0] + (pts[seg][0] - pts[seg - 1][0]) * t;
+        const py = pts[seg - 1][1] + (pts[seg][1] - pts[seg - 1][1]) * t;
+        const tx = (pts[seg][0] - pts[seg - 1][0]) / sl, ty = (pts[seg][1] - pts[seg - 1][1]) / sl;
+        glyphSamples.push([px, py], [px + ty * CAP_H * fs_, py - tx * CAP_H * fs_]);
+      }
+      // footprint on the glyph-band midline (road axis) = midpoint of each
+      // baseline/cap-top sample pair
+      footprint = [];
+      for (let k = 0; k < glyphSamples.length; k += 2)
+        footprint.push([(glyphSamples[k][0] + glyphSamples[k + 1][0]) / 2, (glyphSamples[k][1] + glyphSamples[k + 1][1]) / 2]);
     } else {
       const x = parseFloat(attrs.x), y = parseFloat(attrs.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) { err(`${id}: no x/y and no textPath`); continue; }
@@ -135,12 +187,46 @@ export function lintSvg(svg) {
       // pointAngleAtLength) — anything outside renders upside-down.
       if (angle < -90.05 || angle > 90.05) err(`${id}: rotation ${angle}° outside ±90° (upside-down text)`);
       const rad = angle * Math.PI / 180, ux = Math.cos(rad), uy = Math.sin(rad);
+      // Footprint rides the glyph-band midline: for rotated street labels
+      // that's the rotation anchor (the road axis — y is the BAKED baseline,
+      // 0.36·fs below it); for anchor-less labels (squares, feature names)
+      // x/y is close enough to the optical centre.
+      const fx = rot ? parseFloat(rot[2]) : x, fy = rot ? parseFloat(rot[3]) : y;
       const n = Math.max(2, Math.ceil(lw / r));
       footprint = [];
       for (let k = 0; k <= n; k++) {
         const t = k / n - 0.5;
-        footprint.push([x + ux * lw * t, y + uy * lw * t]);
+        footprint.push([fx + ux * lw * t, fy + uy * lw * t]);
       }
+      if (rot) {
+        // rotated straight label: y is the BAKED baseline (road axis +
+        // CAP_HALF·fs); rotation is about the anchor from the transform.
+        const rcx = parseFloat(rot[2]), rcy = parseFloat(rot[3]);
+        const rp = (px, py) => [rcx + (px - rcx) * ux - (py - rcy) * uy, rcy + (px - rcx) * uy + (py - rcy) * ux];
+        glyphSamples = [];
+        const nS = Math.max(2, Math.ceil(lw / 6));
+        for (let k = 0; k <= nS; k++) {
+          const bx = x - lw / 2 + lw * k / nS;
+          glyphSamples.push(rp(bx, y), rp(bx, y - CAP_H * fs_));
+        }
+      }
+    }
+
+    // ── within-street containment (street labels on a rotated baseline or a
+    //    textPath; horizontal square/roundabout-centre labels are exempt) ──
+    // Every glyph-band sample must stay inside the same-name road fill
+    // (halfW + tolerance for Douglas-Peucker simplification + rounding).
+    // This is the deterministic form of "het label blijft binnen de lijntjes
+    // en binnen de bounds van zijn straat".
+    if (isStreet && glyphSamples && roadsByName.has(attrs['inkscape:label'])) {
+      const roads = roadsByName.get(attrs['inkscape:label']);
+      let worst = 0, worstP = null;
+      for (const p of glyphSamples) {
+        let excess = Infinity;
+        for (const rd of roads) excess = Math.min(excess, distToPolyline(p, rd.pts) - rd.halfW);
+        if (excess > worst) { worst = excess; worstP = p; }
+      }
+      if (worst > 3.5) err(`${id}: label leaves its street by ${worst.toFixed(1)}px (at ${worstP.map(v => v.toFixed(0)).join(',')})`);
     }
 
     // canvas containment, judged per policy (Coen, 2026-07-03): a clipped
