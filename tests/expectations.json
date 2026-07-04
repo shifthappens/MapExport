@@ -1,7 +1,7 @@
 {
   "tilburg": {
-    "recorded_at": "2026-07-03",
-    "from": "map-useit-tilburg-2026-07-03-214349.svg",
+    "recorded_at": "2026-07-04",
+    "from": "map-useit-tilburg-2026-07-04-214252.svg",
     "layers": {
       "water_bodies": 7,
       "waterways": 0,
@@ -11,20 +11,20 @@
       "rail": 37,
       "water_labels": 10
     },
-    "labels": 223
+    "labels": 218
   },
   "ghent": {
-    "recorded_at": "2026-07-03",
-    "from": "map-useit-ghent-2026-07-03-214818.svg",
+    "recorded_at": "2026-07-04",
+    "from": "map-useit-ghent-2026-07-04-214425.svg",
     "layers": {
       "water_bodies": 26,
       "waterways": 36,
       "parks": 20,
       "roads": 2579,
-      "street_labels": 1180,
+      "street_labels": 1181,
       "rail": 37,
       "water_labels": 68
     },
-    "labels": 448
+    "labels": 429
   }
 }

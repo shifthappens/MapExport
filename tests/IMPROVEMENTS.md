@@ -25,6 +25,16 @@ status bijgewerkt dezelfde dag nadat het merendeel is geïmplementeerd.
    `smoke.sh` (`OFFLINE_ONLY=1` slaat netwerk over); `?crop=` in
    `viewer.html`; de `sleep(2000)`-race vervangen door echte POST-drain.
 
+## Gedaan (2026-07-04)
+
+6. ~~**Labels buiten hun straat**~~ — DONE (defectmelding Coen, vijf crops).
+   Engine: koorde-plaatsing met afwijkingslimiet t.o.v. de wegbreedte
+   (anders textPath), kruisingsmarge aan de uiteinden van een run, en
+   verticale centrering numeriek ingebakken (geen `dominant-baseline` meer —
+   QuickLook/Illustrator negeerden dat). Harnas: `svg-lint` heeft nu een
+   containment-check (glyfband vs. het witte wegvlak van de eigen straat, op
+   naam) zodat deze klasse voortaan de tests laat falen.
+
 ## Open
 
 ### Query-regressies alleen op Tilburg bewaakt
