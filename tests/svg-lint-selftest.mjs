@@ -13,8 +13,8 @@ const GOOD = `<?xml version="1.0" encoding="UTF-8"?>
     <g id="street_labels">
       <defs><path id="lp0" d="M100.0,700.0L180.0,660.0L300.0,640.0"/></defs>
       <g id="labels_residential">
-        <text id="lbl_Straight_St_1" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="200.0" fill="#2a2a20">STRAIGHT ST</text>
-        <text id="lbl_Curved_Ln_2" font-size="16.0" letter-spacing="1.0" text-anchor="middle" fill="#2a2a20"><textPath xlink:href="#lp0" startOffset="50%">CURVED LN</textPath></text>
+        <text id="lbl_Straight_St_1" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" transform="rotate(-30.0 500.0 200.0)" x="500.0" y="200.0" fill="#2a2a20">STRAIGHT ST</text>
+        <text id="lbl_Curved_Ln_2" inkscape:label="Curved Ln" font-size="16.0" letter-spacing="1.0" text-anchor="middle" fill="#2a2a20"><textPath xlink:href="#lp0" startOffset="50%">CURVED LN</textPath></text>
       </g>
     </g>
     <g id="water_labels">
@@ -54,6 +54,21 @@ expectError('two labels on the same spot',
 {
   const { warnings } = lintSvg(GOOD.replace('x="500.0" y="200.0"', 'x="-500.0" y="200.0"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 -500.0 200.0)'));
   ok('label outside canvas → warning', warnings.some(w => w.includes('entirely outside')), warnings.join(' | '));
+  ok('outside-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
+}
+{
+  // clipped label whose street ALSO has a fully visible sibling → fine, no
+  // per-street warning (policy: clipped repeats at the edge are OK)
+  const sibling = GOOD.replace('</g>\n    </g>',
+    `<text id="lbl_Straight_St_9" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" x="990.0" y="400.0" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>`);
+  const { warnings, errors } = lintSvg(sibling);
+  ok('clipped repeat with visible sibling → no street warning', errors.length === 0 && !warnings.some(w => w.includes("street 'Straight St'")), warnings.join(' | '));
+}
+{
+  // street whose ONLY label is clipped → per-street warning
+  const clippedOnly = GOOD.replace('x="500.0" y="200.0"', 'x="995.0" y="200.0"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 995.0 200.0)');
+  const { warnings } = lintSvg(clippedOnly);
+  ok('clipped-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
 }
 {
   const { warnings } = lintSvg(GOOD.replace('<textPath xlink:href="#lp0" startOffset="50%">CURVED LN</textPath>', 'CURVED LN'));

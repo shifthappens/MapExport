@@ -143,20 +143,37 @@ export function lintSvg(svg) {
       }
     }
 
-    // canvas containment. Both cases are warnings, not errors: the engine
-    // legitimately places labels on road stretches that extend past the
-    // export bbox (fully outside = invisible/wasted, partially = clipped by
-    // #map-clip) — approved exports have ~20 of each. Tracked as an engine
-    // improvement in tests/IMPROVEMENTS.md; flip to errors once fixed.
+    // canvas containment, judged per policy (Coen, 2026-07-03): a clipped
+    // label at the edge is fine as a REPEAT — the defect is a street whose
+    // only label is clipped, or an entirely invisible placement (which still
+    // burns the street's same-name budget). Verdict per street name happens
+    // after all labels are collected; per-label warnings here only for the
+    // unconditional cases. Warnings, not errors, until the engine fix lands
+    // (plans/2026-07-03_labels-canvas-clipping-and-unified-collision.md).
     const inside = footprint.filter(p => inCanvas(p[0], p[1], r)).length;
-    if (inside === 0) warn(`${id}: label entirely outside the ${vw}×${vh} canvas (invisible)`);
-    else if (inside < footprint.length) warn(`${id}: label partially outside the canvas (clipped)`);
+    const vis = inside === 0 ? 'outside' : inside < footprint.length ? 'clipped' : 'full';
+    if (vis === 'outside') warn(`${id}: label entirely outside the ${vw}×${vh} canvas (invisible)`);
+    else if (vis === 'clipped' && isFeature) warn(`${id}: feature label clipped by the canvas edge`);
 
-    labels.push({ id, kind: isStreet ? 'street' : 'feature', fs: fs_, text: content, footprint, r });
+    const name = attrs['inkscape:label'] || id;
+    labels.push({ id, name, vis, kind: isStreet ? 'street' : 'feature', fs: fs_, text: content, footprint, r });
   }
 
   // orphaned label-path defs (harmless but indicates emit/def drift)
   for (const pid of pathDs.keys()) if (!usedPathIds.has(pid)) warn(`path #${pid} in defs is unused by any textPath`);
+
+  // per-street verdict: every labelled street must have ≥1 FULLY visible
+  // label somewhere; clipped/invisible placements are only OK as extras.
+  const byName = new Map();
+  for (const L of labels) {
+    if (L.kind !== 'street') continue;
+    const a = byName.get(L.name); if (a) a.push(L); else byName.set(L.name, [L]);
+  }
+  for (const [name, ls] of byName) {
+    if (!ls.some(l => l.vis === 'full')) {
+      warn(`street '${name}': none of its ${ls.length} label(s) is fully visible (${ls.map(l => l.vis).join(', ')})`);
+    }
+  }
 
   // ── label-on-label overlap ──
   // Street labels share one footprint collision grid at placement time, and

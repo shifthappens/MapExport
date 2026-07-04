@@ -144,20 +144,25 @@ Implementation:
 
 1. `script.js` changed → `bash tools/minify.sh` (pre-commit hook re-minifies
    anyway) + CHANGELOG entry (hook enforces).
-2. `tests/svg-lint.mjs`: flip severities to match the policy —
-   - "entirely outside the canvas" warning → **error**;
-   - "partially outside the canvas (clipped)": group street labels by name
-     (strip the `_<n>` suffix from `lbl_<safeName>_<n>`, or read
-     `inkscape:label`); clipped is fine when a same-name sibling label is
-     fully inside (keep as warning or drop to info), but **error** when ALL
-     of a name's labels are clipped — that's the clipped-only case the
-     engine must no longer produce. Feature labels: any clipped → error
-     (single-placement family).
+2. `tests/svg-lint.mjs`: flip severities to match the policy. The
+   name-grouped verdict is **already implemented** (2026-07-03, via
+   `inkscape:label`): clipped-with-visible-sibling produces no warning;
+   per-label "entirely outside" and per-street "none fully visible" are
+   warnings. The fix session only turns those two warning classes into
+   **errors**, plus:
+   - feature label clipped → error (single-placement family);
    - cross-family overlap: drop the special-case warning branch, all label
      overlap becomes an **error** (delete the `L.kind === O.kind` fork).
-   Update `svg-lint-selftest.mjs`: the `label outside canvas → warning` case
-   becomes an error case; add clipped-with-visible-sibling (no error),
-   clipped-only street (error), and cross-family overlap (error) cases.
+   Update the corresponding `svg-lint-selftest.mjs` cases (they currently
+   assert warning-hood) and add a cross-family overlap case (street `lbl_` +
+   `feat_` on the same spot → error).
+
+   **Baseline to beat** (the fix should drive all of these to 0), measured on
+   the committed 2026-07-03 exports:
+   | | invisible placements | clipped-only streets | all-invisible streets |
+   |---|---|---|---|
+   | tilburg | 21 | 24 | 6 |
+   | ghent | 23 | 55 | 14 |
 3. `tests/label-placement.mjs`: add cases —
    - street crossing the canvas edge, long inside portion → at least one
      fully-inside label; clipped repeats (if any) only in addition to it

@@ -32,6 +32,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   hard-fails if extraction stops matching `script.js` instead of silently
   skipping layers.
 - `tests/viewer.html` accepts `?crop=x,y,w,h` for 1:1 detail screenshots.
+- svg-lint judges canvas clipping per street, not per label: a clipped repeat
+  next to a fully visible sibling label is fine (per Coen's rule); warnings
+  now only flag invisible placements and streets with no fully visible label
+  (tilburg: 21/24 such cases, ghent: 23/55 — the engine fix planned in
+  `plans/2026-07-03_labels-canvas-clipping-and-unified-collision.md`).
 
 ### 2026-07-03 — Multi-city visual test harness
 - `tests/real-export.mjs` accepts named test areas (`tilburg`, `ghent`, `paris`,
