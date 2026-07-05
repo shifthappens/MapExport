@@ -6,5 +6,6 @@
 - [Roads merge + labels](memory/project_roads_merge_labels.md) — Road segment stitching + label engine rewrite (Jun 2026, branch roads-merge-segments)
 - [LAMP local server](memory/reference_lamp_server.md) — `lamp start` (localhost:8080/mapexport/) for local dev; PHP cache.php read/write + permissions verified (Apache runs as coen); cache key format + test bbox
 - [Label cartography](memory/feedback_label_cartography.md) — Labels must follow roads, never overflow, no horizontal on linear streets
+- [Label debug workflow](memory/reference_label_debug_workflow.md) — Trace `buildLabelsLayer` decisions on real cached city tiles via vm-sandbox source patching (found the Roggestraat 9px cause in minutes)
 - [Changelog](CHANGELOG.md) — Newest-first log of feature/behaviour changes. **Must be appended (top of "Unreleased") on every feature commit.** Rule also in CLAUDE.md.
 - [Build & hooks](CLAUDE.md) — `tools/minify.sh` (tracked build) + `.githooks/pre-commit` (re-minify + changelog enforcement); activate with `bash tools/setup-hooks.sh`.
