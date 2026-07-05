@@ -927,12 +927,12 @@ function mergeNamedWays(elements) {
     return p.lat.toFixed(7) + ',' + p.lon.toFixed(7);
   };
   const runs = [];
-  const groups = new Map(); // `${highway} ${name}` -> [ways]
+  const groups = new Map(); // `${highway}\0${name}` -> [ways]
   for (const el of elements) {
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
     const name = el.tags?.name;
     if (!name) { runs.push(el); continue; } // unnamed: passes through unchanged
-    const key = (el.tags?.highway || '_default') + ' ' + name;
+    const key = (el.tags?.highway || '_default') + '\0' + name;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(el);
   }
@@ -1209,13 +1209,6 @@ function fitStraightBaseline(pp,arcLens,s0,s1){
   let a=th*180/Math.PI; if(a>90)a-=180; if(a<-90)a+=180;
   return {cx,cy,angle:a,maxDev};
 }
-function makeCollisionGrid(){
-  const placed=[];
-  return {
-    overlaps(cx,cy,w,h,pad=4){const hw=w/2+pad,hh=h/2+pad;for(const r of placed)if(Math.abs(cx-r.cx)<hw+r.hw&&Math.abs(cy-r.cy)<hh+r.hh)return true;return false;},
-    add(cx,cy,w,h,pad=4){placed.push({cx,cy,hw:w/2+pad,hh:h/2+pad});}
-  };
-}
 // Footprint collision for street labels. A label is modelled as a ribbon of
 // overlapping circles along its actual baseline (straight, diagonal OR curved),
 // so a vertical / bent / textPath label collides correctly — the old single
@@ -1229,6 +1222,15 @@ function makeFootprintGrid(cell=80){
     put(x,y,r){const box=[x,y,r];for(const k of cellsOf(x,y,r)){const a=map.get(k);if(a)a.push(box);else map.set(k,[box]);}}
   };
 }
+// Ribbon radius for a label of font-size fs (half the text height plus a
+// small gap) and a straight ribbon of circle centres between two points —
+// shared by street labels, feature labels and the rail-corridor stamps so
+// every label family collides through one mechanism.
+const fpR=fs=>fs*0.62+Math.max(3,fs*0.22);
+const fpLine=(x0,y0,x1,y1,r)=>{const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/r)),o=[];for(let k=0;k<=n;k++){const t=k/n;o.push([x0+(x1-x0)*t,y0+(y1-y0)*t]);}return o;};
+// Stamp a whole polyline into the grid as a corridor of radius r — used to
+// claim the rail bed so no street/feature name prints across the tracks.
+const stampPolyline=(grid,pts,r)=>{for(let i=1;i<pts.length;i++)for(const p of fpLine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1],r))grid.put(p[0],p[1],r);};
 
 // Compact, multilingual street-name abbreviations, applied ONLY when the full
 // name will not fit (so a tight street can still carry a path-following label).
@@ -1283,10 +1285,13 @@ function abbreviateName(name){
   return s;
 }
 
-function buildLabelsLayer(elements, pr, W, H) {
+function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
-  const grid=makeFootprintGrid();
+  // The export passes one grid shared with feature labels (and pre-stamped
+  // rail corridors) via ctx.labelGrid; a fresh grid is only a fallback for
+  // direct unit-test calls.
+  const grid=sharedGrid||makeFootprintGrid();
   const defs=[],texts=[];
   let pid=0;
   // Suppress same-name labels that land close together (e.g. the two
@@ -1295,18 +1300,47 @@ function buildLabelsLayer(elements, pr, W, H) {
   const placedByName=new Map();
   const nearName=(name,x,y,gap)=>{const a=placedByName.get(name);if(!a)return false;for(const p of a)if(Math.hypot(x-p[0],y-p[1])<gap)return true;return false;};
   const recordName=(name,x,y)=>{const a=placedByName.get(name);if(a)a.push([x,y]);else placedByName.set(name,[[x,y]]);};
-  // Footprint helpers: a label occupies a ribbon of circles (radius = half the
-  // text height plus a small gap) along its baseline. fits() rejects if any
-  // circle hits an already-placed one; stamp() registers them.
-  const fpR=fs=>fs*0.62+Math.max(3,fs*0.22);
-  const fpLine=(x0,y0,x1,y1,r)=>{const n=Math.max(1,Math.ceil(Math.hypot(x1-x0,y1-y0)/r)),o=[];for(let k=0;k<=n;k++){const t=k/n;o.push([x0+(x1-x0)*t,y0+(y1-y0)*t]);}return o;};
+  // Footprint helpers: a label occupies a ribbon of circles (fpR/fpLine at
+  // module scope) along its baseline. fits() rejects if any circle hits an
+  // already-placed one; stamp() registers them.
   const fpPath=(pp,s0,s1,r)=>{const len=Math.max(1,s1-s0),n=Math.max(1,Math.ceil(len/r)),o=[];for(let k=0;k<=n;k++){const p=pointAngleAtLength(pp,s0+len*k/n);o.push([p.x,p.y]);}return o;};
   const fpFits=(fp,r)=>{for(const p of fp)if(grid.hits(p[0],p[1],r))return false;return true;};
   const fpStamp=(fp,r)=>{for(const p of fp)grid.put(p[0],p[1],r);};
-  // Total heading change (degrees) over an arc — how much a label placed there
-  // would wrap. Sums the turn at every actual path vertex in range (so a sharp
-  // kink/hairpin is caught, not stepped over) to prefer straight stretches.
-  const bendOver=(pp,arcLens,s0,s1)=>{let tot=0;for(let i=1;i<pp.length-1;i++){if(arcLens[i]<=s0||arcLens[i]>=s1)continue;const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;tot+=d;}return tot;};
+  // Canvas gates. A label may only exist where it can be read: entirely-inside
+  // placements are always OK; a partially clipped one is allowed ONLY as a
+  // bonus repeat once the same street already has a fully visible label
+  // (policy 2026-07-03). Entirely-outside placements used to burn the street's
+  // same-name budget while being invisible — never place those.
+  const fpInside =(fp,r)=>fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r);
+  const fpVisible=(fp,r)=>fp.some (p=>p[0]>=-r&&p[0]<=W+r&&p[1]>=-r&&p[1]<=H+r);
+  // Street names that already own at least one fully visible label (across
+  // all of the street's runs) — the precondition for clipped bonus repeats.
+  const fullyVisibleNames=new Set();
+  // Curvature over an arc: total heading change (degrees) — how much a label
+  // placed there would wrap — plus the sharpest turn concentrated inside any
+  // window of `win` px of arc. Sums the turn at every actual path vertex in
+  // range (so a kink/hairpin is caught, not stepped over). The distinction
+  // matters typographically: 60° spread over a gentle arc reads fine, but the
+  // same 60° inside a couple of glyph widths jams the letters on the bend's
+  // inside and tears a gap on its outside ("DOC TOR") — and that holds
+  // whether the turn sits at one vertex or is spread over a tight elbow of
+  // several vertices, which is why a per-vertex max is not enough.
+  const bendOver=(pp,arcLens,s0,s1,win)=>{
+    let bend=0; const vs=[];
+    for(let i=1;i<pp.length-1;i++){
+      if(arcLens[i]<=s0||arcLens[i]>=s1)continue;
+      const a1=Math.atan2(pp[i][1]-pp[i-1][1],pp[i][0]-pp[i-1][0]),a2=Math.atan2(pp[i+1][1]-pp[i][1],pp[i+1][0]-pp[i][0]);
+      let d=Math.abs(a2-a1)*180/Math.PI;if(d>180)d=360-d;
+      bend+=d; vs.push([arcLens[i],d]);
+    }
+    let maxTurn=0;
+    for(let a=0;a<vs.length;a++){
+      let acc=0;
+      for(let b=a;b<vs.length&&vs[b][0]-vs[a][0]<=win;b++)acc+=vs[b][1];
+      if(acc>maxTurn)maxTurn=acc;
+    }
+    return {bend,maxTurn};
+  };
   // Each label gets its OWN baseline sub-path covering just its extent, oriented
   // to read left-to-right (or bottom-to-top when vertical). This is what stops
   // labels rendering mirrored/upside-down when they land on a stretch of road
@@ -1333,6 +1367,24 @@ function buildLabelsLayer(elements, pr, W, H) {
     }
     return out;
   };
+  // Round a textPath baseline's corners (Chaikin corner cutting, endpoints
+  // pinned) before glyphs are laid along it. textPath places each glyph
+  // straddling the local tangent, so a hard vertex jams letters together on
+  // the inside of the bend and tears a gap on the outside ("DOC TOR");
+  // cutting the corner spreads one sharp turn over several shallow ones.
+  const smoothPolyline=(pts,rounds=2)=>{
+    let a=pts;
+    for(let k=0;k<rounds&&a.length>2;k++){
+      const o=[a[0]];
+      for(let i=0;i<a.length-1;i++){
+        const p=a[i],q=a[i+1];
+        o.push([p[0]*0.75+q[0]*0.25,p[1]*0.75+q[1]*0.25],[p[0]*0.25+q[0]*0.75,p[1]*0.25+q[1]*0.75]);
+      }
+      o.push(a[a.length-1]);
+      a=o;
+    }
+    return a;
+  };
   // Vertical centring is BAKED INTO GEOMETRY everywhere: the alphabetic
   // baseline is placed capHeight/2 (≈0.36em for Arial) below the road axis,
   // numerically. No dominant-baseline attribute — browsers honour it but
@@ -1344,6 +1396,7 @@ function buildLabelsLayer(elements, pr, W, H) {
   // genuinely curved stretches: Illustrator imports <textPath> as one
   // point-text object PER LETTER, so straight labels go through emitStraight.
   const emitPath=(hw,name,attrs,label,sub,fs)=>{
+    sub=smoothPolyline(sub);
     let off=offsetPolyline(sub,fs*CAP_HALF);
     // The perpendicular shift can nudge a near-vertical chord across the
     // reading-orientation deadband (subPath decided on the road chord, not
@@ -1434,8 +1487,9 @@ function buildLabelsLayer(elements, pr, W, H) {
       const all=rs.flatMap(r=>r.pts);
       const cx=all.reduce((s,p)=>s+p[0],0)/all.length, cy=all.reduce((s,p)=>s+p[1],0)/all.length;
       const r=fpR(sz), fp=fpLine(cx-textW/2,cy,cx+textW/2,cy,r);
-      if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
-      fpStamp(fp,r); recordName(name,cx,cy);
+      // Single-placement site: must be entirely on the canvas or not at all.
+      if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
+      fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
       const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
       texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
@@ -1468,15 +1522,16 @@ function buildLabelsLayer(elements, pr, W, H) {
         if (lenPx>=lw) {
           const fp=fpPath(pathPts,lenPx/2-lw/2,lenPx/2+lw/2,r);
           const mid=pointAngleAtLength(pathPts,lenPx/2);
-          if (nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
-          fpStamp(fp,r); recordName(name,mid.x,mid.y);
+          // Single-placement site: entirely on the canvas or not at all.
+          if (!fpInside(fp,r)||nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
+          fpStamp(fp,r); recordName(name,mid.x,mid.y); fullyVisibleNames.add(name);
           emitPath(hw,name,attrs,label,subFor(lenPx/2,lw),sz0);
           continue;
         }
         const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length, cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
         const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
-        if (nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
-        fpStamp(fp,r); recordName(name,cx,cy);
+        if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
+        fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
         texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
         continue;
       }
@@ -1492,7 +1547,20 @@ function buildLabelsLayer(elements, pr, W, H) {
       // street (the reported "name pokes into another street"). If the inset
       // range is empty at this size, the shrink loop tries a smaller font.
       const endPad=((roadW.fillW+roadW.casingW)*sf)/2 + 4*sf;
-      for (let fs=fitFs; fs>=MIN_FS; fs*=0.8) {
+      // Shrink floor: shrinking exists to fit a SHORT RUN, not to squeeze
+      // dwarf labels past collisions or same-name suppression. A street with
+      // no label yet may drop to half its class size; once the name is placed
+      // anywhere, extra runs must stay near full size or go unlabelled — a
+      // 9px repeat beside a 22px sibling reads as a rendering bug (the
+      // Roggestraat case), and the histogram showed dozens of 5–9px labels.
+      const minFs=Math.max(MIN_FS, sz0*(placedByName.has(name)?0.75:0.5));
+      // A label draped over a sharp corner/tight elbow is never acceptable:
+      // glyphs jam on the inside of the kink and split on the outside
+      // regardless of size. 30° per ~2 glyph heights empirically: at 40° a
+      // kink under a label still reads as a broken word ("DOC TOR") even
+      // after baseline smoothing.
+      const MAX_TURN=30;
+      for (let fs=fitFs; fs>=minFs; fs*=0.8) {
         const ls=fs*0.08, lw=approxTextWidth(label,fs,ls), r=fpR(fs);
         if (lw>lenPx) continue;
         const attrs=attrsFor(fs,ls);
@@ -1502,9 +1570,9 @@ function buildLabelsLayer(elements, pr, W, H) {
         // than the first (possibly curved) spot that happens to fit.
         const cands=[];
         for (let center=lw/2+endPad; center<=lenPx-lw/2-endPad+0.5; center+=step)
-          cands.push({center, bend:bendOver(pathPts,arcLens,center-lw/2,center+lw/2)});
+          cands.push({center, ...bendOver(pathPts,arcLens,center-lw/2,center+lw/2,fs*2.2)});
         cands.sort((a,b)=>a.bend-b.bend);
-        const cap = fs<=MIN_FS*1.3 ? 120 : 80; // reject wrapped/cornered placements; relax a bit only as last resort
+        const cap=80; // total-wrap ceiling; corners are gated by MAX_TURN above
         // A straight label is allowed only while the road stays close to the
         // fitted baseline on BOTH measures: within the room between glyph
         // edge and road-fill edge (so the letters stay inside the street),
@@ -1512,24 +1580,36 @@ function buildLabelsLayer(elements, pr, W, H) {
         // visibly off-road straight label). Beyond either, textPath.
         const devCap=Math.min(fs*STRAIGHT_MAX_DEV, Math.max(0.5,(roadW.fillW*sf)/2 - fs*0.36 - 1));
         const placedC=[];
-        for (const c of cands) {
-          if (placedC.length>=ideal || c.bend>cap) break;
-          if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
-          const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
-          const straight=fit.maxDev<=devCap;
-          const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
-          if (nearName(name,p.x,p.y,nameGap)) continue;
-          // Footprint matches what is actually drawn: a straight ribbon along
-          // the fitted baseline, or a ribbon along the road for textPath.
-          const rad=fit.angle*Math.PI/180, hx=Math.cos(rad)*lw/2, hy=Math.sin(rad)*lw/2;
-          const fp=straight?fpLine(fit.cx-hx,fit.cy-hy,fit.cx+hx,fit.cy+hy,r)
-                           :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
-          if (!fpFits(fp,r)) continue;
-          fpStamp(fp,r); recordName(name,p.x,p.y);
-          if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
-          else emitPath(hw,name,attrs,label,subFor(c.center,lw),fs);
-          placedC.push(c.center);
-        }
+        // Two-tier canvas policy: pass 1 places only fully-inside labels;
+        // pass 2 adds partially clipped repeats, and runs only when the name
+        // already owns a fully visible label somewhere. Entirely-offscreen
+        // candidates are never placed by either pass.
+        const passPlace=(clippedPass)=>{
+          for (const c of cands) {
+            if (placedC.length>=ideal || c.bend>cap) break;
+            if (c.maxTurn>MAX_TURN) continue;
+            if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
+            const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
+            const straight=fit.maxDev<=devCap;
+            const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
+            if (nearName(name,p.x,p.y,nameGap)) continue;
+            // Footprint matches what is actually drawn: a straight ribbon along
+            // the fitted baseline, or a ribbon along the road for textPath.
+            const rad=fit.angle*Math.PI/180, hx=Math.cos(rad)*lw/2, hy=Math.sin(rad)*lw/2;
+            const fp=straight?fpLine(fit.cx-hx,fit.cy-hy,fit.cx+hx,fit.cy+hy,r)
+                             :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
+            const inside=fpInside(fp,r);
+            if (clippedPass ? (inside||!fpVisible(fp,r)) : !inside) continue;
+            if (!fpFits(fp,r)) continue;
+            fpStamp(fp,r); recordName(name,p.x,p.y);
+            if (inside) fullyVisibleNames.add(name);
+            if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
+            else emitPath(hw,name,attrs,label,subFor(c.center,lw),fs);
+            placedC.push(c.center);
+          }
+        };
+        passPlace(false);
+        if (fullyVisibleNames.has(name)) passPlace(true);
         if (placedC.length>0) break; // labelled at this size; no need to shrink further
       }
     }
@@ -1555,10 +1635,15 @@ function buildLabelsLayer(elements, pr, W, H) {
 // ════════════════════════════════════════════════════════════════
 //  FEATURE LABELS — water bodies, parks, neighbourhoods
 // ════════════════════════════════════════════════════════════════
-function buildFeatureLabelsLayer(elements, pr, W, H) {
+function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid) {
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
-  const collision=makeCollisionGrid();
+  // Same ribbon-of-circles footprint model and (in a real export) the same
+  // grid as street labels, so feature-vs-feature, feature-vs-street and
+  // street-vs-street collisions are one mechanism. Feature labels build
+  // first (LAYER_ORDER) and claim their single possible anchor; street
+  // labels, which have many candidate spots, dodge them.
+  const grid=sharedGrid||makeFootprintGrid();
   let labels='';
 
   elements.forEach(el=>{
@@ -1585,9 +1670,15 @@ function buildFeatureLabelsLayer(elements, pr, W, H) {
       color=natural==='water'?'#3a6a9a':'#3a6a3a';
     } else return;
 
-    const tw=approxTextWidth(name,sz), th=sz*1.4;
-    if (collision.overlaps(cx,cy,tw,th,6)) return;
-    collision.add(cx,cy,tw,th,6);
+    const tw=approxTextWidth(name,sz), r=fpR(sz);
+    const fp=fpLine(cx-tw/2,cy,cx+tw/2,cy,r);
+    // Single-placement label: its anchor is fixed, so it is either entirely
+    // on the canvas or skipped — a river/park straddling the edge loses its
+    // name in this export (nudging the anchor inward looks wrong faster
+    // than it helps).
+    if (!fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r)) return;
+    for (const p of fp) if (grid.hits(p[0],p[1],r)) return;
+    for (const p of fp) grid.put(p[0],p[1],r);
 
     const haloSz=(sz*0.15+1.5).toFixed(1);
     const italicAttr=waterway?'font-style="italic"':'';
@@ -1922,11 +2013,25 @@ function renderLayerSVG({ layer, data }, ctx) {
   const elements = data.elements.filter(el => elementInBbox(el, b));
   if (!elements.length) return '';
   if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W);
-  if (layer.type==='rail')           return buildRailLayer(elements,pr,W);
+  if (layer.type==='rail') {
+    const svg=buildRailLayer(elements,pr,W);
+    // The hatched rail bed must stay label-free: claim its corridor in the
+    // shared label grid (rail builds before both label layers, see
+    // LAYER_ORDER). Radius = half the casing width + a small clearance;
+    // grid.hits adds the label's own ribbon radius on top.
+    if (ctx.labelGrid && svg) {
+      const rr=8*getScaleFactor(W);
+      for (const el of elements) {
+        if (el.type!=='way'||!el.geometry?.length) continue;
+        stampPolyline(ctx.labelGrid, el.geometry.map(g=>pr(g.lat,g.lon)), rr);
+      }
+    }
+    return svg;
+  }
   if (layer.type==='metro')          return buildMetroLayer(elements,pr,W);
   if (layer.type==='tram')           return buildTramLayer(elements,pr,W);
-  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H);
-  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H);
+  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid);
+  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid);
 
   const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
   const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
@@ -1985,7 +2090,12 @@ function renderLayerSVG({ layer, data }, ctx) {
   return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer" fill="${fillColor}" opacity="${layer.type==='point'?'0.8':'1'}">\n    ${content}\n  </g>\n`;
 }
 
-const LAYER_ORDER = ['landuse_residential','landuse_industrial','water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','poi_amenity','poi_tourism','poi_shops','street_labels','water_labels'];
+// Build AND paint order (buildSVG walks sortedResults once). water_labels
+// deliberately precedes street_labels: feature labels have exactly one
+// possible anchor, so they stamp the shared label grid first and the
+// flexible street labels dodge them. Z-order between the two label groups
+// is irrelevant — the shared grid guarantees they never overlap.
+const LAYER_ORDER = ['water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
 
 function buildSVGContext(b, W, precomputedBlocks) {
   const { pr, H } = makeProjector(b, W);
@@ -1994,6 +2104,9 @@ function buildSVGContext(b, W, precomputedBlocks) {
     preset: PRESETS[activePreset],
     EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
     precomputedBlocks: precomputedBlocks || null,
+    // One collision grid for the whole export: rail corridors stamp it,
+    // then feature labels, then street labels — nothing can overlap.
+    labelGrid: makeFootprintGrid(),
   };
 }
 
@@ -2026,7 +2139,10 @@ ${layersSVG}  </g>
 }
 
 function sortedResults(results) {
-  return [...results].sort((a,z) => (LAYER_ORDER.indexOf(a.layer.id) || 999) - (LAYER_ORDER.indexOf(z.layer.id) || 999));
+  // indexOf -1 (unknown id) must sort LAST — the old `|| 999` fallback only
+  // caught index 0 and let unknown layers sort first, under everything.
+  const ord = id => { const i = LAYER_ORDER.indexOf(id); return i < 0 ? 999 : i; };
+  return [...results].sort((a,z) => ord(a.layer.id) - ord(z.layer.id));
 }
 
 function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {

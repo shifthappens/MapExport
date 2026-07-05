@@ -110,6 +110,15 @@ export function lintSvg(svg) {
     roadsByName.set(m[1], arr);
   }
 
+  // ── rail casings — labels must never print across the hatched rail bed
+  //    (the engine stamps rail corridors into the shared label grid) ──
+  const railLines = []; // { pts, halfW }
+  const railGroup = svg.match(/<g id="rail_casing">([\s\S]*?)<\/g>/);
+  if (railGroup) {
+    for (const m of railGroup[1].matchAll(/<path [^>]*\bd="([^"]+)"[^>]*\bstroke-width="([\d.]+)"/g))
+      railLines.push({ pts: parsePathD(m[1]), halfW: parseFloat(m[2]) / 2 });
+  }
+
   // ── collect labels ──
   // Street labels: <text id="lbl_..."> either rotated straight text with x/y,
   // centred text (squares/small roundabouts), or a <textPath href="#lpN"> child.
@@ -235,13 +244,20 @@ export function lintSvg(svg) {
     // label at the edge is fine as a REPEAT — the defect is a street whose
     // only label is clipped, or an entirely invisible placement (which still
     // burns the street's same-name budget). Verdict per street name happens
-    // after all labels are collected; per-label warnings here only for the
-    // unconditional cases. Warnings, not errors, until the engine fix lands
-    // (plans/2026-07-03_labels-canvas-clipping-and-unified-collision.md).
+    // after all labels are collected. Errors since the engine fix
+    // (fpInside/fpVisible two-tier placement) landed.
     const inside = footprint.filter(p => inCanvas(p[0], p[1], r)).length;
     const vis = inside === 0 ? 'outside' : inside < footprint.length ? 'clipped' : 'full';
-    if (vis === 'outside') warn(`${id}: label entirely outside the ${vw}×${vh} canvas (invisible)`);
-    else if (vis === 'clipped' && isFeature) warn(`${id}: feature label clipped by the canvas edge`);
+    if (vis === 'outside') err(`${id}: label entirely outside the ${vw}×${vh} canvas (invisible)`);
+    else if (vis !== 'full' && isFeature) err(`${id}: feature label clipped by the canvas edge (single-placement labels must be fully visible)`);
+
+    // ── label across a railway ── a footprint sample (glyph-band midline)
+    // closer to a rail centreline than the casing half-width means glyphs
+    // sit visibly ON the rail bed.
+    for (const rl of railLines) {
+      const hit = footprint.find(p => distToPolyline(p, rl.pts) < rl.halfW);
+      if (hit) { err(`${id}: label crosses a railway (at ${hit.map(v => v.toFixed(0)).join(',')})`); break; }
+    }
 
     const name = attrs['inkscape:label'] || id;
     labels.push({ id, name, vis, kind: isStreet ? 'street' : 'feature', fs: fs_, text: content, footprint, r });
@@ -259,15 +275,13 @@ export function lintSvg(svg) {
   }
   for (const [name, ls] of byName) {
     if (!ls.some(l => l.vis === 'full')) {
-      warn(`street '${name}': none of its ${ls.length} label(s) is fully visible (${ls.map(l => l.vis).join(', ')})`);
+      err(`street '${name}': none of its ${ls.length} label(s) is fully visible (${ls.map(l => l.vis).join(', ')})`);
     }
   }
 
   // ── label-on-label overlap ──
-  // Street labels share one footprint collision grid at placement time, and
-  // feature labels share another — so overlap inside either family is an
-  // engine bug. Across the two families no collision check exists (by
-  // design/limitation), so cross-family contact is only a warning.
+  // ALL labels (street and feature) share one footprint collision grid at
+  // placement time, so any label-on-label overlap is an engine bug.
   // Footprints are circle ribbons like the engine's, but resampled: the
   // engine guarantees ≥ r1+r2 between ITS samples, and ours can each sit up
   // to r/2 from the nearest engine sample — so legal adjacent placements can
@@ -289,9 +303,7 @@ export function lintSvg(svg) {
             if (reported.has(pairKey)) continue;
             if (Math.hypot(x - ox, y - oy) < (L.r + or_) * 0.5) {
               reported.add(pairKey);
-              const O = labels[oi];
-              const msg = `${L.id} overlaps ${O.id}`;
-              if (L.kind === O.kind) err(msg); else warn(msg + ' (street/feature families have no shared collision grid)');
+              err(`${L.id} overlaps ${labels[oi].id}`);
             }
           }
         }

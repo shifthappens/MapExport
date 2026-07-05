@@ -63,25 +63,36 @@ expectError('two labels on the same spot',
 expectError('straight label shifted off its street', GOOD.replace('y="207.2"', 'y="245.0"'), 'leaves its street');
 expectError('textPath baseline shifted off its street', GOOD.replace('M102.6,705.1L182.6,665.1L302.6,645.1', 'M102.6,725.1L182.6,685.1L302.6,665.1'), 'leaves its street');
 
+// canvas policy — errors since the engine's fpInside/fpVisible fix landed
 {
-  const { warnings } = lintSvg(GOOD.replace('x="500.0" y="207.2"', 'x="-500.0" y="207.2"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 -500.0 200.0)'));
-  ok('label outside canvas → warning', warnings.some(w => w.includes('entirely outside')), warnings.join(' | '));
-  ok('outside-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
+  const { errors } = lintSvg(GOOD.replace('x="500.0" y="207.2"', 'x="-500.0" y="207.2"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 -500.0 200.0)'));
+  ok('label outside canvas → error', errors.some(e => e.includes('entirely outside')), errors.join(' | '));
+  ok('outside-only street → no-visible-label error', errors.some(e => e.includes("street 'Straight St'") && e.includes('fully visible')), errors.join(' | '));
 }
 {
   // clipped label whose street ALSO has a fully visible sibling → fine, no
-  // per-street warning (policy: clipped repeats at the edge are OK)
+  // per-street verdict (policy: clipped repeats at the edge are OK)
   const sibling = GOOD.replace('</g>\n    </g>\n    <g id="water_labels">',
     `<text id="lbl_Straight_St_9" inkscape:label="Straight St" font-size="20.0" letter-spacing="1.0" text-anchor="middle" x="990.0" y="400.0" fill="#2a2a20">STRAIGHT ST</text></g>\n    </g>\n    <g id="water_labels">`);
   const { warnings, errors } = lintSvg(sibling);
-  ok('clipped repeat with visible sibling → no street warning', errors.length === 0 && !warnings.some(w => w.includes("street 'Straight St'")), (errors.join(' | ') || warnings.join(' | ')));
+  ok('clipped repeat with visible sibling → clean', errors.length === 0 && !warnings.some(w => w.includes("street 'Straight St'")), (errors.join(' | ') || warnings.join(' | ')));
 }
 {
-  // street whose ONLY label is clipped → per-street warning
+  // street whose ONLY label is clipped → per-street error
   const clippedOnly = GOOD.replace('x="500.0" y="207.2"', 'x="995.0" y="207.2"').replace('rotate(-30.0 500.0 200.0)', 'rotate(-30.0 995.0 200.0)');
-  const { warnings } = lintSvg(clippedOnly);
-  ok('clipped-only street → no-visible-label warning', warnings.some(w => w.includes("street 'Straight St'") && w.includes('fully visible')), warnings.join(' | '));
+  const { errors } = lintSvg(clippedOnly);
+  ok('clipped-only street → no-visible-label error', errors.some(e => e.includes("street 'Straight St'") && e.includes('fully visible')), errors.join(' | '));
 }
+// feature labels are single-placement: clipped at the edge → error
+expectError('clipped feature label', GOOD.replaceAll('x="800.0"', 'x="995.0"'), 'clipped by the canvas edge');
+// cross-family overlap is an error too — all labels share one collision grid
+expectError('street label overlapping feature label',
+  GOOD.replace('<text id="feat_Pond_halo"', '<text id="feat_Lake" x="500.0" y="207.2" font-size="24.0" text-anchor="middle" fill="#3a6a9a">Lake</text><text id="feat_Pond_halo"'),
+  'overlaps');
+// labels must never print across the hatched rail bed
+expectError('label crossing a railway',
+  GOOD.replace('<g id="street_labels">', '<g id="rail"><g id="rail_casing"><path id="r1_casing" inkscape:label="Rail" d="M400.0,300.0L600.0,100.0" fill="none" stroke="#555555" stroke-width="12.00" stroke-linecap="butt"/></g></g><g id="street_labels">'),
+  'crosses a railway');
 {
   const { warnings } = lintSvg(GOOD.replace('<textPath xlink:href="#lp0" startOffset="50%">CURVED LN</textPath>', 'CURVED LN'));
   ok('orphaned label-path def → warning', warnings.some(w => w.includes('unused')), warnings.join(' | '));

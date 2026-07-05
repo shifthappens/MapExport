@@ -11,7 +11,8 @@ import { lintSvg } from './svg-lint.mjs';
 
 const X = loadAppSandbox([
   'approxTextWidth', 'pathLength', 'geoLength', 'angleAtMid', 'pointAngleAtLength',
-  'makeFootprintGrid', 'buildLabelsLayer', 'makeProjector', 'LABEL_STYLES',
+  'makeFootprintGrid', 'buildLabelsLayer', 'buildFeatureLabelsLayer', 'makeProjector',
+  'LABEL_STYLES', 'stampPolyline',
 ]);
 
 let pass = 0, fail = 0;
@@ -233,6 +234,83 @@ const tightArc = (reversed) => {
   const sharp = run([kinkStreet(1, 'Knikkerstraat', 12)]);
   check('12° kink: deviation exceeds road fill → textPath', sharp.includes('<textPath'), sharp.slice(0, 250));
   check('12° kink: lints clean', lintFragment(sharp).errors.length === 0);
+}
+
+// N. canvas policy: a street crossing the canvas edge keeps a fully visible
+// label on its inside portion (the old engine burned the same-name budget on
+// invisible off-canvas placements); clipped repeats may only exist on top of
+// a fully visible one.
+{
+  // lonFrac 0.3 → 1.6: ~40% of the run lies beyond the east canvas edge
+  const svg = run([horiz(1, 'Grensweg', 0.5, 0.3, 1.6)]);
+  const l = lintFragment(svg);
+  check('edge-crossing street: labelled, with a fully visible label', svg.includes('GRENSWEG') && l.errors.length === 0, l.errors[0] || svg.slice(0, 150));
+}
+// O. street entirely outside the canvas → no label at all
+{
+  const svg = run([horiz(1, 'Spookstraat', 0.5, 1.2, 1.9)]);
+  check('fully off-canvas street: no label', !svg.includes('SPOOKSTRAAT'), svg.slice(0, 150));
+}
+// P. sliver street barely poking into the canvas, no inside spot fits →
+// no label at all (never a clipped-only one)
+{
+  const svg = run([horiz(1, 'Sliertje', 0.5, 0.97, 1.5)]);
+  const l = lintFragment(svg);
+  check('sliver at the border: no clipped-only label', l.errors.length === 0, l.errors[0]);
+}
+// Q. feature labels claim space first; a street label on the same spot dodges
+{
+  const grid = X.makeFootprintGrid();
+  const lakeNode = { type: 'node', id: 9, lat: 51.005, lon: 5.016, tags: { name: 'Middenmeer', natural: 'water' } };
+  const feat = X.buildFeatureLabelsLayer([lakeNode], pr, W, H, grid);
+  const street = X.buildLabelsLayer([horiz(1, 'Meerkade', 0.5, 0.35, 0.65)], pr, W, H, grid);
+  check('feature label placed', feat.includes('Middenmeer'), feat.slice(0, 150));
+  const l = lintFragment(feat + street);
+  const overlap = l.errors.filter(e => e.includes('overlaps'));
+  check('street label dodges the feature label', overlap.length === 0, overlap[0]);
+}
+// R. feature label at the canvas edge → skipped (single-placement family)
+{
+  const grid = X.makeFootprintGrid();
+  const edgeLake = { type: 'node', id: 9, lat: 51.005, lon: BBOX.east, tags: { name: 'Randmeer', natural: 'water' } };
+  const feat = X.buildFeatureLabelsLayer([edgeLake], pr, W, H, grid);
+  check('feature label at the edge: skipped', !feat.includes('Randmeer'), feat.slice(0, 150));
+}
+// S. rail corridor stamped into the shared grid → street label moves off it
+{
+  const grid = X.makeFootprintGrid();
+  const lat = BBOX.south + (BBOX.north - BBOX.south) * 0.5;
+  // vertical rail line crossing the street's midpoint
+  const railPts = [pr(BBOX.south + 0.002, 5.016), pr(BBOX.north - 0.002, 5.016)];
+  X.stampPolyline(grid, railPts, 8 * (W / 4961));
+  const svg = X.buildLabelsLayer([horiz(1, 'Spoorstraat', 0.5, 0.35, 0.65)], pr, W, H, grid);
+  const els = [...svg.matchAll(/x="(-?[\d.]+)" y="(-?[\d.]+)"/g)].map(m => [+m[1], +m[2]]);
+  const railX = pr(lat, 5.016)[0];
+  const clear = els.every(([x]) => Math.abs(x - railX) > 10);
+  check('street label stays off the rail corridor', svg.includes('SPOORSTRAAT') ? clear : true, `label x=${els.map(e => e[0])} rail x=${railX.toFixed(0)}`);
+}
+// T. dwarf-repeat suppression (the Roggestraat case): once a street has a
+// full-size label, a second short run of the same name must not carry a
+// far-smaller repeat — it stays unlabelled instead.
+{
+  const svg = run([
+    horiz(1, 'Roggeweg', 0.50, 0.05, 0.95),        // long main run
+    horiz(2, 'Roggeweg', 0.60, 0.05, 0.14),        // short disconnected stub
+  ]);
+  const sizes = [...svg.matchAll(/font-size="([\d.]+)"/g)].map(m => +m[1]);
+  const minSz = Math.min(...sizes), maxSz = Math.max(...sizes);
+  check('no dwarf repeat: all same-name labels ≥ 75% of the largest', sizes.length >= 1 && minSz >= maxSz * 0.75 - 0.01, `sizes=${sizes}`);
+}
+// U. a label is never draped over a sharp corner (maxTurn gate) — an
+// L-shaped street gets its label on a straight leg, not around the bend.
+{
+  const lat0 = 51.003, lon0 = 5.020, mLat = 111320, mLon = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const legM = 90;
+  const L = way(1, [
+    [lat0, lon0], [lat0, lon0 + legM / mLon], [lat0 + legM / mLat, lon0 + legM / mLon],
+  ], { name: 'Hoekstraat', highway: 'residential' });
+  const svg = run([L]);
+  check('L-street: labelled without textPath around the corner', svg.includes('HOEKSTRAAT') && !svg.includes('<textPath'), svg.slice(0, 250));
 }
 
 // I. label ids unique across a busy scene

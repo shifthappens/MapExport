@@ -11,6 +11,39 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-05 — Labels: on-canvas policy, one collision grid, rail clearance, no dwarf labels, cleaner curves
+- **Labels never overlap railways**: the hatched rail bed claims its corridor
+  in the label collision grid before any label is placed, so street and
+  feature names dodge the tracks (reported on NS Plein and Sint
+  Ceciliastraat, Tilburg).
+- **Labels stay on the canvas**: entirely-offscreen placements are gone (they
+  were invisible but still consumed the street's repeat budget, leaving the
+  visible part nameless); a partially clipped label at the map edge is only
+  placed once the same street has a fully visible label. Single-placement
+  labels (squares, roundabouts, rivers, parks) are fully visible or skipped.
+- **One collision grid for all labels**: park/water/suburb names and street
+  names now share the street-label footprint grid — feature labels (fixed
+  anchor) claim space first, street labels (many candidate spots) dodge them.
+  Fixes river names printing on top of quay-street names in Ghent (~60 cases).
+- **No more dwarf labels** (reported on Roggestraat, Tilburg): font shrinking
+  now only compensates for short streets, never squeezes a label past
+  collisions — floor at 50% of the class size for a street's first label,
+  75% of full size for repeats (instead of shrinking to 5px absolute).
+- **Curved labels are typographically clean** (reported on Stratinghpad and
+  Doctor Leijdsstraat, Tilburg): a label is never draped over a corner or
+  tight elbow (>30° of turn within ~2 glyph heights — measured over the whole
+  window, so multi-vertex elbows are caught too), and `textPath` baselines
+  get their corners rounded (Chaikin) so glyphs no longer jam on a bend's
+  inside or tear a gap on its outside ("DOC TOR").
+- `tests/svg-lint.mjs`: off-canvas/clipped-only/feature-clipped and ALL
+  label-overlap findings are errors now (previously warnings pending the
+  engine fix), and a new check fails any label crossing a rail corridor.
+  `label-placement.mjs` grew from 37 to 46 checks covering the new policies.
+- Internal: stale `landuse_*`/`poi_*` ids removed from `LAYER_ORDER`;
+  unknown layer ids now sort last instead of first (latent `indexOf||999`
+  bug); `water_labels` builds before `street_labels` (feature-first grid
+  order — z-order between the two is irrelevant as they can't overlap).
+
 ### 2026-07-04 — Street labels stay inside their street, in every renderer
 - **Straight labels must stay inside the road fill**: merged with the
   2026-07-02 fitted-baseline work below — a straight label is allowed only

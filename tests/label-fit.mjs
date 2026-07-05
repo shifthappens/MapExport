@@ -13,7 +13,7 @@ import { SCRIPT_PATH, fs } from './lib.mjs';
 
 const src = fs.readFileSync(SCRIPT_PATH, 'utf8');
 const start = src.indexOf('function pointAtArcLen(');
-const end = src.indexOf('function makeCollisionGrid(');
+const end = src.indexOf('function makeFootprintGrid(');
 assert.ok(start !== -1 && end > start, 'could not locate pointAtArcLen/fitStraightBaseline in script.js');
 const { fitStraightBaseline, pointAtArcLen } =
   new Function(src.slice(start, end) + '\nreturn { fitStraightBaseline, pointAtArcLen };')();

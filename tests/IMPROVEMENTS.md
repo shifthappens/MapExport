@@ -35,6 +35,18 @@ status bijgewerkt dezelfde dag nadat het merendeel is geïmplementeerd.
    containment-check (glyfband vs. het witte wegvlak van de eigen straat, op
    naam) zodat deze klasse voortaan de tests laat falen.
 
+## Gedaan (2026-07-05)
+
+7. ~~**Labels buiten het canvas / budget-verbranding**~~ — DONE. Engine:
+   `fpInside`/`fpVisible`-gates in `buildLabelsLayer` (twee passes: eerst
+   volledig zichtbaar, daarna pas afgesneden herhalingen; nooit volledig
+   buiten beeld). Lint: die klassen zijn nu errors i.p.v. warnings.
+8. ~~**Feature- en straatlabels delen geen collision-grid**~~ — DONE. Eén
+   gedeeld footprint-grid via `buildSVGContext` (`labelGrid`); feature-labels
+   bouwen eerst (`LAYER_ORDER`) en claimen hun enige ankerplek, straatlabels
+   wijken uit. Alle label-overlap is nu een lint-error. Het grid bevat ook de
+   spoorcorridors, zodat geen naam over de spoorbaan valt (eigen lint-check).
+
 ## Open
 
 ### Query-regressies alleen op Tilburg bewaakt
@@ -47,17 +59,3 @@ voor de vier kleine gebieden zijn bescheiden in omvang. Aanpak:
 alle aanwezige fixture-dirs laten lopen. De README-regel "alleen
 Tilburg-fixtures" stamt van vóór het multi-city-doel.
 
-### Engine-bevinding uit de lint (niet het harnas zelf)
-
-Per export liggen ~20 labels **volledig buiten het canvas** (onzichtbaar,
-weggeclipt) en nog eens ~40 half erbuiten: het label-engine plaatst ook op
-weggedeelten voorbij de export-bbox, en zo'n plaatsing verbruikt het
-label-budget van die straat binnen beeld. Fix hoort in `buildLabelsLayer`
-(kandidaten buiten `[0,W]×[0,H]` overslaan of penaliseren). Tot die tijd
-rapporteert `svg-lint` dit als warning; daarna op error zetten.
-
-### Klein
-
-- Feature-labels (parken/water) en straatlabels delen geen collision-grid —
-  overlap tussen die families is mogelijk en komt voor (lint-warning, by
-  design/limitation). Eén gedeeld grid zou het oplossen.

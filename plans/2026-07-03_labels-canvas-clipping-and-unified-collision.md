@@ -1,12 +1,13 @@
 # Plan: keep labels on the canvas + one collision grid for all labels
 
-**Status: ready to implement** (written 2026-07-03, branch
-`claude/testing-harness-improvements-mcbrb5`; line numbers refer to
-`script.js` at commit `c9499f5` — the 2026-07-04 "labels stay inside their
-street" fix shifted them somewhat, but every named function/const still
-exists; re-locate by name. That fix also added `chordOf`/`offsetPolyline`
-and an `endPad` inset in the candidate loop, none of which conflict with
-this plan).
+**Status: IMPLEMENTED 2026-07-05** (both fixes landed as planned, plus the
+same session's extras: rail corridors stamp the shared grid so labels never
+cross the tracks, a shrink floor kills dwarf labels, and a curvature-window
+gate + Chaikin baseline smoothing clean up curved labels. Lint severities
+flipped per §Test/harness; Tilburg + Ghent re-exported with 0 lint
+errors/warnings. Deviation from the plan: `LAYER_ORDER` was also purged of
+stale `landuse_*`/`poi_*` ids and `sortedResults` got a proper `indexOf<0`
+fallback, since Fix 2 made that ordering load-bearing.)
 
 ## Context
 
