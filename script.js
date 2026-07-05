@@ -927,16 +927,21 @@ function mergeNamedWays(elements) {
     return p.lat.toFixed(7) + ',' + p.lon.toFixed(7);
   };
   const runs = [];
-  const groups = new Map(); // `${highway}\0${name}` -> [ways]
+  // Group by highway THEN name (nested Map) rather than a concatenated
+  // string key — no separator character needed, so no risk of it colliding
+  // with an OSM tag value.
+  const groups = new Map(); // highway -> Map(name -> [ways])
   for (const el of elements) {
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
     const name = el.tags?.name;
     if (!name) { runs.push(el); continue; } // unnamed: passes through unchanged
-    const key = (el.tags?.highway || '_default') + '\0' + name;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(el);
+    const hw = el.tags?.highway || '_default';
+    let byName = groups.get(hw);
+    if (!byName) { byName = new Map(); groups.set(hw, byName); }
+    const ways = byName.get(name);
+    if (ways) ways.push(el); else byName.set(name, [el]);
   }
-  for (const ways of groups.values()) {
+  for (const byName of groups.values()) for (const ways of byName.values()) {
     if (ways.length === 1) { runs.push(ways[0]); continue; }
     for (const coords of stitchWays(ways, endKey))
       runs.push({ type: 'way', id: ways[0].id, tags: ways[0].tags, geometry: coords });
@@ -1748,6 +1753,9 @@ function pointInPoly(x, y, poly) {
 self.onmessage = function(e) {
   const { lines, areas, waterPolys, W, H } = e.data;
   const CLP = ClipperLib;
+  // Clipper works on integer coordinates; work at SCALE× so the cut keeps
+  // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
+  const SCALE = 10;
 
   self.postMessage({ type:'progress', msg:'Buffering roads…', pct:10 });
 
@@ -1755,7 +1763,7 @@ self.onmessage = function(e) {
   const widthGroups = new Map();
   for (const { pts, halfW } of lines) {
     if (!widthGroups.has(halfW)) widthGroups.set(halfW, []);
-    widthGroups.get(halfW).push(pts.map(([x,y]) => ({ X: Math.round(x), Y: Math.round(y) })));
+    widthGroups.get(halfW).push(pts.map(([x,y]) => ({ X: Math.round(x*SCALE), Y: Math.round(y*SCALE) })));
   }
 
   const allVoids = [];
@@ -1766,16 +1774,18 @@ self.onmessage = function(e) {
     const BATCH = 300;
     for (let i = 0; i < paths.length; i += BATCH) {
       const co = new CLP.ClipperOffset();
-      co.ArcTolerance = halfW * 2; // very coarse arcs = fast
+      // Rendered strokes are linecap/linejoin round — buffer the same way,
+      // with arcs tight enough (±0.25px) that the block edge hugs the casing.
+      co.ArcTolerance = 0.25 * SCALE;
       co.MiterLimit = 2;
       const batch = paths.slice(i, i + BATCH);
       for (const p of batch) {
-        co.AddPath(p, CLP.JoinType.jtSquare, CLP.EndType.etOpenSquare);
+        co.AddPath(p, CLP.JoinType.jtRound, CLP.EndType.etOpenRound);
       }
       const buf = new CLP.Paths();
-      co.Execute(buf, halfW);
+      co.Execute(buf, halfW * SCALE);
       for (const bp of buf) {
-        const cl = CLP.Clipper.CleanPolygon(bp, 4);
+        const cl = CLP.Clipper.CleanPolygon(bp, 0.2 * SCALE);
         if (cl && cl.length >= 3) allVoids.push(cl);
       }
     }
@@ -1785,7 +1795,7 @@ self.onmessage = function(e) {
 
   // Add area voids (parks, water) — already closed polygons
   for (const { pts } of areas) {
-    const path = pts.map(([x,y]) => ({ X: Math.round(x), Y: Math.round(y) }));
+    const path = pts.map(([x,y]) => ({ X: Math.round(x*SCALE), Y: Math.round(y*SCALE) }));
     if (path.length >= 3) allVoids.push(path);
   }
 
@@ -1801,16 +1811,17 @@ self.onmessage = function(e) {
 
   self.postMessage({ type:'progress', msg:'Simplifying…', pct:60 });
 
-  // Clean the union result
+  // Clean the union result (sub-pixel only — anything coarser pulls the
+  // block edge visibly away from the casing)
   const voidClean = [];
   for (const p of voidUnion) {
-    const cl = CLP.Clipper.CleanPolygon(p, 6);
+    const cl = CLP.Clipper.CleanPolygon(p, 0.2 * SCALE);
     if (cl && cl.length >= 3) voidClean.push(cl);
   }
 
   const bboxPath = [
-    { X:0, Y:0 }, { X: Math.round(W), Y:0 },
-    { X: Math.round(W), Y: Math.round(H) }, { X:0, Y: Math.round(H) }
+    { X:0, Y:0 }, { X: Math.round(W*SCALE), Y:0 },
+    { X: Math.round(W*SCALE), Y: Math.round(H*SCALE) }, { X:0, Y: Math.round(H*SCALE) }
   ];
 
   self.postMessage({ type:'progress', msg:'Cutting blocks…', pct:72 });
@@ -1829,7 +1840,7 @@ self.onmessage = function(e) {
 
   // Collect raw block contours from PolyTree
   const rawBlocks = []; // { outer: ClipperPath, holes: [ClipperPath] }
-  const minArea = 400;
+  const minArea = 400 * SCALE * SCALE; // 400 px² in scaled units
 
   function walk(node) {
     if (node.IsHole()) return;
@@ -1851,11 +1862,11 @@ self.onmessage = function(e) {
   const blocks = [];
 
   function toD(path) {
-    const pts = path.map(p => [p.X, p.Y]);
-    const s = dpS(pts, 2.0);
+    const pts = path.map(p => [p.X / SCALE, p.Y / SCALE]);
+    const s = dpS(pts, 0.4);
     if (s.length < 3) return '';
-    let d = 'M' + s[0][0].toFixed(0) + ',' + s[0][1].toFixed(0);
-    for (let i = 1; i < s.length; i++) d += 'L' + s[i][0].toFixed(0) + ',' + s[i][1].toFixed(0);
+    let d = 'M' + s[0][0].toFixed(1) + ',' + s[0][1].toFixed(1);
+    for (let i = 1; i < s.length; i++) d += 'L' + s[i][0].toFixed(1) + ',' + s[i][1].toFixed(1);
     return d + 'Z';
   }
 
@@ -1869,7 +1880,8 @@ self.onmessage = function(e) {
     if (waterPolys && waterPolys.length) {
       let inWater = false;
       for (const wp of waterPolys) {
-        if (pointInPoly(cx, cy, wp)) { inWater = true; break; }
+        // waterPolys are in unscaled px; centroid is in SCALE× units
+        if (pointInPoly(cx / SCALE, cy / SCALE, wp)) { inWater = true; break; }
       }
       if (inWater) continue;
     }
@@ -1897,7 +1909,14 @@ function getBlockWorkerUrl() {
 // city blocks.
 function prepareBlockData(allResults, pr, W, H) {
   const sf = getScaleFactor(W);
-  const eps = 8.0; // aggressive simplification — cutters are coarse shapes
+  // The cutters must trace the SAME polylines the renderer strokes, or the
+  // block edge drifts away from the road casing — so roads go through
+  // mergeNamedWays + the render epsilon, exactly like buildRoadsLayer.
+  const eps = getEps();
+  // Roads paint OVER blocks, so pull the block edge this far under the
+  // casing: absorbs the remaining sub-pixel offset error without visibly
+  // changing the contour. Water paints UNDER blocks — no tuck there.
+  const ROAD_TUCK = 0.5;
 
   const BLOCK_ROADS = new Set(['motorway','trunk','primary','secondary','tertiary',
     'residential','unclassified','living_street','pedestrian',
@@ -1910,14 +1929,15 @@ function prepareBlockData(allResults, pr, W, H) {
   for (const { layer, data } of allResults) {
     if (!data?.elements?.length) continue;
 
-    // Roads → lines with half-width
+    // Roads → lines with half-width (merged first: simplifying a stitched
+    // run gives different points than simplifying its pieces, and the
+    // renderer strokes the stitched run)
     if (layer.type === 'roads') {
-      for (const el of data.elements) {
-        if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
+      for (const el of mergeNamedWays(data.elements)) {
         const hw = el.tags?.highway || '_default';
         if (!BLOCK_ROADS.has(hw)) continue;
         const w = ROAD_WIDTHS[hw] || ROAD_WIDTHS._default;
-        const halfW = Math.round((w.fillW + w.casingW) * sf / 2);
+        const halfW = (w.fillW + w.casingW) * sf / 2 - ROAD_TUCK;
         const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
         if (pts.length >= 2) lines.push({ pts, halfW });
       }
@@ -1943,7 +1963,7 @@ function prepareBlockData(allResults, pr, W, H) {
     if (layer.id === 'waterways') {
       for (const el of data.elements) {
         if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
-        const halfW = Math.round(12 * sf / 2);
+        const halfW = 12 * sf / 2;
         const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
         if (pts.length >= 2) lines.push({ pts, halfW });
       }
@@ -1953,7 +1973,7 @@ function prepareBlockData(allResults, pr, W, H) {
     if (layer.type === 'rail' || layer.type === 'tram' || layer.type === 'metro') {
       for (const el of data.elements) {
         if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
-        const halfW = Math.round(20 * sf / 2);
+        const halfW = 20 * sf / 2;
         const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
         if (pts.length >= 2) lines.push({ pts, halfW });
       }
