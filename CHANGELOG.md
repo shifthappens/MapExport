@@ -11,6 +11,22 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-06 — Deploy moved to GitHub Actions with a restricted server user
+- Deploying is now `.github/workflows/deploy.yml` (manual `workflow_dispatch`
+  only — never on push), triggered via the GitHub UI or `gh workflow run
+  deploy.yml`. The latter only needs `gh` auth, so deploys can be triggered
+  from anywhere, including a Claude Code mobile session — no local SSH key
+  required anymore.
+- Server credentials (deploy SSH key, host, user, path) now live only as
+  encrypted GitHub Secrets, never in a repo file. `deploy.sh` at the repo root
+  (gitignored) is now just a thin wrapper around `gh workflow run`.
+- The server-side deploy account changed from the admin's own root SSH key to
+  a dedicated, restricted non-root user that can only write the handful of
+  files it needs to (`index.html`, `script.min.js`, `style.min.css`,
+  `cache.php`, `fonts/`) — it can't reach `cache/` (protected by a sticky bit
+  on the parent directory) or anything else on the server, and has no sudo.
+  Limits the blast radius if the deploy secret is ever compromised.
+
 ### 2026-07-06 — Minified assets no longer committed; no local build step
 - `script.min.js` / `style.min.css` are now gitignored build artifacts instead
   of tracked files — they're never committed. `index.html` loads `script.js` /

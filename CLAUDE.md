@@ -33,12 +33,29 @@ maintenance rule is restated at the top of `CHANGELOG.md` itself.
   source (`script.js`, `style.css`, `index.html`, `cache.php`) without a staged
   `CHANGELOG.md`. Pure-internal churn can bypass with `SKIP_CHANGELOG=1 git
   commit`.
-- The tracked build lives in `tools/`. Any personal root-level `minify.sh` /
-  `deploy.sh` is gitignored and superseded — prefer `tools/minify.sh`.
-  `deploy.sh` runs it fresh right before syncing, then rewrites the deployed
-  `index.html` to point at `script.min.js` / `style.min.css` (the repo's own
-  `index.html` keeps pointing at source, for dev), so production always gets a
-  clean build straight from source, never a stale committed artifact.
+- The tracked build lives in `tools/`. Any personal root-level `minify.sh` is
+  gitignored and superseded — prefer `tools/minify.sh`.
+
+## Deploy
+
+- **Deploy is a GitHub Actions workflow, not a local script:**
+  `.github/workflows/deploy.yml`, `workflow_dispatch` only (never auto-deploys
+  on push). Run via the Actions tab or `gh workflow run deploy.yml` — the
+  latter needs only `gh` auth, so it works from a Claude Code mobile session
+  too. It builds `script.min.js`/`style.min.css` fresh, rewrites a production
+  `index.html` to point at them (the repo's own keeps pointing at source, for
+  dev), and rsyncs to the server.
+- **Never trigger a deploy unless the user explicitly asks for it** ("deploy"),
+  same as running `deploy.sh` or `git push` before.
+- The server-side account used is a **restricted, non-root user**
+  (`mapexport-deploy`) that can only touch the handful of files it needs to —
+  it can't reach `cache/` or anything outside the app directory, and has no
+  sudo. Credentials live only in GitHub Secrets (`DEPLOY_SSH_KEY`,
+  `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`), never in the repo. Full
+  rationale and setup details in `memory/reference_deploy.md`.
+- `deploy.sh` at repo root (gitignored) is just a thin wrapper around
+  `gh workflow run` for convenience from a local checkout — it no longer does
+  the rsync itself.
 
 ## Testing
 
@@ -54,4 +71,5 @@ maintenance rule is restated at the top of `CHANGELOG.md` itself.
 - Roads render in two passes — **all** casings, then **all** fills — so junctions
   stay seamless. Within each pass, paths are sub-grouped by `highway=` class and
   ordered alphabetically. Do not pair casing+fill per street.
-- Don't auto-deploy; `deploy.sh` and `minify.sh` are gitignored.
+- Don't auto-deploy — see the Deploy section above. `minify.sh` (root) is
+  gitignored.

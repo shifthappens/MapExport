@@ -1,0 +1,56 @@
+name: Deploy to coen.at
+
+# Manual only — never auto-deploys on push. Trigger from the GitHub UI
+# (Actions tab -> Deploy to coen.at -> Run workflow) or via `gh workflow run
+# deploy.yml`, which works fine from a Claude Code mobile session too, since
+# it only needs `gh` auth — no local SSH key required.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build minified assets
+        run: bash tools/minify.sh
+
+      - name: Build production index.html
+        run: |
+          sed -e 's/href="style\.css"/href="style.min.css"/' \
+              -e 's/src="script\.js"/src="script.min.js"/' \
+              index.html > /tmp/prod-index.html
+          chmod 644 /tmp/prod-index.html
+
+      - name: Install deploy SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Trust host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      # This account (mapexport-deploy) is a restricted, non-root user that
+      # only owns the files listed below inside DEPLOY_PATH — it can't touch
+      # cache/ (sticky bit on the parent dir blocks deleting/renaming other
+      # users' entries) or anything outside this one directory. See
+      # memory/reference_deploy.md for how it was set up.
+      - name: Sync production files (whitelist only)
+        run: |
+          rsync -avz --delete \
+            --include='/script.min.js' \
+            --include='/style.min.css' \
+            --include='/cache.php' \
+            --include='/fonts/' --include='/fonts/**' \
+            --exclude='*' \
+            ./ \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}"
+
+      - name: Sync production index.html
+        run: |
+          rsync -avz /tmp/prod-index.html \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}index.html"

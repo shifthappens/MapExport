@@ -213,10 +213,16 @@ node tests/abbreviate.mjs           # Multilingual abbreviation (26 cases)
 
 ## Deployment
 
-Deployment is via `deploy.sh` (gitignored) which rsyncs to the production server. The script is not in the repository — set up your own rsync or copy-based deploy. It should:
+Deployment is a **GitHub Actions workflow**: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml),
+manual-only (`workflow_dispatch`). Trigger it from the Actions tab, or
+`gh workflow run deploy.yml` — the latter only needs `gh` auth, not a local
+SSH key, so it also works from a Claude Code mobile session. It:
 
-1. Run `tools/minify.sh` right before syncing, so the minified assets it ships are built fresh from the current source and never come from a stale committed copy.
-2. Rewrite `index.html` on the way out (e.g. via `sed`) so the *deployed* copy loads `script.min.js` / `style.min.css` instead of the source files the repo's `index.html` uses for dev — push that rewritten copy separately, without touching the repo's `index.html`.
+1. Runs `tools/minify.sh` fresh, so the minified assets it ships always come from the current source, never a stale copy.
+2. Rewrites `index.html` on the way out (via `sed`) so the *deployed* copy loads `script.min.js` / `style.min.css` instead of the source files the repo's `index.html` uses for dev — pushes that rewritten copy separately, without touching the repo's `index.html`.
+3. Rsyncs to the server as a **restricted, non-root deploy user** (not the admin's own SSH key) that only owns the handful of files/dirs it needs to update — see `memory/reference_deploy.md` for the full setup (dedicated unix user, sticky bit on the parent dir to protect `cache/`, credentials as encrypted GitHub Secrets, never committed).
+
+`deploy.sh` at the repo root (gitignored) is a thin convenience wrapper around `gh workflow run` for deploying from a local checkout.
 
 ### Build
 
