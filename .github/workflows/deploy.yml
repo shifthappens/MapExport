@@ -54,3 +54,12 @@ jobs:
         run: |
           rsync -avz /tmp/prod-index.html \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}index.html"
+
+      # rsync -a syncs the target directory's own permissions from the local
+      # repo root (plain 755) as a side effect of the sync above, silently
+      # wiping the sticky bit (1755) that protects cache/ from this account.
+      # Re-assert it every run so it can never drift.
+      - name: Restore sticky bit on deploy directory
+        run: |
+          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "chmod 1755 ${{ secrets.DEPLOY_PATH }}"

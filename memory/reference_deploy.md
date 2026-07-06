@@ -40,6 +40,13 @@ while making deploy triggerable from anywhere with `gh` access.
 - Rationale for a dedicated restricted user over reusing the root key: if the
   `DEPLOY_SSH_KEY` GitHub secret ever leaked (malicious PR, compromised
   runner), the blast radius is one directory on the server, not full root.
+- **Gotcha found on the very first live run:** `rsync -a` syncs the *target
+  directory's own* permissions from the local repo root (plain `755`) as a
+  side effect of the main sync, silently wiping the `1755` sticky bit back to
+  `755` every single deploy. The workflow has an explicit `chmod 1755
+  "$DEPLOY_PATH"` step after both rsync calls to re-assert it every run —
+  never rely on the sticky bit "just staying set" after adding/changing rsync
+  steps.
 - The original root key (`~/.ssh/Andromeda_ed25519`) still exists locally and
   still works for manual admin SSH access — it was never removed from the
   server, only no longer used for routine deploys.
