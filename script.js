@@ -888,6 +888,50 @@ function geomToPathD(geom,pr,eps,close) {
   return close?d+'Z':d;
 }
 
+// Multipolygon relations (e.g. a river mapped as a long chain of way segments
+// under one "outer" role) come back from Overpass as separate open arcs, not
+// closed rings — one arc per member way. Treating each member's geometry as
+// its own ring (as both the renderer and the block-cutter used to) silently
+// force-closes every arc with a straight chord from its last point back to
+// its first, which can cut across dry land far from the real bank. Stitch
+// same-role arcs end-to-end into the real closed ring(s) before use.
+function stitchMultipolygonRings(members) {
+  const samePoint = (a, b) => Math.abs(a.lat - b.lat) < 1e-7 && Math.abs(a.lon - b.lon) < 1e-7;
+  function stitch(segs) {
+    const remaining = segs.filter(s => s && s.length >= 2).map(s => s.slice());
+    const rings = [];
+    while (remaining.length) {
+      let ring = remaining.shift();
+      let grew = true;
+      while (grew && !(ring.length >= 3 && samePoint(ring[0], ring[ring.length - 1]))) {
+        grew = false;
+        for (let i = 0; i < remaining.length; i++) {
+          const seg = remaining[i];
+          if (samePoint(ring[ring.length - 1], seg[0])) {
+            ring = ring.concat(seg.slice(1));
+          } else if (samePoint(ring[ring.length - 1], seg[seg.length - 1])) {
+            ring = ring.concat(seg.slice(0, -1).reverse());
+          } else if (samePoint(ring[0], seg[seg.length - 1])) {
+            ring = seg.slice(0, -1).concat(ring);
+          } else if (samePoint(ring[0], seg[0])) {
+            ring = seg.slice(1).reverse().concat(ring);
+          } else {
+            continue;
+          }
+          remaining.splice(i, 1);
+          grew = true;
+          break;
+        }
+      }
+      if (ring.length >= 3) rings.push(ring);
+    }
+    return rings;
+  }
+  const outerSegs = members.filter(m => (m.role || 'outer') === 'outer').map(m => m.geometry);
+  const innerSegs = members.filter(m => m.role === 'inner').map(m => m.geometry);
+  return { outer: stitch(outerSegs), inner: stitch(innerSegs) };
+}
+
 // ════════════════════════════════════════════════════════════════
 //  BBOX CULLING — skip elements with no geometry inside export area
 // ════════════════════════════════════════════════════════════════
@@ -1903,6 +1947,17 @@ const SIMPLIFY_EPSILON = 0.6;
 function getEps() {
   return SIMPLIFY_EPSILON;
 }
+// Per-feature tolerances used by the renderer (renderLayerSVG's EPS object)
+// for large area fills and thin line strokes. Block-cutter geometry prep
+// (prepareBlockData) must use these same values, not the flat getEps(), or
+// the cut void drifts from the painted shape — see the water/park/waterway
+// fix below and the analogous road fix (CHANGELOG 2026-07-05).
+function getAreaLargeEps() {
+  return SIMPLIFY_EPSILON * 1.4;
+}
+function getLineEps() {
+  return SIMPLIFY_EPSILON * 0.6;
+}
 
 // ════════════════════════════════════════════════════════════════
 //  CITY BLOCKS — Web Worker + ClipperLib
@@ -1945,8 +2000,30 @@ function pointInPoly(x, y, poly) {
   return inside;
 }
 
+// Area-weighted (shoelace) polygon centroid. A vertex average is skewed
+// off-center for concave, many-vertex shapes — like a block hugging a
+// curvy riverbank — which let submerged blocks slip past the water-overlap
+// check below. pts is a Clipper path: [{X,Y}, ...].
+function polyCentroid(pts) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].X, yi = pts[i].Y, xj = pts[j].X, yj = pts[j].Y;
+    const cross = xj * yi - xi * yj;
+    a += cross;
+    cx += (xi + xj) * cross;
+    cy += (yi + yj) * cross;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-9) {
+    let sx = 0, sy = 0;
+    for (const p of pts) { sx += p.X; sy += p.Y; }
+    return [sx / pts.length, sy / pts.length];
+  }
+  return [cx / (6 * a), cy / (6 * a)];
+}
+
 self.onmessage = function(e) {
-  const { lines, areas, waterPolys, W, H } = e.data;
+  const { lines, areas, waterPolys, waterwayLines, W, H } = e.data;
   const CLP = ClipperLib;
   // Clipper works on integer coordinates; work at SCALE× so the cut keeps
   // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
@@ -1992,6 +2069,31 @@ self.onmessage = function(e) {
   for (const { pts } of areas) {
     const path = pts.map(([x,y]) => ({ X: Math.round(x*SCALE), Y: Math.round(y*SCALE) }));
     if (path.length >= 3) allVoids.push(path);
+  }
+
+  // Buffer waterway centerlines into standalone polygons too, kept separate
+  // from allVoids/voidClean (which also has roads/rail mixed in). Narrower
+  // canals often have no natural=water area — only this centerline — so the
+  // water-overlap safety check below needs these to catch blocks slipping
+  // through over them, not just over closed water_bodies polygons.
+  const waterwayVoidPolys = [];
+  if (waterwayLines && waterwayLines.length) {
+    const wwGroups = new Map();
+    for (const { pts, halfW } of waterwayLines) {
+      if (!wwGroups.has(halfW)) wwGroups.set(halfW, []);
+      wwGroups.get(halfW).push(pts.map(([x,y]) => ({ X: Math.round(x*SCALE), Y: Math.round(y*SCALE) })));
+    }
+    for (const [halfW, paths] of wwGroups) {
+      const co = new CLP.ClipperOffset();
+      co.ArcTolerance = 0.25 * SCALE;
+      co.MiterLimit = 2;
+      for (const p of paths) co.AddPath(p, CLP.JoinType.jtRound, CLP.EndType.etOpenRound);
+      const buf = new CLP.Paths();
+      co.Execute(buf, halfW * SCALE);
+      for (const bp of buf) {
+        if (bp && bp.length >= 3) waterwayVoidPolys.push(bp.map(p => [p.X / SCALE, p.Y / SCALE]));
+      }
+    }
   }
 
   self.postMessage({ type:'progress', msg:'Merging ' + allVoids.length + ' shapes…', pct:45 });
@@ -2066,20 +2168,24 @@ self.onmessage = function(e) {
   }
 
   for (const raw of rawBlocks) {
-    // Skip blocks whose centroid is inside a water body (safety check —
-    // water is already in voidClean, but partial coverage can leave slivers)
-    const c = raw.outer;
-    let cx = 0, cy = 0;
-    for (const p of c) { cx += p.X; cy += p.Y; }
-    cx /= c.length; cy /= c.length;
+    // Skip blocks whose centroid is inside water (safety check — water is
+    // already in voidClean, but partial coverage/epsilon drift can leave
+    // slivers). Area-weighted centroid, checked against both water_bodies
+    // polygons and buffered waterway centerlines (see polyCentroid above).
+    const [cx, cy] = polyCentroid(raw.outer);
+    let inWater = false;
     if (waterPolys && waterPolys.length) {
-      let inWater = false;
       for (const wp of waterPolys) {
         // waterPolys are in unscaled px; centroid is in SCALE× units
         if (pointInPoly(cx / SCALE, cy / SCALE, wp)) { inWater = true; break; }
       }
-      if (inWater) continue;
     }
+    if (!inWater && waterwayVoidPolys.length) {
+      for (const wp of waterwayVoidPolys) {
+        if (pointInPoly(cx / SCALE, cy / SCALE, wp)) { inWater = true; break; }
+      }
+    }
+    if (inWater) continue;
 
     const outer = toD(raw.outer);
     if (!outer) continue;
@@ -2108,6 +2214,13 @@ function prepareBlockData(allResults, pr, W, H) {
   // block edge drifts away from the road casing — so roads go through
   // mergeNamedWays + the render epsilon, exactly like buildRoadsLayer.
   const eps = getEps();
+  // Water/park areas and waterway lines render at their own tolerances
+  // (renderLayerSVG's EPS.area_large / EPS.line) — not the flat road eps —
+  // so the cutter must simplify them the same way or its void drifts from
+  // the painted shape (this is what let cream block slivers show over
+  // rivers/canals; see CHANGELOG).
+  const areaLargeEps = getAreaLargeEps();
+  const lineEps = getLineEps();
   // Roads paint OVER blocks, so pull the block edge this far under the
   // casing: absorbs the remaining sub-pixel offset error without visibly
   // changing the contour. Water paints UNDER blocks — no tuck there.
@@ -2126,6 +2239,7 @@ function prepareBlockData(allResults, pr, W, H) {
   const lines = []; // { pts: [[x,y],...], halfW }
   const areas = []; // { pts: [[x,y],...] }
   const waterPolys = []; // water body polygons for filtering blocks inside water
+  const waterwayLines = []; // waterway centerlines (with halfW) for the same filter
 
   for (const { layer, data } of allResults) {
     if (!data?.elements?.length) continue;
@@ -2144,14 +2258,24 @@ function prepareBlockData(allResults, pr, W, H) {
       }
     }
 
-    // Parks & water bodies → closed areas
+    // Parks & water bodies → closed areas. Simplified at the renderer's
+    // area_large tolerance (not the flat road eps) — these are large,
+    // many-vertex rings (riverbanks, park boundaries) where a coarser
+    // tolerance produces a visibly different polygon than the one painted,
+    // leaving cream block slivers over the water/park it should have voided.
     if (layer.id === 'parks' || layer.id === 'water_bodies') {
       for (const el of data.elements) {
+        // A relation's members are open arcs, not rings — stitch them into
+        // real closed rings first (see stitchMultipolygonRings), or a
+        // multi-way river/park boundary force-closes into chord-shaped
+        // fake polygons that cut across dry land.
         const geoms = el.type === 'way' ? [el.geometry] :
-          el.type === 'relation' && el.members ? el.members.map(m => m.geometry) : [];
+          el.type === 'relation' && el.members
+            ? (r => [...r.outer, ...r.inner])(stitchMultipolygonRings(el.members))
+            : [];
         for (const geom of geoms) {
           if (!geom || geom.length < 3) continue;
-          const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), eps);
+          const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), areaLargeEps);
           if (pts.length >= 3) {
             areas.push({ pts });
             if (layer.id === 'water_bodies') waterPolys.push(pts);
@@ -2160,13 +2284,14 @@ function prepareBlockData(allResults, pr, W, H) {
       }
     }
 
-    // Waterways → lines
+    // Waterways → lines, simplified at the renderer's line tolerance (same
+    // reasoning as above — a canal centerline is a long winding polyline).
     if (layer.id === 'waterways') {
       for (const el of data.elements) {
         if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
         const halfW = 12 * sf / 2;
-        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), eps);
-        if (pts.length >= 2) lines.push({ pts, halfW });
+        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), lineEps);
+        if (pts.length >= 2) { lines.push({ pts, halfW }); waterwayLines.push({ pts, halfW }); }
       }
     }
 
@@ -2181,7 +2306,7 @@ function prepareBlockData(allResults, pr, W, H) {
     }
   }
 
-  return { lines, areas, waterPolys, W, H };
+  return { lines, areas, waterPolys, waterwayLines, W, H };
 }
 
 // Run block computation in Web Worker, returns promise of block array
@@ -2271,7 +2396,8 @@ function renderLayerSVG({ layer, data }, ctx) {
       let d = '';
       if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
       if (el.type === 'relation' && el.members) {
-        el.members.forEach(m => { d += geomToPathD(m.geometry, pr, EPS.area_large, true) + ' '; });
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        [...outer, ...inner].forEach(ring => { d += geomToPathD(ring, pr, EPS.area_large, true) + ' '; });
         d = d.trim();
       }
       if (!d) return;
@@ -2291,7 +2417,10 @@ function renderLayerSVG({ layer, data }, ctx) {
       return;
     }
     if (el.type==='way') allD+=geomToPathD(el.geometry,pr,eps,isArea)+' ';
-    if (el.type==='relation'&&el.members) el.members.forEach(m=>{allD+=geomToPathD(m.geometry,pr,eps,isArea)+' ';});
+    if (el.type==='relation'&&el.members) {
+      const { outer, inner } = stitchMultipolygonRings(el.members);
+      [...outer, ...inner].forEach(ring=>{allD+=geomToPathD(ring,pr,eps,isArea)+' ';});
+    }
   });
 
   let content='';
@@ -2325,7 +2454,7 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
   return {
     b, pr, W, H,
     preset: PRESETS[activePreset],
-    EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
+    EPS: { area_large: getAreaLargeEps(), area: getEps()*0.9, line: getLineEps() },
     precomputedBlocks: precomputedBlocks || null,
     // Illustrator pipeline switch: same layer builders, Illustrator-safe
     // emission (see wrapSVGIllustrator for the full quirk list).

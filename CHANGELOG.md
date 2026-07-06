@@ -11,6 +11,25 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-06 — City blocks no longer streak over rivers and canals
+- **Fixes cream block fill showing on top of water** (reported in Ghent, along
+  the Leie): the block cutter simplified water/park polygons and waterway
+  centerlines with a flat tolerance instead of the renderer's own
+  (`EPS.area_large` / `EPS.line`), so its cut void drifted from the water
+  shape actually painted — the same bug class fixed for roads on 2026-07-05,
+  never extended to water. The cutter now uses the renderer's exact
+  tolerances, and its water-overlap safety check now uses a true
+  area-weighted centroid (not a vertex average, which missed elongated
+  blocks hugging a curvy bank) and also checks buffered waterway
+  centerlines, not just closed `natural=water` polygons.
+- **Multipolygon water/park boundaries (e.g. a river mapped as dozens of way
+  segments under one relation) are now stitched into real closed rings**
+  before use, instead of force-closing each member's open arc into its own
+  chord-shaped fake polygon — the dominant cause of the Ghent streaks, since
+  the Leie is one 40-member relation with 38 open arcs. Applies everywhere
+  relation members are turned into polygons: block-cutting, plain area/line
+  rendering, and named park labels.
+
 ### 2026-07-06 — Deploy moved to GitHub Actions with a restricted server user
 - Deploying is now `.github/workflows/deploy.yml` (manual `workflow_dispatch`
   only — never on push), triggered via the GitHub UI or `gh workflow run
