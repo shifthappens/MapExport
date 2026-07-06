@@ -1,6 +1,6 @@
 - [MapExport overview](memory/project_mapexport.md) — USE-IT City Map Builder: architecture, colors, layers, block generation, parks filtering
 - [Deploy target](memory/reference_deploy.md) — SSH/rsync details for coen.at server
-- [Workflow preferences](memory/feedback_workflow.md) — Don't auto-deploy, minified files tracked, deploy.sh gitignored
+- [Workflow preferences](memory/feedback_workflow.md) — Don't auto-deploy, minified files gitignored (generated, never committed), deploy.sh gitignored
 - [Reference materials](memory/reference_materials.md) — Tutorial PDF and Ghent .ai file in references/ folder
 - [Self-hosted Overpass](memory/reference_self_hosted_overpass.md) — Hardware/cost/difficulty of a private Europe-only Overpass server (future option, not in current plan)
 - [Roads merge + labels](memory/project_roads_merge_labels.md) — Road segment stitching + label engine rewrite (Jun 2026, branch roads-merge-segments)

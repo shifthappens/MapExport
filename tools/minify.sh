@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# tools/minify.sh — regenerate the committed minified assets from source.
+# tools/minify.sh — regenerate the minified assets from source.
 #
 #   script.js  -> script.min.js   (terser:   global if present, else `npx terser`)
 #   style.css  -> style.min.css   (cleancss: global if present, else npx clean-css-cli)
 #
-# Both *.min.* files are TRACKED in git and are what index.html / tests load, so
-# they MUST be regenerated whenever their source changes. The pre-commit hook
-# (.githooks/pre-commit) calls this automatically and re-stages the output.
+# Both *.min.* files are GITIGNORED build artifacts — never committed, and
+# not needed for local dev (index.html loads script.js / style.css directly
+# in the browser). Only two things run this on demand:
+#   - tests/real-export.mjs, which tests the actual shipped (minified) code
+#   - deploy.sh, which builds fresh right before rsyncing to production
 #
 # This is the canonical, version-controlled build script. It supersedes any
 # personal, gitignored root-level minify.sh.

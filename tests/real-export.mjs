@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import vm from 'node:vm';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { lintSvg } from './svg-lint.mjs';
 
@@ -64,18 +65,12 @@ const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[cit
 const bbox = { south, west, north, east };
 const bboxStr = `${south},${west},${north},${east}`;
 
-// ── staleness gate: this harness runs script.min.js, you edit script.js ──
-// A forgotten `bash tools/minify.sh` used to silently test the PREVIOUS
-// version. Fresh checkouts get near-identical mtimes, so only a clearly
-// newer source (>2s) fails.
-{
-  const srcM = fs.statSync(path.join(REPO, 'script.js')).mtimeMs;
-  const minM = fs.statSync(path.join(REPO, 'script.min.js')).mtimeMs;
-  if (srcM - minM > 2000) {
-    console.error(`STALE: script.js is ${((srcM - minM) / 1000).toFixed(0)}s newer than script.min.js — run \`bash tools/minify.sh\` first.`);
-    process.exit(3);
-  }
-}
+// ── this harness runs the actual shipped (minified) code, not script.js ──
+// script.min.js is a gitignored build artifact, not needed for normal dev
+// (index.html loads script.js directly). Build it fresh here so this test
+// always exercises the current source through the real minifier.
+console.log('building script.min.js…');
+execFileSync('bash', [path.join(REPO, 'tools/minify.sh'), 'js'], { stdio: 'inherit' });
 
 // ── load shipped code into a vm sandbox with browser stubs ─────────
 let src = fs.readFileSync(path.join(REPO, 'script.min.js'), 'utf8')

@@ -6,3 +6,6 @@ cache/*.json.gz
 # Personal, machine-specific scripts at repo root (the tracked build lives in tools/).
 /deploy.sh
 /minify.sh
+# Generated build artifacts — regenerate with `bash tools/minify.sh`, never commit.
+/script.min.js
+/style.min.css
