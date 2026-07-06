@@ -162,7 +162,10 @@ const LAYER_REGISTRY = [
       tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps)$/.test(el.tags?.highway||'') },
     { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true,  type:'labels',
       overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
-      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway)$/.test(el.tags?.highway||'')&&el.tags?.name },
+      // cycleway/footway deliberately absent: PATH_STYLES classes render as
+      // unlabelled dashes. overpassQuery still fetches them — the query string
+      // feeds the cache key, so narrowing it would only invalidate the cache.
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$/.test(el.tags?.highway||'')&&el.tags?.name },
   ]},
   { group: 'Transit', layers: [
     { id:'rail',         label:'Railways',          hint:'Main line & narrow gauge',    color:'#444444', defaultOn:true,  type:'rail',
@@ -247,12 +250,27 @@ const ROAD_WIDTHS = {
   steps:{fillW:9,casingW:12,dash:'2 2'},
   _default:{fillW:18,casingW:12},
 };
+// Small path classes render as ONE dashed stroke in the casing colour — no
+// casing, no white fill, no street labels — so they can't be mistaken for
+// streets (which bound city blocks; these don't). Dash code: long dash =
+// cycleway, short dash = footway, fine thin dash = dirt path, wide short
+// rungs = steps. w/dash are map px and scale with sf — the old ROAD_WIDTHS
+// dash strings were unscaled, which is why these classes used to render as
+// solid mini-streets at print sizes. Over parks/water the stroke is
+// overprinted white via a clipPath (salmon vanishes on the park green).
+const PATH_STYLES = {
+  cycleway: { w:5.5, dash:[24,9] },
+  footway:  { w:4.5, dash:[13,8] },
+  path:     { w:3.5, dash:[7,8] },
+  steps:    { w:12,  dash:[4.5,6] },
+};
+
 const ROAD_DRAW_ORDER=['path','footway','steps','cycleway','pedestrian','living_street','unclassified','residential','tertiary_link','tertiary','secondary_link','secondary','primary_link','primary','trunk_link','motorway_link','trunk','motorway'];
 const TYPE_LABELS={motorway:'Motorways',trunk:'Trunk roads',motorway_link:'Motorway links',trunk_link:'Trunk links',primary:'Primary roads',primary_link:'Primary links',secondary:'Secondary roads',secondary_link:'Secondary links',tertiary:'Tertiary roads',tertiary_link:'Tertiary links',residential:'Residential streets',unclassified:'Unclassified roads',living_street:'Living streets',cycleway:'Cycleways',pedestrian:'Pedestrian areas',footway:'Footways',path:'Paths',steps:'Steps'};
 
 // Label visibility per road category (controlled from UI). Default to labelling
 // every named road type; the UI can switch individual categories off.
-const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:true, cycleway:true, footway:true };
+const LABEL_VISIBILITY = { motorway:true, trunk:true, primary:true, secondary:true, tertiary:true, residential:true };
 
 // ════════════════════════════════════════════════════════════════
 //  METRO PALETTE
@@ -329,8 +347,8 @@ function renderLayers() {
 function renderLabelToggles() {
   const wrap = document.getElementById('label-toggles');
   wrap.innerHTML = '';
-  const cats = ['motorway','primary','secondary','tertiary','residential','cycleway'];
-  const fullNames = {motorway:'Motorway',primary:'Primary',secondary:'Secondary',tertiary:'Tertiary',residential:'Residential',cycleway:'Cycleway'};
+  const cats = ['motorway','primary','secondary','tertiary','residential'];
+  const fullNames = {motorway:'Motorway',primary:'Primary',secondary:'Secondary',tertiary:'Tertiary',residential:'Residential'};
   cats.forEach(cat => {
     const id = `lbl-${cat}`;
     const label = document.createElement('label');
@@ -999,7 +1017,7 @@ function stitchWays(ways, endKey) {
 // ════════════════════════════════════════════════════════════════
 //  ROADS BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildRoadsLayer(elements, pr, W) {
+function buildRoadsLayer(elements, pr, W, ctx) {
   const sf = getScaleFactor(W);
   const eps = getEps();
   const preset = PRESETS[activePreset];
@@ -1020,7 +1038,8 @@ function buildRoadsLayer(elements, pr, W) {
   // minor classes still paint under major ones) and order streets alphabetically
   // inside each class, so a designer can grab a whole class at once or find one
   // named street fast. Casings and fills mirror the same class+alpha order.
-  let casingGroups='', fillGroups='';
+  let casingGroups='', fillGroups='', pathGroups='', pathOverGroups='';
+  const clipDs = ctx?.areaClipDs || [];
   const uid=makeUidGen();
   types.forEach(hw => {
     const ways=byType.get(hw);
@@ -1030,6 +1049,9 @@ function buildRoadsLayer(elements, pr, W) {
     const casingTotalW=((w.fillW+w.casingW)*sf).toFixed(2);
     const fillW=(w.fillW*sf).toFixed(2);
     const label=TYPE_LABELS[hw]||hw;
+    const ps=PATH_STYLES[hw];
+    const psW=ps?(ps.w*sf).toFixed(2):0;
+    const psDash=ps?` stroke-dasharray="${ps.dash.map(v=>(v*sf).toFixed(1)).join(' ')}"`:'';
     // Alphabetical within the class (case-insensitive); named/ref'd ways sort
     // before unnamed stubs, which fall back to a stable original order.
     const sorted=ways.map((el,i)=>({el,i})).sort((a,b)=>{
@@ -1038,7 +1060,7 @@ function buildRoadsLayer(elements, pr, W) {
       if(na&&nb) return na.localeCompare(nb)||a.i-b.i;
       if(na) return -1; if(nb) return 1; return a.i-b.i;
     });
-    let casings='', fills='';
+    let casings='', fills='', paths='', pathsOver='';
     sorted.forEach(({el,i}) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
@@ -1048,14 +1070,35 @@ function buildRoadsLayer(elements, pr, W) {
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
+      if (ps) {
+        // Single dashed stroke; butt caps keep the dash rhythm crisp.
+        paths+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}/>`;
+        // White twin, clipped to parks/water — identical d and dash phase, so
+        // the colour flips exactly at the green/blue edge.
+        if (clipDs.length) pathsOver+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#ffffff" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}/>`;
+        return;
+      }
       casings+=`\n        <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
       fills+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
     });
+    if (paths) pathGroups+=`\n      <g id="roads_paths_${hw}" inkscape:label="${escXml(label)}">${paths}\n      </g>`;
+    if (pathsOver) pathOverGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks/water)">${pathsOver}\n        </g>`;
     if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}">${casings}\n      </g>`;
     if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}">${fills}\n      </g>`;
   });
-  if (!casingGroups&&!fillGroups) return '';
-  return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">\n  <g id="roads_casings" inkscape:label="Road casings">${casingGroups}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${fillGroups}\n  </g>\n  </g>\n`;
+  if (!casingGroups&&!fillGroups&&!pathGroups) return '';
+  // Paths & trails paint first (under street casings/fills), then the white
+  // clipped twins, then the two street passes.
+  let pathsBlock='';
+  if (pathGroups) {
+    let clipDef='', overlay='';
+    if (pathOverGroups) {
+      clipDef=`\n    <clipPath id="greenblue_clip" clipPathUnits="userSpaceOnUse">${clipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`;
+      overlay=`\n    <g id="roads_paths_green" inkscape:label="Paths over parks/water" clip-path="url(#greenblue_clip)">${pathOverGroups}\n    </g>`;
+    }
+    pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${clipDef}${pathGroups}\n  </g>${overlay}`;
+  }
+  return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">${pathsBlock}\n  <g id="roads_casings" inkscape:label="Road casings">${casingGroups}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${fillGroups}\n  </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1918,6 +1961,12 @@ function prepareBlockData(allResults, pr, W, H) {
   // changing the contour. Water paints UNDER blocks — no tuck there.
   const ROAD_TUCK = 0.5;
 
+  // Confirmed design rule (2026-07-06): the smallest block-bounding class is a
+  // residential/unclassified street; footway/cycleway/path/steps NEVER cut
+  // blocks, so one block face may legitimately span several visually separate
+  // areas (reference case: the Tilburg station strip along Burg. Brokxlaan,
+  // crossed only by Locomotiefboulevard (footway) and Willem II-passage
+  // (cycleway)). Those classes render as unlabelled dashes — see PATH_STYLES.
   const BLOCK_ROADS = new Set(['motorway','trunk','primary','secondary','tertiary',
     'residential','unclassified','living_street','pedestrian',
     'motorway_link','trunk_link','primary_link','secondary_link','tertiary_link']);
@@ -2032,7 +2081,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   if (!data?.elements?.length) return '';
   const elements = data.elements.filter(el => elementInBbox(el, b));
   if (!elements.length) return '';
-  if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W);
+  if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W,ctx);
   if (layer.type==='rail') {
     const svg=buildRailLayer(elements,pr,W);
     // The hatched rail bed must stay label-free: claim its corridor in the
@@ -2074,6 +2123,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         d = d.trim();
       }
       if (!d) return;
+      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
       const parkId = uid(`park_${safeName(name)}`);
       content += `<path id="${parkId}" inkscape:label="${escXml(name)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
     });
@@ -2096,6 +2146,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   const d=allD.trim();
   if (d) {
     if (isArea) {
+      if (layer.id==='water_bodies' && ctx.areaClipDs) ctx.areaClipDs.push(d);
       const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
       const sw=layer.strokeWidth??0.5;
       content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
@@ -2124,6 +2175,10 @@ function buildSVGContext(b, W, precomputedBlocks) {
     preset: PRESETS[activePreset],
     EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
     precomputedBlocks: precomputedBlocks || null,
+    // Park/water outline d-strings, filled by the parks and water_bodies
+    // renders (they paint before roads, see LAYER_ORDER). The roads layer
+    // turns them into the clipPath that overprints path dashes in white.
+    areaClipDs: [],
     // One collision grid for the whole export: rail corridors stamp it,
     // then feature labels, then street labels — nothing can overlap.
     labelGrid: makeFootprintGrid(),

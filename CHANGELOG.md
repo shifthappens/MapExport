@@ -11,6 +11,33 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-06 — Footways, cycleways, paths and steps become dashed trails
+- **Small path classes no longer masquerade as streets**: footway, cycleway,
+  path and steps now render as a single dashed stroke in the casing colour —
+  no casing, no white fill — so real streets (which bound city blocks) are
+  instantly distinguishable from paths (which don't). Dash code: long dash =
+  cycleway, short dash = footway, fine thin dash = dirt path, wide rungs =
+  steps. Fixes the root cause too: the old dash patterns were never scaled to
+  the export size, so at print resolution these classes rendered as solid
+  mini-streets with casings (reported on Locomotiefboulevard and Willem
+  II-passage at Tilburg station).
+- **Paths turn white over parks and water**: a clipPath overprints the dashes
+  in white wherever they cross park or water polygons (salmon would vanish on
+  the green), flipping colour exactly at the area edge.
+- **No more labels on footways and cycleways**: path-class ways are unlabelled;
+  the cycleway toggle is gone from the label controls.
+
+### 2026-07-05 — City blocks hug the road casings exactly
+- **Block contours now match the rendered streets** (reported on Groenstraat /
+  Flemingstraat / Heuvelring, Tilburg): the block cutter used a much coarser
+  copy of the road network than the renderer (8px simplification vs ~0.6px,
+  square buffer joins vs round stroke joins/caps, integer coordinates, 4–6px
+  polygon cleaning, 2px output simplify), leaving irregular white gaps between
+  blocks and casings. The cutter now buffers the exact merged+simplified
+  polylines the renderer strokes, with round joins/caps at sub-pixel arc
+  tolerance on a 10× integer grid, and tucks the block edge 0.5px under the
+  casing (roads paint over blocks) so no hairline can show.
+
 ### 2026-07-05 — Labels: on-canvas policy, one collision grid, rail clearance, no dwarf labels, cleaner curves
 - **Labels never overlap railways**: the hatched rail bed claims its corridor
   in the label collision grid before any label is placed, so street and
