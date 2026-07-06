@@ -13,7 +13,11 @@
 //   node tests/real-export.mjs                          # default Tilburg bbox, A3
 //   node tests/real-export.mjs ghent                    # named test area (see CITIES)
 //   node tests/real-export.mjs 51.545,5.07,51.562,5.1 a3_300
-//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300> [--record]
+//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300> [--record] [--illustrator]
+//
+// --illustrator additionally writes the Illustrator-compatible variant of the
+// same export (suffix `-illustrator`) from the same fetched data, with its own
+// profile assertions (no textPath/inkscape:/xlink/paint-order markup).
 //
 // This is a TEST, not just a demo: it exits non-zero when the export is
 // broken — a default-on layer under its per-city floor (tests/expectations.json),
@@ -54,6 +58,7 @@ const CITIES = {
 const flags = process.argv.slice(2).filter(a => a.startsWith('--'));
 const [areaArg, sizeArg = 'a3_300'] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const recordExpectations = flags.includes('--record');
+const alsoIllustrator = flags.includes('--illustrator');
 const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
 const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[citySlug]).split(',').map(Number);
 const bbox = { south, west, north, east };
@@ -179,6 +184,25 @@ const dir = path.join(REPO, 'exports');
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, filename), svg);
 
+// ── Illustrator-compatible variant: same fetched data, second pipeline ──
+let illustratorFilename = null;
+const illustratorFailures = [];
+if (alsoIllustrator) {
+  const illustratorSvg = X.buildSVG(results, bbox, W, physicalWidthMm, blocks, { illustratorCompatible: true });
+  illustratorFilename = `map-${X.activePreset}-${citySlug}-${stamp}-illustrator.svg`;
+  fs.writeFileSync(path.join(dir, illustratorFilename), illustratorSvg);
+  console.log(`Illustrator variant: ${(illustratorSvg.length / 1048576).toFixed(2)} MB -> exports/${illustratorFilename}`);
+  // Profile assertions: the whole point of this pipeline is that these
+  // constructs never reach an Illustrator user.
+  const forbidden = ['<textPath', 'inkscape:', 'xlink', 'paint-order', 'rgba(', 'dominant-baseline'];
+  for (const marker of forbidden) {
+    if (illustratorSvg.includes(marker)) illustratorFailures.push(`illustrator variant contains forbidden markup: ${marker}`);
+  }
+  if (!illustratorSvg.includes('Illustrator-compatible export')) {
+    illustratorFailures.push('illustrator variant is missing its identifying header comment');
+  }
+}
+
 // Drain the fire-and-forget cacheSet POSTs (the old fixed sleep(2000) raced
 // slow writes). Loop because a late cacheSet may still be compressing when
 // the first drain settles.
@@ -196,7 +220,7 @@ console.log(`SVG ${(svg.length / 1048576).toFixed(2)} MB -> exports/${filename}`
 
 // ── assertions: this run must be self-evidently sane before anyone looks
 //    at a screenshot ──────────────────────────────────────────────────
-const failures = [];
+const failures = [...illustratorFailures];
 
 // 1. svg-lint: NaN/undefined in attributes, empty/mirrored/upside-down
 //    labels, dangling textPath refs, label-on-label overlap.
@@ -240,4 +264,5 @@ if (failures.length) {
 }
 console.log(`\nPASS — all checks. Next: visually verify in a browser via the preview MCP on :8889 (see tests/README.md):`);
 console.log(`  http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/${filename}`);
+if (illustratorFilename) console.log(`  http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/${illustratorFilename}`);
 

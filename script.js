@@ -51,11 +51,14 @@ const HELP = {
   step4: {
     title: 'Export options',
     content: `
-      <p><strong>Format:</strong> SVG — compatible with Adobe Illustrator and Inkscape. All paths are editable vectors.</p>
+      <p><strong>Format:</strong> Adobe Illustrator's SVG import is buggy enough that one file cannot be optimal in both Illustrator and standards-based tools, so pick the format for the tool you will open the file in. All paths are editable vectors in both.</p>
+      <ul>
+        <li><strong>SVG (Illustrator)</strong> — tweaked so the file opens cleanly in Illustrator (and places in InDesign 2020+): curved street names arrive pre-positioned letter by letter, and everything sticks to the SVG subset Illustrator understands. Don't expect this file to be optimal in other SVG viewers/editors.</li>
+        <li><strong>SVG (Inkscape / others)</strong> — standards-based SVG for Inkscape, web browsers, and other conforming tools, with real Inkscape layers and text-on-path street names. Don't expect this file to open perfectly in Illustrator.</li>
+      </ul>
       <p><strong>Print size:</strong> Sets the SVG canvas dimensions. A3 @ 300dpi is a good default for print work. Use Custom px for specific pixel dimensions.</p>
-      <p><strong>Simplify:</strong> Reduces the number of points on paths. Higher values create smaller, simpler files — useful for large areas where fine detail isn't needed.</p>
       <p><strong>Labels on:</strong> Control which road types include name labels. More labels means a larger file and slower rendering in Illustrator.</p>
-      <div class="tip">For large areas, try Simplify 3–4 and disable building labels to keep file sizes manageable.</div>
+      <div class="tip">For large areas, disable layers and labels you don't need to keep file sizes manageable.</div>
     `
   },
   history: {
@@ -1071,20 +1074,24 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
       if (ps) {
-        // Single dashed stroke; butt caps keep the dash rhythm crisp.
-        paths+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}/>`;
+        // Single dashed stroke; butt caps keep the dash rhythm crisp. Paint
+        // attributes live on the class group below — every path in a class
+        // shares them, and SVG 1.1 inheritance is safe in every consumer
+        // (Illustrator included), so the per-path markup is just geometry.
+        paths+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
         // White twin, clipped to parks/water — identical d and dash phase, so
         // the colour flips exactly at the green/blue edge.
-        if (clipDs.length) pathsOver+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#ffffff" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}/>`;
+        if (clipDs.length) pathsOver+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}"/>`;
         return;
       }
-      casings+=`\n        <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
-      fills+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
+      casings+=`\n        <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}"/>`;
+      fills+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
     });
-    if (paths) pathGroups+=`\n      <g id="roads_paths_${hw}" inkscape:label="${escXml(label)}">${paths}\n      </g>`;
-    if (pathsOver) pathOverGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks/water)">${pathsOver}\n        </g>`;
-    if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}">${casings}\n      </g>`;
-    if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}">${fills}\n      </g>`;
+    const pathPaint=`fill="none" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}`;
+    if (paths) pathGroups+=`\n      <g id="roads_paths_${hw}" inkscape:label="${escXml(label)}" ${pathPaint} stroke="${colors.casing}">${paths}\n      </g>`;
+    if (pathsOver) pathOverGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks/water)" ${pathPaint} stroke="#ffffff">${pathsOver}\n        </g>`;
+    if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${casings}\n      </g>`;
+    if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${fills}\n      </g>`;
   });
   if (!casingGroups&&!fillGroups&&!pathGroups) return '';
   // Paths & trails paint first (under street casings/fills), then the white
@@ -1093,7 +1100,13 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   if (pathGroups) {
     let clipDef='', overlay='';
     if (pathOverGroups) {
-      clipDef=`\n    <clipPath id="greenblue_clip" clipPathUnits="userSpaceOnUse">${clipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`;
+      const clipPathMarkup=`<clipPath id="greenblue_clip" clipPathUnits="userSpaceOnUse">${clipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`;
+      // Illustrator only handles clipPaths reliably when they live in the
+      // document-root <defs>; declaring one inline inside a <g> is legal
+      // SVG (and fine in browsers/Inkscape) but risky there. The Illustrator
+      // wrapper collects these and emits them at the root.
+      if (ctx?.illustratorCompatible && ctx.illustratorDefs) ctx.illustratorDefs.push(clipPathMarkup);
+      else clipDef=`\n    ${clipPathMarkup}`;
       overlay=`\n    <g id="roads_paths_green" inkscape:label="Paths over parks/water" clip-path="url(#greenblue_clip)">${pathOverGroups}\n    </g>`;
     }
     pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${clipDef}${pathGroups}\n  </g>${overlay}`;
@@ -1116,12 +1129,17 @@ function buildRailLayer(elements, pr, W) {
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`rail_${el.id||i}`);
     const lbl=escXml(name||`Railway (${el.id||i})`);
-    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(12*sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round"/>`;
-    sleepers+=`\n      <path id="${pid}_sleepers" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#eeeeee" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="butt" stroke-dasharray="${(30*sf).toFixed(1)} ${(24*sf).toFixed(1)}"/>`;
-    rails+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#333333" stroke-width="${(1.8*sf).toFixed(2)}" stroke-linecap="butt" opacity="0.5"/>`;
+    // Paint attributes are hoisted onto the sub-groups below (plain SVG 1.1
+    // inheritance, safe everywhere incl. Illustrator). `opacity` stays on
+    // each path: it is NOT an inherited property — on a group it flattens
+    // the group before blending, which would stop crossing tracks from
+    // darkening each other.
+    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}"/>`;
+    sleepers+=`\n      <path id="${pid}_sleepers" inkscape:label="${lbl}" d="${d}"/>`;
+    rails+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.5"/>`;
   });
   if (!casings) return '';
-  return `  <g id="rail" inkscape:label="Railways" inkscape:groupmode="layer">\n    <g id="rail_casing">${casings}\n    </g>\n    <g id="rail_sleepers">${sleepers}\n    </g>\n    <g id="rail_tracks">${rails}\n    </g>\n  </g>\n`;
+  return `  <g id="rail" inkscape:label="Railways" inkscape:groupmode="layer">\n    <g id="rail_casing" fill="none" stroke="#555555" stroke-width="${(12*sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round">${casings}\n    </g>\n    <g id="rail_sleepers" fill="none" stroke="#eeeeee" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="butt" stroke-dasharray="${(30*sf).toFixed(1)} ${(24*sf).toFixed(1)}">${sleepers}\n    </g>\n    <g id="rail_tracks" fill="none" stroke="#333333" stroke-width="${(1.8*sf).toFixed(2)}" stroke-linecap="butt">${rails}\n    </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1153,13 +1171,15 @@ function buildMetroLayer(elements, pr, W) {
       const name=el.tags?.name||el.tags?.ref||key;
       const pid=uid(safeName(name!=='_default'?name:`metro_${el.id||i}`));
       const lbl=escXml(name!=='_default'?name:`Metro (${el.id||i})`);
-      casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>`;
-      fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.82"/>`;
+      // Shared paint attributes live on the casing/fill groups below;
+      // per-path opacity stays put (not inherited — see rail builder).
+      casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" opacity="0.85"/>`;
+      fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.82"/>`;
     });
     if (!fills) return;
     const lid=safeName(key!=='_default'?key:'metro_default');
     const llbl=escXml(key!=='_default'?key:'Metro line');
-    lineGroups+=`\n  <g id="metro_${lid}" inkscape:label="Metro — ${llbl}" inkscape:groupmode="layer">\n    <g id="metro_${lid}_casing">${casings}\n    </g>\n    <g id="metro_${lid}_fill">${fills}\n    </g>\n  </g>`;
+    lineGroups+=`\n  <g id="metro_${lid}" inkscape:label="Metro — ${llbl}" inkscape:groupmode="layer">\n    <g id="metro_${lid}_casing" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="metro_${lid}_fill" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>`;
   });
   return lineGroups?`  <g id="metro" inkscape:label="Metro / subway" inkscape:groupmode="layer">${lineGroups}\n  </g>\n`:'';
 }
@@ -1179,11 +1199,13 @@ function buildTramLayer(elements, pr, W) {
     const name=el.tags?.name||el.tags?.ref||'';
     const pid=uid(name?safeName(name):`tram_${el.id||i}`);
     const lbl=escXml(name||`Tram (${el.id||i})`);
-    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>`;
-    fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
+    // Shared paint attributes live on the casing/fill groups below;
+    // per-path opacity stays put (not inherited — see rail builder).
+    casings+=`\n      <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}" opacity="0.6"/>`;
+    fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.9"/>`;
   });
   if (!casings) return '';
-  return `  <g id="tram" inkscape:label="Tram &amp; light rail" inkscape:groupmode="layer">\n    <g id="tram_casing">${casings}\n    </g>\n    <g id="tram_fill">${fills}\n    </g>\n  </g>\n`;
+  return `  <g id="tram" inkscape:label="Tram &amp; light rail" inkscape:groupmode="layer">\n    <g id="tram_casing" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="tram_fill" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1205,6 +1227,54 @@ const LABEL_STYLES={
 };
 // Uppercase chars are wider than lowercase; include letter-spacing in estimate
 function approxTextWidth(t,fs,ls=0){return t.length*(fs*0.65+ls);}
+
+// ── Illustrator-compatible typography helpers ─────────────────────
+// Arial advance widths in em fractions (from the Arial AFM metrics, 1000
+// units/em). Used ONLY by the Illustrator pipeline, which lays curved street
+// labels out one glyph at a time and therefore needs real per-character
+// advances — the flat approxTextWidth estimate above is fine for fitting
+// decisions but would render "ILL" as wide as "WWW".
+const ARIAL_ADVANCE_WIDTHS = {
+  ' ': 0.278, '!': 0.278, '"': 0.355, "'": 0.191, '’': 0.222, '(': 0.333,
+  ')': 0.333, ',': 0.278, '-': 0.333, '.': 0.278, '/': 0.278, ':': 0.278,
+  ';': 0.278, '&': 0.667, '?': 0.556,
+  '0': 0.556, '1': 0.556, '2': 0.556, '3': 0.556, '4': 0.556, '5': 0.556,
+  '6': 0.556, '7': 0.556, '8': 0.556, '9': 0.556,
+  'A': 0.667, 'B': 0.667, 'C': 0.722, 'D': 0.722, 'E': 0.667, 'F': 0.611,
+  'G': 0.778, 'H': 0.722, 'I': 0.278, 'J': 0.500, 'K': 0.667, 'L': 0.556,
+  'M': 0.833, 'N': 0.722, 'O': 0.778, 'P': 0.667, 'Q': 0.778, 'R': 0.722,
+  'S': 0.667, 'T': 0.611, 'U': 0.722, 'V': 0.667, 'W': 0.944, 'X': 0.667,
+  'Y': 0.667, 'Z': 0.611,
+  'a': 0.556, 'b': 0.556, 'c': 0.500, 'd': 0.556, 'e': 0.556, 'f': 0.278,
+  'g': 0.556, 'h': 0.556, 'i': 0.222, 'j': 0.222, 'k': 0.500, 'l': 0.222,
+  'm': 0.833, 'n': 0.556, 'o': 0.556, 'p': 0.556, 'q': 0.556, 'r': 0.333,
+  's': 0.500, 't': 0.278, 'u': 0.556, 'v': 0.500, 'w': 0.722, 'x': 0.500,
+  'y': 0.500, 'z': 0.500,
+};
+// Advance width of one character in px. Accented characters (É, Ü, ĳ…)
+// fall back to their base letter via Unicode decomposition; anything still
+// unknown uses the same 0.65em average as approxTextWidth.
+function glyphAdvanceWidth(character, fontSize) {
+  let emFraction = ARIAL_ADVANCE_WIDTHS[character];
+  if (emFraction === undefined) {
+    const baseCharacter = character.normalize('NFD')[0];
+    emFraction = ARIAL_ADVANCE_WIDTHS[baseCharacter];
+  }
+  return (emFraction === undefined ? 0.65 : emFraction) * fontSize;
+}
+// Illustrator has no Arial Medium/Semibold: importing font-weight 500/600
+// triggers a missing-style substitution dialog. Browsers already resolve
+// those weights to Arial Regular/Bold, so snapping to 400/700 changes
+// nothing visually — it just names the style Illustrator actually has.
+// (CSS font matching rounds 500 down and 600 up for a 400/700 family.)
+function illustratorFontWeight(fontWeight) {
+  return fontWeight >= 550 ? 700 : 400;
+}
+// Older Illustrator versions read a CSS font-family LIST as one literal
+// font name ("Arial,Helvetica,sans-serif" — not installed), so the
+// Illustrator pipeline names exactly one font.
+const STANDARD_FONT_FAMILY = 'Arial,Helvetica,sans-serif';
+const ILLUSTRATOR_FONT_FAMILY = 'Arial';
 function pathLength(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
 // Real-world length of a lat/lon polyline in metres (zoom-independent), used
 // to decide whether a street is large enough to deserve a label.
@@ -1333,7 +1403,13 @@ function abbreviateName(name){
   return s;
 }
 
-function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
+function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
+  // Illustrator pipeline: identical label PLACEMENT, different EMISSION
+  // (per-glyph point text instead of <textPath>, single font name, snapped
+  // weights). Everything Illustrator-specific below checks this one flag.
+  const illustratorCompatible = !!options.illustratorCompatible;
+  const labelFontFamily = illustratorCompatible ? ILLUSTRATOR_FONT_FAMILY : STANDARD_FONT_FAMILY;
+  const labelFontWeight = weight => illustratorCompatible ? illustratorFontWeight(weight) : weight;
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
   // The export passes one grid shared with feature labels (and pre-stamped
@@ -1439,6 +1515,56 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
   // QuickLook and Illustrator don't, which made labels sit on/above their
   // street in exactly the renderers designers use.
   const CAP_HALF=0.36;
+  // Illustrator emission for curved labels. Illustrator's <textPath> import
+  // is the single worst SVG quirk this exporter deals with: versions before
+  // 23.0.6 place the glyphs along the path but never rotate them, every
+  // version explodes the text into one point-text object per letter anyway,
+  // and percentage startOffset handling is unreliable. So the Illustrator
+  // pipeline does the glyph layout itself (the same idea as Maperitive's
+  // precision-typo mode): one rotated single-character <text> per glyph,
+  // centred on the same reading-oriented offset baseline the standard
+  // pipeline hands to <textPath>. Illustrator opens the group as plain
+  // point-text objects that render identically in every version.
+  const emitCurvedLabelAsGlyphs=(hw,name,attrs,label,baseline,fs)=>{
+    const arcLens=[0];
+    for(let i=1;i<baseline.length;i++)
+      arcLens.push(arcLens[i-1]+Math.hypot(baseline[i][0]-baseline[i-1][0],baseline[i][1]-baseline[i-1][1]));
+    const baselineLength=arcLens[arcLens.length-1];
+    // Tracking matches the letter-spacing every caller bakes into attrs
+    // (uniformly fontSize*0.08); per-glyph layout adds it between advances
+    // instead, so strip the attribute — on one-character texts it would
+    // only trail dead space after each glyph.
+    const letterSpacing=fs*0.08;
+    const attributesWithoutSpacing=attrs.replace(/ ?letter-spacing="[^"]*"/,'');
+    const characters=[...label];
+    const advanceWidths=characters.map(character=>glyphAdvanceWidth(character,fs));
+    const totalTextWidth=advanceWidths.reduce((sum,width)=>sum+width,0)+letterSpacing*(characters.length-1);
+    // Centre the run on the baseline — the equivalent of startOffset="50%".
+    // The baseline sub-path carries ~10% slack around the fitted label width
+    // (subFor uses ±0.55·width), so clamping at the ends is a sub-pixel
+    // safety net, not a layout mechanism.
+    let penArcPosition=(baselineLength-totalTextWidth)/2;
+    const glyphTexts=[];
+    for(let index=0;index<characters.length;index++){
+      const character=characters[index];
+      const advance=advanceWidths[index];
+      const glyphCenterArc=Math.max(0,Math.min(baselineLength,penArcPosition+advance/2));
+      penArcPosition+=advance+letterSpacing;
+      if(character===' ') continue; // nothing to draw, advance already taken
+      const [x,y]=pointAtArcLen(baseline,arcLens,glyphCenterArc);
+      // Local tangent over the glyph's own extent. Raw atan2 angle, NOT
+      // normalised into ±90° like pointAngleAtLength does for whole labels:
+      // the baseline is already reading-oriented, so the tangent direction
+      // IS the glyph rotation (momentarily past vertical on a wiggle is
+      // correct, flipping it there would turn one letter upside down).
+      const behind=pointAtArcLen(baseline,arcLens,Math.max(0,glyphCenterArc-advance/2));
+      const ahead=pointAtArcLen(baseline,arcLens,Math.min(baselineLength,glyphCenterArc+advance/2));
+      const angle=Math.atan2(ahead[1]-behind[1],ahead[0]-behind[0])*180/Math.PI;
+      glyphTexts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" transform="rotate(${angle.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})">${escXml(character)}</text>`);
+    }
+    // Font attributes, anchor and fill inherit from the group to every glyph.
+    texts.push({hw,name,svg:`<g id="lbl_${safeName(name)}_${pid++}" ${attributesWithoutSpacing} text-anchor="middle" fill="${preset.labelColor}">${glyphTexts.join('')}</g>`});
+  };
   // Emit one path-following label centred on its own oriented sub-path (the
   // sub-path itself is shifted perpendicular by capHeight/2). Used only for
   // genuinely curved stretches: Illustrator imports <textPath> as one
@@ -1452,7 +1578,8 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
     // reverse + re-offset, so the glyph side flips along with the direction.
     const oa=off[0],ob=off[off.length-1];
     if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
-    const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath xlink:href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
+    if (illustratorCompatible) { emitCurvedLabelAsGlyphs(hw,name,attrs,label,off,fs); return; }
+    const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
   // one object per letter). (cx,cy) is the centroid of the span's fitted
@@ -1538,7 +1665,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
       // Single-placement site: must be entirely on the canvas or not at all.
       if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
       fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
-      const attrs=`font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
+      const attrs=`font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${labelFontWeight(style.weight)}" letter-spacing="${ls.toFixed(1)}"`;
       texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
     }
@@ -1561,7 +1688,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
       if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
       let pathPts=[...pts];
       const arcLens=[0]; for(let i=1;i<pathPts.length;i++) arcLens.push(arcLens[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
-      const attrsFor=(fs,ls)=>`font-family="Arial,Helvetica,sans-serif" font-size="${fs.toFixed(1)}" font-weight="${style.weight}" letter-spacing="${ls.toFixed(1)}"`;
+      const attrsFor=(fs,ls)=>`font-family="${labelFontFamily}" font-size="${fs.toFixed(1)}" font-weight="${labelFontWeight(style.weight)}" letter-spacing="${ls.toFixed(1)}"`;
       const subFor=(c,lw)=>subPath(pathPts,arcLens,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
 
       // Roundabout: name follows the ring curve (centre it if the ring is too small).
@@ -1677,13 +1804,21 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid) {
     const lbl=TYPE_LABELS[hw]||hw;
     labelGroups+=`\n    <g id="labels_${hw}" inkscape:label="${escXml(lbl)}">${arr.map(t=>t.svg).join('')}</g>`;
   }
-  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    <defs>${defs.join('')}</defs>${labelGroups}\n  </g>\n`;
+  // The <defs> hold the curved labels' baseline paths — only the standard
+  // pipeline has any (the Illustrator pipeline bakes glyph positions and
+  // needs no baselines; Illustrator also dislikes <defs> nested this deep).
+  const defsBlock=defs.length?`<defs>${defs.join('')}</defs>`:'';
+  return `  <g id="street_labels" inkscape:label="Street labels" inkscape:groupmode="layer">\n    ${defsBlock}${labelGroups}\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
 //  FEATURE LABELS — water bodies, parks, neighbourhoods
 // ════════════════════════════════════════════════════════════════
-function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid) {
+function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
+  // Same flag as buildLabelsLayer: identical placement, Illustrator-safe
+  // emission (two-element halo, single font name, snapped weights).
+  const illustratorCompatible = !!options.illustratorCompatible;
+  const labelFontFamily = illustratorCompatible ? ILLUSTRATOR_FONT_FAMILY : STANDARD_FONT_FAMILY;
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
   // Same ribbon-of-circles footprint model and (in a real export) the same
@@ -1736,8 +1871,22 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid) {
     // below the middle) instead of dominant-baseline, which QuickLook and
     // Illustrator ignore — same treatment as street labels.
     const by=(cy+sz*0.35).toFixed(1);
-    labels+=`<text id="${fid}_halo" inkscape:label="${eName} (halo)" x="${cx.toFixed(1)}" y="${by}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none" paint-order="stroke">${eName}</text>`;
-    labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="Arial,Helvetica,sans-serif" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" fill="${color}" opacity="0.9">${eName}</text>`;
+    if (illustratorCompatible) {
+      // Illustrator doesn't know paint-order (SVG 2), so the halo is its own
+      // stroke-only <text> painted under the fill copy — same two-element
+      // technique this exporter always used, just without the (ignored
+      // there, risky elsewhere) paint-order attribute.
+      const illustratorWeight=illustratorFontWeight(weight);
+      labels+=`<text id="${fid}_halo" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr} text-anchor="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none">${eName}</text>`;
+      labels+=`<text id="${fid}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr} text-anchor="middle" fill="${color}" opacity="0.9">${eName}</text>`;
+    } else {
+      // Standards pipeline: one element does halo + fill via
+      // paint-order="stroke" (stroke first, fill on top). fill-opacity
+      // keeps the 0.9 ink transparency of the old fill copy while the halo
+      // stroke stays fully opaque — identical compositing to the historical
+      // two-element form, at half the element count.
+      labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" fill="${color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
+    }
   });
 
   if (!labels) return '';
@@ -1745,11 +1894,14 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  SIMPLIFICATION EPSILON from slider
+//  SIMPLIFICATION EPSILON
+//  Douglas-Peucker base tolerance in px. Fixed at what used to be the
+//  default position of the removed "Simplify" slider — the other slider
+//  values were never a real trade-off worth a UI control.
 // ════════════════════════════════════════════════════════════════
+const SIMPLIFY_EPSILON = 0.6;
 function getEps() {
-  const v=parseInt(document.getElementById('simplify-slider')?.value||2);
-  return [0.3,0.6,1.0,1.6,2.4][v-1];
+  return SIMPLIFY_EPSILON;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2099,8 +2251,8 @@ function renderLayerSVG({ layer, data }, ctx) {
   }
   if (layer.type==='metro')          return buildMetroLayer(elements,pr,W);
   if (layer.type==='tram')           return buildTramLayer(elements,pr,W);
-  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid);
-  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid);
+  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
+  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
 
   const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
   const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
@@ -2168,13 +2320,19 @@ function renderLayerSVG({ layer, data }, ctx) {
 // is irrelevant — the shared grid guarantees they never overlap.
 const LAYER_ORDER = ['water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
 
-function buildSVGContext(b, W, precomputedBlocks) {
+function buildSVGContext(b, W, precomputedBlocks, options = {}) {
   const { pr, H } = makeProjector(b, W);
   return {
     b, pr, W, H,
     preset: PRESETS[activePreset],
     EPS: { area_large: getEps()*1.4, area: getEps()*0.9, line: getEps()*0.6 },
     precomputedBlocks: precomputedBlocks || null,
+    // Illustrator pipeline switch: same layer builders, Illustrator-safe
+    // emission (see wrapSVGIllustrator for the full quirk list).
+    illustratorCompatible: !!options.illustratorCompatible,
+    // clipPath definitions that must live in the document-root <defs> in
+    // Illustrator mode (it mishandles clipPaths declared inline in a <g>).
+    illustratorDefs: [],
     // Park/water outline d-strings, filled by the parks and water_bodies
     // renders (they paint before roads, see LAYER_ORDER). The roads layer
     // turns them into the clipPath that overprints path dashes in white.
@@ -2185,6 +2343,10 @@ function buildSVGContext(b, W, precomputedBlocks) {
   };
 }
 
+// Standards-based wrapper: Inkscape, web browsers, QuickLook, and any other
+// conforming SVG renderer. Carries Inkscape layer metadata and Dublin Core
+// attribution. (No xmlns:xlink — textPath references use the SVG 2 plain
+// `href`, which every consumer of this profile understands.)
 function wrapSVG(layersSVG, ctx, physicalWidthMm) {
   const { b, W, H, preset } = ctx;
   const date = new Date().toISOString().slice(0, 10);
@@ -2193,7 +2355,6 @@ function wrapSVG(layersSVG, ctx, physicalWidthMm) {
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
      xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:cc="http://creativecommons.org/ns#"
-     xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
      width="${W}"
      height="${H}"
@@ -2213,6 +2374,66 @@ ${layersSVG}  </g>
 </svg>`;
 }
 
+// ── Illustrator-compatible wrapper ────────────────────────────────
+// Adobe Illustrator's SVG import is a partial, buggy SVG 1.1 parser, so —
+// like Maperitive's compatibility=illustrator mode — this wrapper (together
+// with the illustratorCompatible flag in the layer builders) keeps the file
+// inside the subset Illustrator actually understands:
+//
+//  1. No <textPath>: pre-23.0.6 doesn't rotate glyphs, every version
+//     explodes the text into per-letter point text, and percentage
+//     startOffset is unreliable → curved street labels are emitted glyph by
+//     glyph (emitCurvedLabelAsGlyphs), so no xmlns:xlink either.
+//  2. No paint-order (SVG 2, ignored by Illustrator) → feature-label halos
+//     are two stacked <text> elements.
+//  3. No inkscape:*/RDF metadata (parser risk, no value) → stripped below;
+//     attribution moves into an XML comment. Illustrator names layers and
+//     objects from id="" attributes, which everything already carries.
+//  4. clipPaths only at the document root <defs> (declared inline in a <g>
+//     they are unreliable) → collected via context.illustratorDefs.
+//  5. Single font name (a comma list is read as one literal name by older
+//     versions) and only real Arial styles: weights 500/600 snap to 400/700
+//     (see illustratorFontWeight).
+//  6. Artboard limit: Illustrator opens SVG at 1px = 1pt and its canvas
+//     maxes out at 16383pt (~227in) — doExport warns beyond that.
+//
+// Everything else deliberately stays plain SVG 1.1 in BOTH pipelines: hex
+// colors only (no rgba()/hsl()), presentation attributes (no <style>/CSS
+// classes), fixed-decimal coordinates (no scientific notation), baselines
+// baked into geometry (no dominant-baseline).
+const ILLUSTRATOR_ARTBOARD_LIMIT_PX = 16383;
+function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
+  const { b, W, H, preset } = ctx;
+  const date = new Date().toISOString().slice(0, 10);
+  // The layer builders were written for the Inkscape profile; rather than
+  // thread the flag through every emitter just to omit editor metadata,
+  // strip the inkscape:* attributes here. Safe on our own markup: attribute
+  // values are XML-escaped, so no stray quotes can end one early.
+  const layersWithoutInkscapeAttributes = layersSVG.replace(/ inkscape:[\w-]+="[^"]*"/g, '');
+  const rootDefs = ctx.illustratorDefs.length ? `\n    ${ctx.illustratorDefs.join('\n    ')}` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!-- Illustrator-compatible export (Adobe SVG import profile — expect this
+     file to be suboptimal in standards-based viewers; use the
+     "SVG (Inkscape / others)" export for those).
+     Map Export — ${date} | © OpenStreetMap contributors (ODbL)
+     Bbox: ${b.south.toFixed(5)},${b.west.toFixed(5)},${b.north.toFixed(5)},${b.east.toFixed(5)} | Style: ${activePreset}${physicalWidthMm ? ` | Print size: ${physicalWidthMm}mm × ${(physicalWidthMm*H/W).toFixed(1)}mm @ 300dpi` : ''} -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${W}"
+     height="${H}"
+     viewBox="0 0 ${W} ${H}">
+  <defs>
+    <clipPath id="map-clip">
+      <rect x="0" y="0" width="${W}" height="${H}"/>
+    </clipPath>${rootDefs}
+  </defs>
+  <g id="background">
+    <rect width="${W}" height="${H}" fill="${preset.bg}"/>
+  </g>
+  <g id="map-content" clip-path="url(#map-clip)">
+${layersWithoutInkscapeAttributes}  </g>
+</svg>`;
+}
+
 function sortedResults(results) {
   // indexOf -1 (unknown id) must sort LAST — the old `|| 999` fallback only
   // caught index 0 and let unknown layers sort first, under everything.
@@ -2220,11 +2441,13 @@ function sortedResults(results) {
   return [...results].sort((a,z) => ord(a.layer.id) - ord(z.layer.id));
 }
 
-function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null) {
-  const ctx = buildSVGContext(b, W, precomputedBlocks);
+function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null, options={}) {
+  const ctx = buildSVGContext(b, W, precomputedBlocks, options);
   let layersSVG = '';
   for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);
-  return wrapSVG(layersSVG, ctx, physicalWidthMm);
+  return ctx.illustratorCompatible
+    ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
+    : wrapSVG(layersSVG, ctx, physicalWidthMm);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2266,11 +2489,15 @@ async function doExport() {
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
   const W=getExportWidth();
   const physicalWidthMm=PRINT_PHYSICAL_MM[document.getElementById('print-size').value]||null;
+  // Which serialization pipeline: Illustrator-compatible (default — most
+  // USE-IT designers work in Illustrator) or standards-based SVG. See
+  // wrapSVGIllustrator for what the Illustrator profile changes and why.
+  const illustratorCompatible=document.getElementById('format-select')?.value!=='svg-standard';
   const bboxStr=`${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
   // YYYY-MM-DD-HHMMSS (local time) so multiple exports on the same day don't collide.
   const d=new Date(),p2=n=>String(n).padStart(2,'0');
   const stamp=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-  const filename=`map-${activePreset}-${stamp}.svg`;
+  const filename=`map-${activePreset}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
 
   document.getElementById('btn-export').disabled=true;
   clearFailedTileOverlays();
@@ -2290,7 +2517,14 @@ async function doExport() {
     { id: 'finalize',       label: 'Finalize' },
   ];
   progress.begin(stages);
-  progress.log(`Export: ${selected.length} layer${selected.length>1?'s':''}, ${W}px wide, style “${activePreset}”`);
+  progress.log(`Export: ${selected.length} layer${selected.length>1?'s':''}, ${W}px wide, style “${activePreset}”, format ${illustratorCompatible?'SVG (Illustrator)':'SVG (Inkscape / others)'}`);
+  // Illustrator opens SVG at 1px = 1pt and its artboard maxes out at
+  // 16383pt (~227 inches) — anything past that gets clipped on open.
+  if (illustratorCompatible) {
+    const projectedHeight = makeProjector(bbox, W).H;
+    if (Math.max(W, projectedHeight) > ILLUSTRATOR_ARTBOARD_LIMIT_PX)
+      progress.log(`⚠ Canvas ${W}×${projectedHeight}px exceeds Illustrator's ${ILLUSTRATOR_ARTBOARD_LIMIT_PX}pt artboard limit — Illustrator will clip it. Use a smaller custom width.`);
+  }
 
   // Stage 1 — plan tiles
   progress.setStage('plan_tiles', 'active');
@@ -2470,7 +2704,7 @@ async function doExport() {
 
   // Stage — render SVG, per-layer
   progress.setStage('render_svg', 'active', { detail: 'Preparing…' });
-  const ctx = buildSVGContext(bbox, W, precomputedBlocks);
+  const ctx = buildSVGContext(bbox, W, precomputedBlocks, { illustratorCompatible });
   const ordered = sortedResults(results);
   let layersSVG = '';
   const renderStart = needsBlocks ? 90 : 70;
@@ -2492,7 +2726,9 @@ async function doExport() {
   // Stage 5 — finalize
   progress.setStage('finalize', 'active', { detail: 'Wrapping SVG…' });
   await new Promise(r=>setTimeout(r,0));
-  const svg = wrapSVG(layersSVG, ctx, physicalWidthMm);
+  const svg = illustratorCompatible
+    ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
+    : wrapSVG(layersSVG, ctx, physicalWidthMm);
   const actualMB=(svg.length/1024/1024).toFixed(1);
   lastSvgString=svg; lastSvgFilename=filename;
   progress.setStage('finalize', 'done', { meta: `${actualMB} MB`, detail: '' });
@@ -2810,12 +3046,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('print-size').addEventListener('change', e=>{
     document.getElementById('custom-width-row').style.display=e.target.value==='custom'?'flex':'none';
   });
-
-  // Simplify slider
-  const slider=document.getElementById('simplify-slider');
-  const sliderLabels=['Fine','Balanced','Medium','Rough','Coarse'];
-  slider.addEventListener('input',()=>{ document.getElementById('simplify-val').textContent=sliderLabels[slider.value-1]; });
-  document.getElementById('simplify-val').textContent=sliderLabels[slider.value-1];
 
   // Search
   document.getElementById('btn-search').addEventListener('click',()=>searchCity(document.getElementById('search-input').value));
