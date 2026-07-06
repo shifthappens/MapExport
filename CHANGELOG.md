@@ -11,6 +11,18 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-06 — Minified assets no longer committed; no local build step
+- `script.min.js` / `style.min.css` are now gitignored build artifacts instead
+  of tracked files — they're never committed. `index.html` loads `script.js` /
+  `style.css` directly, so day-to-day development needs no build/minify step
+  at all.
+- The minifier (`tools/minify.sh`) now only runs on demand: `tests/real-export.mjs`
+  builds `script.min.js` fresh before testing the shipped code path, and
+  `deploy.sh` builds both minified files and a rewritten production
+  `index.html` (pointing at them) right before syncing to the live server.
+- The pre-commit hook no longer regenerates minified assets on every commit —
+  it only enforces the changelog rule now.
+
 ### 2026-07-06 — Illustrator-compatible export pipeline
 - **New format choice in Export options** (like Maperitive's
   `compatibility=illustrator`): **SVG (Illustrator)** — now the default, since
