@@ -11,6 +11,32 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-06 — Illustrator-compatible export pipeline
+- **New format choice in Export options** (like Maperitive's
+  `compatibility=illustrator`): **SVG (Illustrator)** — now the default, since
+  most USE-IT designers work in Illustrator — and **SVG (Inkscape / others)**
+  for standards-based tools. Illustrator's SVG import is buggy enough that one
+  file cannot be optimal in both worlds.
+- **The Illustrator variant** (filename suffix `-illustrator`) stays inside the
+  SVG subset Illustrator actually parses: curved street names are laid out
+  glyph by glyph with real Arial metrics (its `<textPath>` import doesn't
+  rotate glyphs before v23.0.6 and explodes text into per-letter objects in
+  every version), halos are stacked text copies instead of `paint-order`,
+  clipPaths move to the document root, one font name instead of a CSS list,
+  font weights snap to real Arial styles (400/700), and all Inkscape/RDF
+  editor metadata is stripped. A warning appears when the canvas exceeds
+  Illustrator's 16383pt artboard limit.
+- **The standard variant modernised** (rendering unchanged): feature-label
+  halos are now a single `paint-order="stroke"` text element, `textPath` uses
+  plain `href` (no xlink namespace), and shared stroke styling moved from
+  every road/rail/tram/metro path onto its class group — smaller files, same
+  picture.
+- **The Simplify slider is gone**: exports always use the former default
+  (position 2, 0.6px tolerance). The other positions were never a real
+  trade-off worth a control.
+- `tests/real-export.mjs --illustrator` writes the Illustrator variant next to
+  the standard trail, with its own profile assertions.
+
 ### 2026-07-06 — Footways, cycleways, paths and steps become dashed trails
 - **Small path classes no longer masquerade as streets**: footway, cycleway,
   path and steps now render as a single dashed stroke in the casing colour —

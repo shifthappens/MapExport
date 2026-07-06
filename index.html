@@ -71,7 +71,8 @@
       <div class="panel" id="format-wrap">
         <div class="panel-label"><span class="step-num">3</span>Export options <button class="help-btn" data-help="step4">?</button></div>
         <select id="format-select">
-          <option value="svg">SVG — Illustrator / Inkscape</option>
+          <option value="svg-illustrator" selected>SVG (Illustrator)</option>
+          <option value="svg-standard">SVG (Inkscape / others)</option>
         </select>
         <div class="opts-row">
           <label>Print size</label>
@@ -86,11 +87,6 @@
         <div class="opts-row" id="custom-width-row" style="display:none">
           <label>Width (px)</label>
           <input type="number" id="svg-width" value="3508" min="500" max="20000" step="100">
-        </div>
-        <div class="opts-row">
-          <label>Simplify</label>
-          <input type="range" id="simplify-slider" min="1" max="5" step="1" value="2">
-          <span class="range-val" id="simplify-val">2</span>
         </div>
         <div class="opts-row">
           <label>Street name labels</label>
