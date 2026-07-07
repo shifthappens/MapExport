@@ -1,8 +1,9 @@
-# Fix: river islands in Erfurt export render blank instead of green
+# Fix: river islands render blank — island-aware green cover + hole-aware city blocks
 
-**Status: READY TO IMPLEMENT (2026-07-07)** — investigation complete, not
-yet implemented. Archived for a later session; not acted on further in this
-one.
+**Status: READY TO IMPLEMENT (2026-07-07, rev 2)** — this revision supersedes
+the first version of this plan after a verification session refuted half of
+its root-cause analysis and showed its fix B would not repair the visible
+problem. The corrected analysis and the new approach are below.
 
 ## Archive contents
 
@@ -12,176 +13,219 @@ Alongside this file, in
 - `export.svg` — the reproduction export
   (originally `~/Downloads/map-useit-erfurt-2026-07-07-201029-illustrator.svg`)
   showing the blank islands.
+- `Screenshot 2026-07-07 at 20.22.37.png` — export crop (blank white islands).
+- `Screenshot 2026-07-07 at 20.25.16.png` — OSM reference tile (islands green).
 - `cache/` — the full set of cached Overpass tiles for this Erfurt bbox
   (`50.97313_11.01929_50.9821_11.03748`): `water_bodies`, `waterways`,
-  `parks`, `roads`, `rail`, `street_labels`, `water_labels`. `cache/` at the
-  repo root is gitignored, so these wouldn't otherwise survive — copied here
-  so a future session can re-run the export fully offline (no live Overpass
-  hit) and verify the fix.
-- **Screenshots** (export overview, export zoomed crop, OSM reference tile)
-  pasted into the original chat were not reachable as files on disk from
-  that session, so they could not be archived automatically. If they matter
-  for implementation, re-attach them or drop them into this folder manually
-  (e.g. `plans/2026-07-07_erfurt-river-islands-not-rendering/screenshots/`).
+  `parks`, `roads`, `rail`, `street_labels`, `water_labels`. Copied here so a
+  future session can re-run the export offline. **Note:** the `parks` tile
+  becomes stale once this plan's query change lands (new `layerQHash`) — the
+  parks layer alone will refetch live on the verification run; all other
+  tiles stay valid.
 
-## Cleanup (once implementation A+B above is done and verified)
+## What rev 1 got wrong (verified 2026-07-07, second session)
 
-This archive folder exists only to make the fix reproducible offline. Once
-the fix has landed and been verified against these same tiles, delete:
+Rev 1 claimed two stacked causes. Re-verification against the archived tiles,
+the exported SVG (also re-rasterized), and live Overpass found:
 
-- `plans/2026-07-07_erfurt-river-islands-not-rendering/export.svg`
-- `plans/2026-07-07_erfurt-river-islands-not-rendering/cache/` (all 7 tiles)
-- `plans/2026-07-07_erfurt-river-islands-not-rendering/screenshots/` (if
-  added)
-- This plan file itself, or flip its `Status:` line to
-  `IMPLEMENTED <date>` per the convention in the other `plans/*.md` files —
-  don't leave it as `READY TO IMPLEMENT` once it's done.
+1. **"Waterways stroke paints over the island holes" — refuted.** Rev 1's
+   evidence was a point-in-**bbox** check; the island rings are elongated and
+   concave (they hug the river bend), so their bboxes are mostly river
+   channel. A real point-in-polygon + segment-intersection test of all 10
+   cached waterway ways against all 5 stitched island rings gives **zero
+   vertices inside and zero boundary crossings**. The claim was also
+   internally inconsistent: the stroke is water-coloured (`#A4DBF3`), so
+   painting over a hole would render *blue*, not the observed white — the
+   white is simply the canvas background `<rect fill="#ffffff">` showing
+   through the correctly punched hole. Rev 1's "fix A" (clip waterway strokes
+   out of island holes) is dropped: it is a no-op here and would erase
+   legitimate small streams/drains that genuinely cross an island (a hole is
+   land, and a stream on that land should render).
 
-## Context
+2. **"The islands are unnamed `landuse=forest`/`natural=wood`" — wrong for
+   the island that matters.** Live Overpass, tested per stitched inner ring
+   of water relation 71472:
+   - **Big island** (Schildchensmühle/Dämmchen — the prominent blank in the
+     screenshots): cover is 2× unnamed `leisure=park` (645645134, 928856738),
+     4× unnamed `leisure=garden`, 2× `landuse=grass`, 1× `natural=wetland` —
+     and one ~40 m `natural=wood` scrap (1007584168) at the NW tip. Rev 1's
+     fix B (drop the name gate for forest/wood only) would green only that
+     scrap; the island stays blank.
+   - **Small island S of Krämerbrücke**: the ring way itself is unnamed
+     `natural=wood` (30600335) — the only island rev 1's fix B fixed.
+   - **Tiny north islet**: ring way is `natural=wetland` (14809212).
+   - **Northern islands** (mostly above the canvas): covered by the *named*
+     park "Venedig" (relation 7374285), which already renders today.
 
-In an Erfurt test export, the small islands in the Gera (Breitstrom) render
-as plain background instead of the vegetated park/forest look they have on
-OSM. The user attached three screenshots (export overview, export zoomed-in,
-and the OSM reference tile) plus the exported SVG
-(`~/Downloads/map-useit-erfurt-2026-07-07-201029-illustrator.svg`) and asked
-to investigate using the local Overpass cache in `cache/` (gitignored,
-already populated for this Erfurt bbox) instead of hitting the live API.
+3. **A third, unaddressed cause: city blocks can never exist on an island.**
+   The block worker's water filter (`script.js:2186-2193`) tests the block
+   centroid against every water ring independently, holes included — a
+   candidate block on an island is inside the *outer* ring, so it is always
+   discarded as "in water". And in the void union (`script.js:2112-2118`,
+   `pftNonZero`) inner rings only survive as holes by accident of winding
+   order. Net effect: whatever green cover doesn't explain stays **white**
+   (raw background), not even cream — the built-up south half of the big
+   island (buildings along Kreuzsand on OSM) has no correct rendering at all
+   under rev 1.
 
-Investigation (cache inspection + a Python re-implementation of the app's
-ring-stitching algorithm + point-in-polygon checks against the exported SVG)
-found **two independent, stacked causes** — fixing only one leaves the
-islands still wrong:
+## Design principle (agreed with the user, 2026-07-07)
 
-1. **A `waterways` stroke paints over the correctly-punched water hole.**
-   The Gera is mapped as multipolygon relation 71472 ("Breiter Strom") with
-   6 outer + 8 inner members. Verified directly against the cached Overpass
-   response: every inner member *does* carry full embedded `geometry`
-   (Overpass's `out geom` resolves relation members automatically), and
-   running the app's own `stitchMultipolygonRings` (`script.js:916-951`)
-   algorithm against that data in Python produces 5 correctly **closed**
-   island rings. The `water_bodies` layer's combined `d` (built at
-   `script.js:2437-2441`, painted via `fill-rule="evenodd"` at
-   `script.js:2451`) genuinely does cut the holes — confirmed by matching
-   subpath shapes in the actual exported SVG.
+The name gate is a *stylistic* city-wide rule and stays: unnamed green
+scraps in the general cityscape must not render (this is a stylised USE-IT
+map, not an ordnance survey). But an **island — a hole in a water
+multipolygon — is different**: if nothing renders there it reads as an
+error, so inside islands the map must show the truth, with no guesswork:
 
-   The problem is layer order. `LAYER_ORDER` (`script.js:2468`) paints
-   `waterways` immediately after `water_bodies`. The `waterways` layer draws
-   the river's centerline (`way["waterway"~"river|canal|stream|drain"]`,
-   `script.js:161-163`) as a flat **12px-wide stroke**, same water colour,
-   with no awareness of the area layer's holes. I confirmed with a
-   point-in-bbox check that the Breitstrom centerline ways (415219501,
-   415219502) run directly through the island bounding boxes (13, 12, 7, 9
-   points respectively land inside two of the islands — OSM mapped one rough
-   centerline through the general corridor, not routed around each islet).
-   That thick stroke repaints solid water colour right over the
-   correctly-cut hole, which is exactly the white/blank patches in the
-   screenshots.
+- what is actually vegetated (per OSM tags) → park-green fill;
+- everything else → a normal cream city block, like any other land.
 
-2. **Even once (1) is fixed, the island would just show plain background**,
-   because nothing renders a fill *for* the island — it would read as an
-   accidental gap/city-block colour, not the park/forest look the user wants
-   (their point: "het moet geen city block worden, want dat is het meestal
-   niet"). The `parks` layer already queries `landuse=forest` and
-   `natural=wood` (`script.js:165`) — the tags that plausibly cover these
-   islands — but both the Overpass query and the client `tagFilter`
-   (`script.js:166`) hard-require `["name"]`, and the render branch itself
-   drops any unnamed element (`script.js:2412-2413`,
-   `if (!name) return;`). Small river islets are essentially always unnamed,
-   so they're filtered out at three separate points before ever reaching a
-   `<path>`.
+The island interior is a precise, data-derived exception zone: the stitched
+inner rings of `water_bodies` multipolygons. This generalizes beyond Erfurt
+to any river/lake island in any export (Strasbourg, Berlin Museumsinsel,
+Paris, …) and adds zero heuristics.
 
 ## Plan
 
-### A. Stop `waterways` strokes from painting over `water_bodies` island holes
+### A. Fetch unnamed green-cover candidates (parks layer query + tagFilter)
 
-- In `buildSVGContext` (`script.js:2470-2489`), add a new accumulator next to
-  the existing `areaClipDs: []`: `waterIslandHoles: []`.
-- In the generic area-rendering loop in `renderLayerSVG`
-  (`script.js:2438-2441`, the `el.type==='relation'` branch that already
-  calls `stitchMultipolygonRings`), when `layer.id==='water_bodies'`, also
-  push each `inner` ring's path `d` (via the same `geomToPathD` call already
-  used for `allD`) onto `ctx.waterIslandHoles`. `water_bodies` always
-  renders before `waterways` per `LAYER_ORDER`, and `ctx` is a single object
-  threaded through every `renderLayerSVG` call in `buildSVG`
-  (`script.js:2592-2599`), so the holes are guaranteed to be populated by
-  the time `waterways` renders.
-- In the line-rendering branch (`script.js:2452-2455`), when
-  `layer.id==='waterways'` and `ctx.waterIslandHoles.length`, wrap the
-  emitted stroke `<path>` in a `<g clip-path="...">` whose clipPath is one
-  combined path: a full-canvas rect (`M0,0H${W}V${H}H0Z`, using `W`/`H`
-  already in scope at `script.js:2363`) followed by each island hole ring,
-  all under `clip-rule="evenodd"` — the standard "cut these holes out of an
-  otherwise-full clip region" trick. This is the same clipPath idiom already
-  used for `greenblue_clip` in `buildRoadsLayer` (`script.js:1163-1172`),
-  including the existing `ctx.illustratorCompatible` /
-  `ctx.illustratorDefs` branching so the clipPath still lands in the
-  document root for the Illustrator export flavour. Scope this to
-  `layer.id==='waterways'` only — no other line layer (rail/tram/roads)
-  needs it.
+Define one curated constant near `LAYER_REGISTRY`:
 
-This only affects rendering where a waterway centerline happens to cross an
-island hole; waterway strokes with no accompanying area polygon elsewhere in
-an export are untouched.
+```js
+// Land-cover tags allowed to render UNNAMED, but only inside water-body
+// island holes (see pruneIslandGreens). Everything else keeps the name gate.
+const ISLAND_GREEN = {
+  leisure: ['park','garden'],
+  landuse: ['grass','village_green','meadow','forest'],
+  natural: ['wood','scrub','wetland','heath'],
+};
+```
 
-### B. Let unnamed forest/wood cover render with the park fill
+- `overpassQuery` (`script.js:164`): keep the named-only clauses for
+  `leisure=nature_reserve` and `leisure=recreation_ground`; replace the
+  named `park`/`forest`/`wood` clauses with **un-name-gated** clauses for
+  the full `ISLAND_GREEN` set (the unnamed clause is a superset of the named
+  one, so nothing is lost). Payload stays modest at USE-IT export scales —
+  the whole Erfurt test bbox has only ~166 landuse/natural/leisure elements.
+- `tagFilter` (`script.js:165`): accept an element if it **passes the
+  existing named gate** (unchanged logic: name present, ≥4 chars, junk-name
+  regex, category park/nature_reserve/recreation_ground/forest/wood) **or**
+  matches `ISLAND_GREEN` (name irrelevant). The second group are only
+  *candidates* — they get spatially pruned in step B, so nothing unnamed
+  leaks into the general cityscape.
+- Cache: `layerQHash` (`script.js:491`) hashes the query, so the parks cache
+  self-invalidates; no manual busting. Note the tile cache stores
+  **post-tagFilter** elements (`script.js:2776-2782`), which is why the
+  pruning in step B must NOT happen in `tagFilter` (it needs water-layer
+  context that doesn't exist per-element at fetch time) and must run on the
+  assembled results instead.
 
-Reuse the existing `parks` layer/pipeline rather than inventing a new
-category — it already targets `landuse=forest` and `natural=wood` with the
-right green fill (`preset.park`) and already handles multipolygon holes via
-`stitchMultipolygonRings`. Only the "must have a name" gate needs to relax,
-and only for those two land-cover tags (leave `leisure=park` /
-`nature_reserve` / `recreation_ground` name-gated as-is — those are genuine
-named amenities):
+### B. Spatial prune at the single results choke point
 
-- `overpassQuery` (`script.js:165`): drop `["name"]` from the
-  `landuse=forest` and `natural=wood` clauses only.
-- `tagFilter` (`script.js:166`): restructure so `landuse==='forest'` /
-  `natural==='wood'` elements pass without a name, while the `leisure=*`
-  clauses keep the existing name/junk-name checks.
-- Render branch (`script.js:2411-2424`): the `if (!name) return;` guard
-  needs to only apply when there *is* no fallback — for unnamed
-  forest/wood elements, generate a stable id from the OSM id (e.g.
-  `wood_${el.id}`) instead of `safeName(name)`, and skip the
-  `inkscape:label` attribute (or default it to `"Wood"`/`"Forest"`) instead
-  of bailing out. The path-building logic itself (way vs. relation/
-  `stitchMultipolygonRings`, `ctx.areaClipDs` push) is unchanged and already
-  generic enough to reuse as-is.
+Add `pruneIslandGreens(results)` and call it right after the export's
+results assembly (`script.js:2801-2804`), before `lastResults = results`
+(2818) — so the block worker, the SVG render, and any layer-toggle re-render
+(which reads `lastResults`) all see the same pruned data automatically:
 
-Because `layerQHash` (`script.js:498-501`) hashes `overpassQuery.toString()`
-into the cache key, this query edit automatically invalidates the stale
-`parks` cache entries — no manual cache-busting needed, next export just
-refetches.
+- Build the island rings once: for every `water_bodies` element of type
+  relation, run `stitchMultipolygonRings(el.members)` and keep the closed
+  `inner` rings (lat/lon space; no projection needed).
+- For every parks element that does **not** pass the named gate (i.e. it's
+  only in the data as an `ISLAND_GREEN` candidate): keep it only if its
+  centroid lies inside one of the island rings (plain ray-cast
+  point-in-polygon). Otherwise drop it from `results`.
+- If `water_bodies` is not among the selected layers there are no rings and
+  all unnamed candidates drop — fail-safe, identical to today's behaviour.
 
-Confirmed scope with the user: the dropped name requirement applies **only**
-to `natural=wood` and `landuse=forest` — every other tag in this query
-(`leisure=park`, `leisure=nature_reserve`, `leisure=recreation_ground`) stays
-name-gated exactly as today, so odd scraps of `landuse=grass`/gardens/etc.
-in cities don't start turning green. This will also surface unnamed
-forest/wood patches elsewhere in an export bbox (not just river islands) —
-that's accepted as the intended generalization, not scope creep.
+### C. Render unnamed island greens (parks render branch)
+
+In the parks branch of `renderLayerSVG` (`script.js:2400-2421`) turn
+`if (!name) return;` (2406) into a branch: unnamed elements (guaranteed
+island greens after step B) render with the same `preset.park` fill,
+`fill-rule="evenodd"`, and the same `ctx.areaClipDs.push(d)` — id
+`green_${tag}_${el.id}` (e.g. `green_wood_30600335`), `inkscape:label` from
+the matched tag value capitalized ("Wood", "Park", "Garden", …). The
+`areaClipDs` push matters: it's what gives footpaths crossing the island
+(Dämmchen) the `_on_green` dash styling for free.
+
+### D. Hole-aware city blocks, so the rest of the island becomes a block
+
+Two coordinated changes in the block pipeline
+(`computeBlocksAsync` packing at `script.js:2277-2295` + the worker):
+
+- **Packing:** instead of flattening every stitched ring into the flat
+  `areas`/`waterPolys` lists, keep rings grouped per source element with
+  their role: `{ outers: [...], inners: [...] }` (ways: one outer, no
+  inners).
+- **Void union:** before `AddPath`, normalize winding — outers to positive
+  orientation, inners to negative (`ClipperLib.Clipper.Orientation` +
+  reverse). The existing `pftNonZero` union then *deterministically* keeps
+  island holes open in `voidClean` (today it depends on OSM's arbitrary ring
+  winding), so the `bbox − void` difference (2141-2145) yields a face for
+  each island. This also fixes courtyard holes in named park relations as a
+  side effect.
+- **Centroid-in-water filter (2186-2199):** make it hole-aware per group —
+  a centroid counts as "in water" only if it's inside one of the group's
+  outers **and not** inside one of that group's inners. Island blocks then
+  survive the safety check.
+
+Roads that cross larger islands are already in the `lines` set, so big
+islands subdivide into proper street-bounded blocks with no extra work. The
+existing `minArea` (400 px²) keeps micro-islet faces from becoming confetti.
+
+### E. Changelog
+
+`CHANGELOG.md` "Unreleased" entry (mandatory, pre-commit hook enforces it):
+river/lake islands now render truthfully — actual OSM green cover (even
+unnamed) as park green, the rest as regular city blocks; unnamed green
+outside islands still never renders.
+
+## Resulting behaviour
+
+| Case | Before | After |
+| --- | --- | --- |
+| Erfurt big island (Schildchensmühle) | all white | cream block base, green over the actual park/garden/grass/wetland/wood cover |
+| Small island S of Krämerbrücke | white | fully green (unnamed wood ring) |
+| Tiny north islet | white | green (wetland ring) |
+| Northern islands (named park Venedig) | green already | unchanged |
+| Unnamed green scraps anywhere else in a city | hidden | still hidden (pruned in step B) |
+| Named parks/forests city-wide | rendered | unchanged |
+| Island in any other city's export | white | same truthful treatment — no Erfurt-specific code |
+
+Deliberate non-features (flag to the user if revisited): no island-size
+threshold on the exception (a large inhabited island also gets truthful
+green + blocks, which is exactly what we want there); `wetland` counts as
+green cover; bare/unmapped island ground renders as block, not green — no
+guessing beyond what OSM says.
 
 ## Files touched
 
-- `script.js` — `LAYER_REGISTRY` parks entry (query + tagFilter), the
-  `renderLayerSVG` area/line branches, `buildSVGContext`.
-- `CHANGELOG.md` — mandatory entry per `CLAUDE.md` (pre-commit hook enforces
-  this for any `script.js` change).
+- `script.js` — `ISLAND_GREEN` constant, parks entry in `LAYER_REGISTRY`
+  (query + tagFilter), `pruneIslandGreens` + call site in the export flow,
+  parks branch of `renderLayerSVG`, block packing in `computeBlocksAsync`,
+  void-union winding + centroid filter in the block worker.
+- `CHANGELOG.md` — mandatory entry.
 
 ## Verification
 
-- Start the local LAMP stack and open the app at `http://localhost:8080/…`
-  (per `CLAUDE.md`); re-run the same Erfurt export that produced the
-  attached SVG. Because `cache/` already has the matching tiles
-  (`mapexport_v3_*_..._50.97313_11.01929_50.9821_11.03748.json.gz`), this
-  hits cache, not live Overpass, and re-fetches only the now-changed `parks`
-  query.
-- Confirm visually: the islands near Comthurgasse/Schildchensmühle and
-  Kreuzsand now show the park green fill instead of blank/white, and the
-  `waterways` stroke no longer bleeds across them.
-- Inspect the exported SVG: `waterways` `<path>` should now sit inside a
-  `clip-path` group with hole subpaths; `parks` group should contain new
-  anonymous `wood_*`/forest paths over the island footprints.
-- Run the offline regression suite (`node tests/road-merge.mjs`,
-  `tests/abbreviate.mjs`, `tests/supersession.mjs`,
-  `tests/pipeline-equivalence.mjs`) to make sure nothing else broke, plus
-  `node tests/real-export.mjs` for an end-to-end sanity pass.
+- Re-run the same Erfurt export against the archived tiles (all layers hit
+  cache except parks, which refetches live once due to the query-hash
+  change). Compare against `Screenshot 2026-07-07 at 20.25.16.png` (OSM
+  reference): big island = cream block + green patches matching OSM's cover;
+  the two small islands fully green; no unnamed green anywhere off-island
+  (diff the parks group against the archived `export.svg` — only `green_*`
+  additions inside island footprints, plus island block paths).
+- Inspect the SVG: `parks` group gains `green_<tag>_<id>` paths; `city_blocks`
+  gains island faces; footpaths over the island appear in the
+  `roads_paths_*_on_green` groups.
+- Durability spot check: one export of another river-island city (e.g.
+  Strasbourg Grande Île) — expect truthful green + blocks, and confirm no
+  green-scrap regression in the mainland cityscape.
+- Offline suite: `node tests/road-merge.mjs`, `tests/abbreviate.mjs`,
+  `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`; then
+  `node tests/real-export.mjs` end-to-end.
+
+## Cleanup (once implemented and verified)
+
+Delete `plans/2026-07-07_erfurt-river-islands-not-rendering/` (export.svg,
+screenshots, all cache tiles) and flip this file's `Status:` line to
+`IMPLEMENTED <date>` per the `plans/*.md` convention.
