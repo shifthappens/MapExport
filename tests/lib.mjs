@@ -99,6 +99,18 @@ const QUERY_MARKER = /overpassQuery:\(b\)=>/;
 // pieces doesn't match the raw marker count in the source — so a source
 // refactor can never silently shrink test coverage again.
 export function extractLayerEntries(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8')) {
+  // Evaluate the sliced expressions INSIDE a sandbox that has run the whole
+  // script, so a tagFilter/overpassQuery may call module-level helpers
+  // (e.g. parks' tagFilter delegates to parksNamedGate/isIslandGreenCandidate)
+  // instead of being forced to inline everything. Falls back to bare indirect
+  // eval if the script can't be sandbox-loaded, preserving the old behaviour.
+  let ctxEval;
+  try {
+    const ctx = makeAppContext(scriptSrc);
+    ctxEval = (expr) => vm.runInContext(`(${expr})`, ctx);
+  } catch {
+    ctxEval = (expr) => (0, eval)(`(${expr})`);
+  }
   const entries = [];
   const idRe = /\{\s*id:'([a-z_]+)'/g;
   let m;
@@ -112,14 +124,14 @@ export function extractLayerEntries(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'ut
     if (tfIdx >= 0) {
       const s = tfIdx + 'tagFilter:'.length;
       const expr = body.slice(s, scanExpressionEnd(body, s));
-      try { entry.tagFilter = (0, eval)(`(${expr})`); }
+      try { entry.tagFilter = ctxEval(expr); }
       catch (err) { throw new Error(`extractLayerEntries: tagFilter of '${id}' does not eval: ${err.message}`); }
     }
     const qIdx = body.search(QUERY_MARKER);
     if (qIdx >= 0) {
       const s = qIdx + 'overpassQuery:'.length;
       const expr = body.slice(s, scanExpressionEnd(body, s));
-      try { entry.overpassQuery = (0, eval)(`(${expr})`); }
+      try { entry.overpassQuery = ctxEval(expr); }
       catch (err) { throw new Error(`extractLayerEntries: overpassQuery of '${id}' does not eval: ${err.message}`); }
       const t = body.match(/overpassQuery:\(b\)=>`([^`]+)`/);
       if (t) entry.queryTemplate = t[1];
@@ -250,7 +262,7 @@ export function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // functions (buildLabelsLayer, makeProjector, …) without slicing source by
 // string offsets. real-export.mjs does the same trick against script.MIN.js
 // on purpose — it tests the shipped artifact; unit tests test the source.
-export function loadAppSandbox(exposeNames, scriptPath = SCRIPT_PATH) {
+export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8')) {
   const elProxy = new Proxy(function () {}, {
     get(_t, p) {
       if (p === 'style' || p === 'classList' || p === 'dataset') return elProxy;
@@ -272,8 +284,14 @@ export function loadAppSandbox(exposeNames, scriptPath = SCRIPT_PATH) {
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.self = sandbox;
   vm.createContext(sandbox);
+  vm.runInContext(scriptSrc, sandbox, { filename: 'script.js' });
+  return sandbox;
+}
+
+export function loadAppSandbox(exposeNames, scriptPath = SCRIPT_PATH) {
   const src = fs.readFileSync(scriptPath, 'utf8');
-  vm.runInContext(`${src}\n;globalThis.__exposed={${exposeNames.join(',')}};`, sandbox, { filename: path.basename(scriptPath) });
+  const sandbox = makeAppContext(src);
+  vm.runInContext(`globalThis.__exposed={${exposeNames.join(',')}};`, sandbox, { filename: path.basename(scriptPath) });
   return sandbox.__exposed;
 }
 

@@ -152,17 +152,119 @@ function getPhysicalSizeMm(b) {
 // ════════════════════════════════════════════════════════════════
 //  LAYER REGISTRY
 // ════════════════════════════════════════════════════════════════
+// ── Island-green exception ────────────────────────────────────────
+// The parks layer hides nameless green city-wide — a deliberate stylistic
+// choice: a USE-IT map shows named destinations, not every verge or street
+// tree. The one place that rule produces a WRONG result is a river/lake island
+// (an inner ring of a water multipolygon): if its real green cover happens to
+// be nameless, hiding it leaves the island a blank hole in the map. So the
+// parks query ALSO fetches these nameless land-cover tags as *candidates*, and
+// pruneIslandGreens keeps only the ones that actually fall inside an island —
+// everything else is dropped before it can render or punch a city block.
+const ISLAND_GREEN = {
+  leisure: new Set(['park', 'garden']),
+  landuse: new Set(['grass', 'village_green', 'meadow', 'forest']),
+  natural: new Set(['wood', 'scrub', 'wetland', 'heath']),
+};
+// The ISLAND_GREEN land-cover value an element carries, or null. Used both to
+// gate the candidate (isIslandGreenCandidate) and to label the rendered patch.
+function islandGreenCover(el) {
+  if (!el || el.type === 'node' || !el.tags) return null;
+  for (const key in ISLAND_GREEN) {
+    const v = el.tags[key];
+    if (v && ISLAND_GREEN[key].has(v)) return v;
+  }
+  return null;
+}
+function isIslandGreenCandidate(el) { return islandGreenCover(el) !== null; }
+// A genuine, name-bearing green destination worth a place on a stylised map.
+// Shared by the parks tagFilter and pruneIslandGreens (which must tell a real
+// named park from a bare island candidate that still has to earn its place).
+function parksNamedGate(el) {
+  if (el.type === 'node' || !el.tags?.name) return false;
+  const n = el.tags.name.toLowerCase().trim();
+  if (n.length < 4) return false;
+  if (/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n)) return false;
+  return /^(park|garden|nature_reserve|recreation_ground)$/.test(el.tags.leisure || '')
+    || /^(forest|cemetery|allotments|recreation_ground)$/.test(el.tags.landuse || '')
+    || el.tags.natural === 'wood' || el.tags.amenity === 'grave_yard' || el.tags.tourism === 'zoo';
+}
+// Ray-cast point-in-polygon for [lon,lat]/[x,y] rings on the main thread
+// (the block worker's own pointInPoly lives inside a source string, out of
+// reach here).
+function pointInRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// Closed inner rings (islands) of every water_bodies multipolygon, as [lon,lat]
+// rings. The one authoritative definition of "inside an island", reused by
+// pruneIslandGreens and (projected) by the block cutter.
+function waterIslandRings(results) {
+  const rings = [];
+  const wb = results.find(r => r.layer?.id === 'water_bodies');
+  if (!wb?.data?.elements) return rings;
+  for (const el of wb.data.elements) {
+    if (el.type !== 'relation' || !el.members) continue;
+    for (const ring of stitchMultipolygonRings(el.members).inner) {
+      if (ring.length >= 4) rings.push(ring.map(p => [p.lon, p.lat]));
+    }
+  }
+  return rings;
+}
+// Drop nameless island-green candidates that aren't actually on an island, so
+// the stylistic name gate still holds everywhere except real islands. Mutates
+// the parks result in place. Idempotent (named greens always pass; a dropped
+// candidate stays dropped), so it's safe to call from both the block-data prep
+// and the SVG builder — whichever runs first, the other is a no-op.
+function pruneIslandGreens(results) {
+  const parks = results.find(r => r.layer?.id === 'parks');
+  if (!parks?.data?.elements?.length) return;
+  let islands = null; // computed lazily on the first candidate that needs it
+  parks.data.elements = parks.data.elements.filter(el => {
+    if (parksNamedGate(el)) return true;
+    if (islands === null) islands = waterIslandRings(results);
+    if (!islands.length) return false;
+    const b = el.bounds;
+    let cx, cy;
+    if (b) { cx = (b.minlon + b.maxlon) / 2; cy = (b.minlat + b.maxlat) / 2; }
+    else if (el.geometry?.length) {
+      cx = el.geometry.reduce((s, p) => s + p.lon, 0) / el.geometry.length;
+      cy = el.geometry.reduce((s, p) => s + p.lat, 0) / el.geometry.length;
+    } else return false;
+    return islands.some(ring => pointInRing(cx, cy, ring));
+  });
+}
+
 const LAYER_REGISTRY = [
   { group: 'Natural', layers: [
-    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, ponds',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
-      overpassQuery:(b)=>`wr["natural"~"water|bay"](${b});way["landuse"="reservoir"](${b});`,
-      tagFilter:el=>el.type!=='node'&&((/water|bay/.test(el.tags?.natural||''))||el.tags?.landuse==='reservoir') },
+    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, docks, basins',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
+      // Water SURFACES only (things that read as open water). natural=water|bay
+      // plus the legacy/harbour variants that carry no natural=water of their
+      // own: waterway=riverbank (pre-2018 river-area tagging), waterway=dock
+      // and landuse=basin/reservoir (harbour + retention basins), leisure=marina.
+      // Without these a coastal/harbour export paints a solid cream block over
+      // the water. natural=coastline (the sea) is deliberately NOT here — it is
+      // an unclosed line, handled by a separate plan.
+      overpassQuery:(b)=>`wr["natural"~"water|bay"](${b});wr["waterway"~"^(riverbank|dock)$"](${b});wr["landuse"~"^(reservoir|basin)$"](${b});wr["leisure"="marina"](${b});`,
+      tagFilter:el=>el.type!=='node'&&((/water|bay/.test(el.tags?.natural||''))||/^(riverbank|dock)$/.test(el.tags?.waterway||'')||/^(reservoir|basin)$/.test(el.tags?.landuse||'')||el.tags?.leisure==='marina') },
     { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
-    { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, reserves',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
-      overpassQuery:(b)=>`wr["leisure"="park"]["name"](${b});wr["leisure"="nature_reserve"]["name"](${b});wr["leisure"="recreation_ground"]["name"](${b});wr["landuse"="forest"]["name"](${b});wr["natural"="wood"]["name"](${b});`,
-      tagFilter:el=>{if(el.type==='node'||!el.tags?.name)return false;const n=el.tags.name.toLowerCase().trim();if(n.length<4)return false;if(/^(green|grass|groen|tuin|garden|garten|jardin|beplanting|planting|plantsoen|hedge|lawn|speeltuin|spielplatz|playground|parking|parkeerplaats|terrain|terrein|veld|field|berm|strip|border|rand|strook|perk|bloem|flower|rozenperk|heg|haag)/.test(n))return false;return /park|nature_reserve|recreation_ground/.test(el.tags?.leisure||'')||el.tags?.landuse==='forest'||el.tags?.natural==='wood';} },
+    { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, cemeteries, gardens',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
+      // Two kinds of fetch here. (1) Named green destinations big enough to
+      // matter for orientation — parks, forests, cemeteries, gardens, zoos,
+      // allotments — kept behind the ["name"] gate + junk-name filter in
+      // parksNamedGate, which is what keeps stray city green off the map. (2)
+      // The ISLAND_GREEN land-cover tags fetched WITHOUT a name as candidates;
+      // pruneIslandGreens later drops every one that isn't inside a water-body
+      // island, so nameless green only ever survives there. park|garden and
+      // forest|wood are fetched nameless (a superset of their named form).
+      overpassQuery:(b)=>`wr["leisure"~"^(park|garden)$"](${b});wr["landuse"~"^(grass|village_green|meadow|forest)$"](${b});wr["natural"~"^(wood|scrub|wetland|heath)$"](${b});wr["leisure"~"^(nature_reserve|recreation_ground)$"]["name"](${b});wr["landuse"~"^(cemetery|allotments|recreation_ground)$"]["name"](${b});wr["amenity"="grave_yard"]["name"](${b});wr["tourism"="zoo"]["name"](${b});`,
+      tagFilter:el=>parksNamedGate(el)||isIslandGreenCandidate(el) },
   ]},
   { group: 'Built environment', layers: [
     // City blocks are derived, not fetched: the worker fills the negative space of
@@ -223,8 +325,9 @@ const SUPERSESSIONS = {
   ],
   // water_labels fetches four kinds of names; the river/canal and
   // natural=water slices are covered by waterways and water_bodies
-  // respectively. leisure park|garden stays (parks' regex omits
-  // `garden`), and place=suburb|neighbourhood nodes have no superseder.
+  // respectively. leisure park|garden stays un-stripped: parks now fetches
+  // both but name-gates them through a junk-name filter, so its slice isn't a
+  // reliable superset. place=suburb|neighbourhood nodes have no superseder.
   water_labels: [
     { strip:(b)=>`way["waterway"~"river|canal"]["name"](${b});`,
       requires:['waterways'] },
@@ -2033,8 +2136,31 @@ function polyCentroid(pts) {
   return [cx / (6 * a), cy / (6 * a)];
 }
 
+// A point GUARANTEED to lie inside the ring — the midpoint of the widest span
+// where a horizontal line through the ring's vertical middle crosses it. Unlike
+// the area centroid, this never lands outside a concave shape (e.g. a banana-
+// curved river island), so the water-overlap check below can't wrongly discard
+// an island block whose centroid falls out in the channel. pts: [{X,Y}, ...].
+function polyInteriorPoint(pts) {
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of pts) { if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y; }
+  const y = (minY + maxY) / 2;
+  const xs = [];
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const yi = pts[i].Y, yj = pts[j].Y;
+    if ((yi > y) !== (yj > y)) xs.push(pts[i].X + (pts[j].X - pts[i].X) * (y - yi) / (yj - yi));
+  }
+  xs.sort((a, b) => a - b);
+  let bestX = null, bestW = -1;
+  for (let k = 0; k + 1 < xs.length; k += 2) {
+    const w = xs[k + 1] - xs[k];
+    if (w > bestW) { bestW = w; bestX = (xs[k] + xs[k + 1]) / 2; }
+  }
+  return bestX === null ? polyCentroid(pts) : [bestX, y];
+}
+
 self.onmessage = function(e) {
-  const { lines, areas, waterPolys, waterwayLines, W, H } = e.data;
+  const { lines, areas, waterPolys, waterHoles, waterwayLines, W, H } = e.data;
   const CLP = ClipperLib;
   // Clipper works on integer coordinates; work at SCALE× so the cut keeps
   // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
@@ -2179,21 +2305,27 @@ self.onmessage = function(e) {
   }
 
   for (const raw of rawBlocks) {
-    // Skip blocks whose centroid is inside water (safety check — water is
+    // Skip blocks whose interior is inside water (safety check — water is
     // already in voidClean, but partial coverage/epsilon drift can leave
-    // slivers). Area-weighted centroid, checked against both water_bodies
-    // polygons and buffered waterway centerlines (see polyCentroid above).
-    const [cx, cy] = polyCentroid(raw.outer);
+    // slivers). Tested at a guaranteed-interior point, not the centroid, which
+    // for a concave island block lands out in the channel.
+    const [cx, cy] = polyInteriorPoint(raw.outer);
+    const px = cx / SCALE, py = cy / SCALE; // waterPolys/holes are unscaled px
+    // A point inside a water island (an inner ring) is dry land — it stays a
+    // block even though it also sits inside the water OUTER ring, and even
+    // where a waterway centerline runs straight through the island corridor
+    // (OSM often maps one centerline through the whole channel, not routed
+    // around each islet). So island membership skips BOTH water checks below.
+    const onIsland = waterHoles && waterHoles.some(wh => pointInPoly(px, py, wh));
     let inWater = false;
-    if (waterPolys && waterPolys.length) {
+    if (!onIsland) {
       for (const wp of waterPolys) {
-        // waterPolys are in unscaled px; centroid is in SCALE× units
-        if (pointInPoly(cx / SCALE, cy / SCALE, wp)) { inWater = true; break; }
+        if (pointInPoly(px, py, wp)) { inWater = true; break; }
       }
-    }
-    if (!inWater && waterwayVoidPolys.length) {
-      for (const wp of waterwayVoidPolys) {
-        if (pointInPoly(cx / SCALE, cy / SCALE, wp)) { inWater = true; break; }
+      if (!inWater) {
+        for (const wp of waterwayVoidPolys) {
+          if (pointInPoly(px, py, wp)) { inWater = true; break; }
+        }
       }
     }
     if (inWater) continue;
@@ -2216,10 +2348,23 @@ function getBlockWorkerUrl() {
   return blockWorkerUrl;
 }
 
+// Sign of a projected ring's signed area (winding direction only). Used to
+// orient outer vs. inner rings so the nonZero void union carves island/
+// courtyard holes deterministically instead of depending on OSM ring winding.
+function ringIsPositive(pts) {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+  return a > 0;
+}
+
 // Prepare geometry data for the worker (project + simplify on main thread).
 // Collects the street/rail/water/park network whose negative space forms the
 // city blocks.
 function prepareBlockData(allResults, pr, W, H) {
+  // Nameless island-green candidates must be resolved to real islands before
+  // they can void a block (off-island ones would punch spurious holes); this
+  // is idempotent and also runs in buildSVG, whichever executes first.
+  pruneIslandGreens(allResults);
   const sf = getScaleFactor(W);
   // The cutters must trace the SAME polylines the renderer strokes, or the
   // block edge drifts away from the road casing — so roads go through
@@ -2249,7 +2394,8 @@ function prepareBlockData(allResults, pr, W, H) {
 
   const lines = []; // { pts: [[x,y],...], halfW }
   const areas = []; // { pts: [[x,y],...] }
-  const waterPolys = []; // water body polygons for filtering blocks inside water
+  const waterPolys = []; // OUTER water rings — a block centroid inside one is "in water"…
+  const waterHoles = []; // …unless it's also inside one of these INNER rings (an island)
   const waterwayLines = []; // waterway centerlines (with halfW) for the same filter
 
   for (const { layer, data } of allResults) {
@@ -2275,21 +2421,28 @@ function prepareBlockData(allResults, pr, W, H) {
     // tolerance produces a visibly different polygon than the one painted,
     // leaving cream block slivers over the water/park it should have voided.
     if (layer.id === 'parks' || layer.id === 'water_bodies') {
+      const isWater = layer.id === 'water_bodies';
       for (const el of data.elements) {
-        // A relation's members are open arcs, not rings — stitch them into
-        // real closed rings first (see stitchMultipolygonRings), or a
-        // multi-way river/park boundary force-closes into chord-shaped
-        // fake polygons that cut across dry land.
-        const geoms = el.type === 'way' ? [el.geometry] :
-          el.type === 'relation' && el.members
-            ? (r => [...r.outer, ...r.inner])(stitchMultipolygonRings(el.members))
-            : [];
-        for (const geom of geoms) {
-          if (!geom || geom.length < 3) continue;
-          const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), areaLargeEps);
-          if (pts.length >= 3) {
+        // A relation's members are open arcs, not rings — stitch them into real
+        // closed rings first (see stitchMultipolygonRings), or a multi-way
+        // river/park boundary force-closes into chord-shaped fake polygons that
+        // cut across dry land. Keep the outer/inner roles: the nonZero void
+        // union only carves an island (or a park courtyard) as a hole when its
+        // inner ring is wound OPPOSITE its outer, and OSM ring winding is
+        // arbitrary — so orient outers positive and inners negative explicitly.
+        let outerRings, innerRings;
+        if (el.type === 'way') { outerRings = [el.geometry]; innerRings = []; }
+        else if (el.type === 'relation' && el.members) {
+          const r = stitchMultipolygonRings(el.members); outerRings = r.outer; innerRings = r.inner;
+        } else { outerRings = []; innerRings = []; }
+        for (const [rings, isOuter] of [[outerRings, true], [innerRings, false]]) {
+          for (const geom of rings) {
+            if (!geom || geom.length < 3) continue;
+            const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), areaLargeEps);
+            if (pts.length < 3) continue;
+            if (ringIsPositive(pts) !== isOuter) pts.reverse();
             areas.push({ pts });
-            if (layer.id === 'water_bodies') waterPolys.push(pts);
+            if (isWater) (isOuter ? waterPolys : waterHoles).push(pts);
           }
         }
       }
@@ -2317,7 +2470,7 @@ function prepareBlockData(allResults, pr, W, H) {
     }
   }
 
-  return { lines, areas, waterPolys, waterwayLines, W, H };
+  return { lines, areas, waterPolys, waterHoles, waterwayLines, W, H };
 }
 
 // Run block computation in Web Worker, returns promise of block array
@@ -2403,7 +2556,6 @@ function renderLayerSVG({ layer, data }, ctx) {
     const uid = makeUidGen();
     elements.forEach(el => {
       const name = el.tags?.name;
-      if (!name) return;
       let d = '';
       if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
       if (el.type === 'relation' && el.members) {
@@ -2413,8 +2565,17 @@ function renderLayerSVG({ layer, data }, ctx) {
       }
       if (!d) return;
       if (ctx.areaClipDs) ctx.areaClipDs.push(d);
-      const parkId = uid(`park_${safeName(name)}`);
-      content += `<path id="${parkId}" inkscape:label="${escXml(name)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
+      // Named greens keep their name as id + label. A nameless element only
+      // reaches here after pruneIslandGreens confirmed it sits inside a water
+      // island, so its id/label come from the land-cover tag instead.
+      let id, label;
+      if (name) { id = uid(`park_${safeName(name)}`); label = name; }
+      else {
+        const cover = islandGreenCover(el) || 'green';
+        id = uid(`green_${cover}${el.id ? '_' + el.id : ''}`);
+        label = cover.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+      }
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
     });
     if (!content) return '';
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
@@ -2583,6 +2744,9 @@ function sortedResults(results) {
 }
 
 function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null, options={}) {
+  // Keep only island-verified nameless greens before rendering (idempotent;
+  // prepareBlockData already ran this when blocks were computed).
+  pruneIslandGreens(results);
   const ctx = buildSVGContext(b, W, precomputedBlocks, options);
   let layersSVG = '';
   for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);

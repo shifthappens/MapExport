@@ -11,6 +11,34 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-07 — River/lake islands render truthfully instead of blank
+- **Fixes islands in a river or lake exporting as blank white** (reported for
+  the Gera islands in Erfurt — Schildchensmühle/Kreuzsand). An island is a
+  hole in a water multipolygon; nothing was drawn there, so it read as an
+  error rather than the green-and-buildings it is on the ground.
+- Inside such islands the map now shows the truth with no guesswork: whatever
+  is actually vegetated on OpenStreetMap renders as park green (even when
+  unnamed — small islets rarely carry names), and the rest becomes a normal
+  city block, exactly like any other land. Everywhere *outside* an island the
+  stylistic rule is unchanged: nameless green (stray verges, single trees)
+  still never renders — this is a stylised USE-IT map, not an ordnance survey.
+- City blocks can now form on islands at all (the block cutter treats a water
+  body's inner rings as holes, and no longer discards a concave island block
+  whose centre happens to fall out in the channel or under a river centreline).
+- Generalises to any city with a river/lake island, not just Erfurt.
+
+### 2026-07-07 — More kinds of water and green now recognised
+- **Water bodies** additionally include harbour/dock water, retention and
+  village basins, marinas, and the legacy `waterway=riverbank` river-area
+  tag — so a harbour or basin no longer paints a solid cream block over open
+  water. (Open sea via `natural=coastline` is still not handled — tracked in
+  a separate plan.)
+- **Parks & green** additionally include named cemeteries, gardens,
+  allotments, recreation grounds and zoos — large named green spaces that
+  read as green on the map but previously fell through as city block. The
+  existing "must have a name" gate and junk-name filter are unchanged, so no
+  new stray green appears.
+
 ### 2026-07-07 — Escape place names in search result rendering
 - City search and admin-boundary search results now HTML-escape the place
   name pulled from Nominatim before inserting it via `innerHTML`, closing a
