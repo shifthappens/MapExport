@@ -22,6 +22,7 @@ const HELP = {
         <li>A typical city centre can take 2–5 minutes</li>
         <li>Large areas may take 10+ minutes — the public OSM servers enforce rate limits, so the export pauses between requests</li>
       </ul>
+      <p><strong>Print size</strong> (shown below the coordinates once you draw an area) isn't something you choose — it's derived from the shape of your rectangle, fit as large as possible inside the standard USE-IT plattegrond envelope (67.5 × 40.5cm @ 300dpi, or that rotated for a tall area). Need it bigger (gigantic-city format) or smaller (a small inset)? Scale the exported SVG in Illustrator/InDesign — line weights and labels scale right along with it.</p>
       <div class="tip">Exports can take a while because the public Overpass API rate-limits requests. A warning appears when the selected area is very large — consider splitting large exports into smaller sections.</div>
     `
   },
@@ -56,7 +57,6 @@ const HELP = {
         <li><strong>SVG (Illustrator)</strong> — tweaked so the file opens cleanly in Illustrator (and places in InDesign 2020+): curved street names arrive pre-positioned letter by letter, and everything sticks to the SVG subset Illustrator understands. Don't expect this file to be optimal in other SVG viewers/editors.</li>
         <li><strong>SVG (Inkscape / others)</strong> — standards-based SVG for Inkscape, web browsers, and other conforming tools, with real Inkscape layers and text-on-path street names. Don't expect this file to open perfectly in Illustrator.</li>
       </ul>
-      <p><strong>Print size:</strong> Sets the SVG canvas dimensions. A3 @ 300dpi is a good default for print work. Use Custom px for specific pixel dimensions.</p>
       <p><strong>Labels on:</strong> Control which road types include name labels. More labels means a larger file and slower rendering in Illustrator.</p>
       <div class="tip">For large areas, disable layers and labels you don't need to keep file sizes manageable.</div>
     `
@@ -121,23 +121,33 @@ const PRESETS = {
 let activePreset = 'useit';
 
 // ════════════════════════════════════════════════════════════════
-//  PRINT SIZES  (width in px)
+//  PRINT SIZE — derived from the bbox shape, not user-picked
 // ════════════════════════════════════════════════════════════════
-const PRINT_SIZES = {
-  a4_300: 3508,   // A4 landscape @ 300dpi
-  a3_300: 4961,   // A3
-  a2_300: 7016,   // A2
-  a1_300: 9933,   // A1
-};
-// Physical long-edge widths in mm for each preset (used to set SVG width/height in mm
-// so Illustrator/Inkscape open the document at the correct physical size rather than
-// interpreting px as pt and producing a document ~4× too large)
-const PRINT_PHYSICAL_MM = {
-  a4_300: 297,   // A4 long edge
-  a3_300: 420,   // A3 long edge
-  a2_300: 594,   // A2 long edge
-  a1_300: 841,   // A1 long edge
-};
+// USE-IT city maps aren't one fixed shape — city footprints vary too much to
+// snap to a grid. What IS fixed is the largest page a USE-IT team ever prints
+// a plattegrond within: 67.5 x 40.5cm (or that rotated, for a tall bbox). We
+// fit the bbox's true geographic aspect ratio inside that envelope — as large
+// as possible without exceeding it on either edge — which sets the physical
+// size baked into the export (and with it, via getScaleFactor, how thick
+// roads/labels render relative to the geography).
+// A team that needs a bigger (gigantic-city, 6-square) or smaller (inset)
+// final size just scales the vector output afterward in Illustrator/InDesign
+// — stroke widths and label sizes scale right along with it, so the result
+// is identical to having exported at that size directly.
+const PRINT_ENVELOPE_MAX_MM = 675; // long edge, 67.5cm (5 squares)
+const PRINT_ENVELOPE_MIN_MM = 405; // short edge, 40.5cm (3 squares)
+const PRINT_DPI = 300;
+
+function getPhysicalSizeMm(b) {
+  const [xMin,yMin]=degToMerc(b.west,b.south), [xMax,yMax]=degToMerc(b.east,b.north);
+  const aspect = (xMax-xMin)/(yMax-yMin); // real-world width/height
+  const landscape = aspect >= 1;
+  const envW = landscape ? PRINT_ENVELOPE_MAX_MM : PRINT_ENVELOPE_MIN_MM;
+  const envH = landscape ? PRINT_ENVELOPE_MIN_MM : PRINT_ENVELOPE_MAX_MM;
+  return aspect >= envW/envH
+    ? { mmW: envW, mmH: envW/aspect }
+    : { mmW: envH*aspect, mmH: envH };
+}
 
 // ════════════════════════════════════════════════════════════════
 //  LAYER REGISTRY
@@ -408,7 +418,8 @@ function updateBboxDisplay() {
   const {south,west,north,east} = bbox;
   const latSpan=north-south, lngSpan=east-west;
   const kmNS=(latSpan*111).toFixed(1), kmEW=(lngSpan*111*Math.cos((north+south)/2*Math.PI/180)).toFixed(1);
-  d.innerHTML=`<div style="color:var(--green);font-size:10px;margin-bottom:4px">✓ Area selected</div><div class="val">N ${north.toFixed(5)}</div><div class="val">S ${south.toFixed(5)}</div><div class="val">W ${west.toFixed(5)}</div><div class="val">E ${east.toFixed(5)}</div><div style="margin-top:4px;color:var(--muted);font-size:9.5px">≈ ${kmNS} × ${kmEW} km</div>`;
+  const {mmW,mmH}=getPhysicalSizeMm(bbox);
+  d.innerHTML=`<div style="color:var(--green);font-size:10px;margin-bottom:4px">✓ Area selected</div><div class="val">N ${north.toFixed(5)}</div><div class="val">S ${south.toFixed(5)}</div><div class="val">W ${west.toFixed(5)}</div><div class="val">E ${east.toFixed(5)}</div><div style="margin-top:4px;color:var(--muted);font-size:9.5px">≈ ${kmNS} × ${kmEW} km</div><div style="color:var(--muted);font-size:9.5px">Prints at ${(mmW/10).toFixed(1)} × ${(mmH/10).toFixed(1)}cm @ ${PRINT_DPI}dpi</div>`;
 
   // Size estimation
   const areaDeg = latSpan * lngSpan;
@@ -2524,13 +2535,14 @@ ${layersSVG}  </g>
 //     versions) and only real Arial styles: weights 500/600 snap to 400/700
 //     (see illustratorFontWeight).
 //  6. Artboard limit: Illustrator opens SVG at 1px = 1pt and its canvas
-//     maxes out at 16383pt (~227in) — doExport warns beyond that.
+//     maxes out at 16383pt (~227in) — the fixed 67.5cm print envelope
+//     (getPhysicalSizeMm) keeps every export well under that, so there's
+//     nothing to warn about at runtime.
 //
 // Everything else deliberately stays plain SVG 1.1 in BOTH pipelines: hex
 // colors only (no rgba()/hsl()), presentation attributes (no <style>/CSS
 // classes), fixed-decimal coordinates (no scientific notation), baselines
 // baked into geometry (no dominant-baseline).
-const ILLUSTRATOR_ARTBOARD_LIMIT_PX = 16383;
 function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
   const { b, W, H, preset } = ctx;
   const date = new Date().toISOString().slice(0, 10);
@@ -2600,10 +2612,8 @@ function scheduleLivePreview() {
 }
 
 
-function getExportWidth() {
-  const size=document.getElementById('print-size').value;
-  if (size==='custom') return parseInt(document.getElementById('svg-width').value)||3508;
-  return PRINT_SIZES[size]||3508;
+function getExportWidth(b) {
+  return Math.round(getPhysicalSizeMm(b).mmW/25.4*PRINT_DPI);
 }
 
 function getAllSelectedLayers() {
@@ -2616,8 +2626,8 @@ async function doExport() {
   if (!bbox) return;
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
-  const W=getExportWidth();
-  const physicalWidthMm=PRINT_PHYSICAL_MM[document.getElementById('print-size').value]||null;
+  const physicalWidthMm=getPhysicalSizeMm(bbox).mmW;
+  const W=Math.round(physicalWidthMm/25.4*PRINT_DPI);
   // Which serialization pipeline: Illustrator-compatible (default — most
   // USE-IT designers work in Illustrator) or standards-based SVG. See
   // wrapSVGIllustrator for what the Illustrator profile changes and why.
@@ -2646,14 +2656,7 @@ async function doExport() {
     { id: 'finalize',       label: 'Finalize' },
   ];
   progress.begin(stages);
-  progress.log(`Export: ${selected.length} layer${selected.length>1?'s':''}, ${W}px wide, style “${activePreset}”, format ${illustratorCompatible?'SVG (Illustrator)':'SVG (Inkscape / others)'}`);
-  // Illustrator opens SVG at 1px = 1pt and its artboard maxes out at
-  // 16383pt (~227 inches) — anything past that gets clipped on open.
-  if (illustratorCompatible) {
-    const projectedHeight = makeProjector(bbox, W).H;
-    if (Math.max(W, projectedHeight) > ILLUSTRATOR_ARTBOARD_LIMIT_PX)
-      progress.log(`⚠ Canvas ${W}×${projectedHeight}px exceeds Illustrator's ${ILLUSTRATOR_ARTBOARD_LIMIT_PX}pt artboard limit — Illustrator will clip it. Use a smaller custom width.`);
-  }
+  progress.log(`Export: ${selected.length} layer${selected.length>1?'s':''}, ${W}px wide (${(physicalWidthMm/10).toFixed(1)}cm @ ${PRINT_DPI}dpi), style “${activePreset}”, format ${illustratorCompatible?'SVG (Illustrator)':'SVG (Inkscape / others)'}`);
 
   // Stage 1 — plan tiles
   progress.setStage('plan_tiles', 'active');
@@ -3170,11 +3173,6 @@ document.addEventListener('DOMContentLoaded',()=>{
     document.body.appendChild(warn);
     document.getElementById('btn-export').disabled=true;
   }
-
-  // Print size
-  document.getElementById('print-size').addEventListener('change', e=>{
-    document.getElementById('custom-width-row').style.display=e.target.value==='custom'?'flex':'none';
-  });
 
   // Search
   document.getElementById('btn-search').addEventListener('click',()=>searchCity(document.getElementById('search-input').value));

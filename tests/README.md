@@ -49,7 +49,7 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 
 8. **Live real-world export + faithful visual check** (standard verification of actual SVG output — and a real test: it exits non-zero on failure):
    ```
-   node tests/real-export.mjs [city|s,w,n,e] [a4_300|a3_300|a2_300|a1_300] [--record]
+   node tests/real-export.mjs [city|s,w,n,e] [--record]
    ```
    Runs the **shipped** `script.min.js` headlessly (vm + browser stubs) against the live `lamp` Apache on **:8080**: fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<city>-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Requires `lamp start` (without it, every tile goes straight to Overpass — slower but works).
 

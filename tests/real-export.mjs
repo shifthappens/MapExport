@@ -10,10 +10,13 @@
 // memory/reference_lamp_server.md.
 //
 // Usage:
-//   node tests/real-export.mjs                          # default Tilburg bbox, A3
+//   node tests/real-export.mjs                          # default Tilburg bbox
 //   node tests/real-export.mjs ghent                    # named test area (see CITIES)
-//   node tests/real-export.mjs 51.545,5.07,51.562,5.1 a3_300
-//   node tests/real-export.mjs <city|s,w,n,e> <a4_300|a3_300|a2_300|a1_300> [--record] [--illustrator]
+//   node tests/real-export.mjs 51.545,5.07,51.562,5.1
+//   node tests/real-export.mjs <city|s,w,n,e> [--record] [--illustrator]
+//
+// Print size (px width, physical mm) is derived from the bbox shape — see
+// getPhysicalSizeMm in script.js — not passed on the command line.
 //
 // --illustrator additionally writes the Illustrator-compatible variant of the
 // same export (suffix `-illustrator`) from the same fetched data, with its own
@@ -57,7 +60,7 @@ const CITIES = {
 
 // ── args ──────────────────────────────────────────────────────────
 const flags = process.argv.slice(2).filter(a => a.startsWith('--'));
-const [areaArg, sizeArg = 'a3_300'] = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const [areaArg] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const recordExpectations = flags.includes('--record');
 const alsoIllustrator = flags.includes('--illustrator');
 const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
@@ -74,7 +77,7 @@ execFileSync('bash', [path.join(REPO, 'tools/minify.sh'), 'js'], { stdio: 'inher
 
 // ── load shipped code into a vm sandbox with browser stubs ─────────
 let src = fs.readFileSync(path.join(REPO, 'script.min.js'), 'utf8')
-  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,PRINT_SIZES,PRINT_PHYSICAL_MM,activePreset};';
+  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset};';
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
 const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
@@ -142,13 +145,13 @@ function computeBlocks(data, clipperSrc) {
 }
 
 // ── run ───────────────────────────────────────────────────────────
-const W = X.PRINT_SIZES[sizeArg] || 4961;
-const physicalWidthMm = X.PRINT_PHYSICAL_MM[sizeArg] || null;
+const W = X.getExportWidth(bbox);
+const physicalWidthMm = X.getPhysicalSizeMm(bbox).mmW;
 const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
 const fetchable = allLayers.filter(l => l.defaultOn && l.overpassQuery);
 const cityBlocks = allLayers.find(l => l.id === 'city_blocks');
 
-console.log(`area ${citySlug}  bbox ${bboxStr}  size ${sizeArg} (${W}px / ${physicalWidthMm}mm)`);
+console.log(`area ${citySlug}  bbox ${bboxStr}  (${W}px / ${physicalWidthMm.toFixed(1)}mm)`);
 const results = [];
 const layerCounts = {};
 for (const layer of fetchable) {

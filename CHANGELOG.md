@@ -11,6 +11,20 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-07 — Print size is now derived automatically, not user-picked
+- Removed the "Print size" dropdown (A4/A3/A2/A1 @ 300dpi + custom px) —
+  those paper-format names never mapped onto USE-IT's own print convention
+  and didn't guarantee any particular aspect ratio anyway.
+- The export's physical size (and with it, resolution and line/label
+  weights) is now derived from the shape of the drawn area: fit as large as
+  possible inside the standard USE-IT plattegrond envelope (67.5 × 40.5cm @
+  300dpi, or that rotated for a taller area), without exceeding it on either
+  edge. Shown live under the bbox coordinates once you draw an area.
+- Teams needing a bigger (gigantic-city) or smaller (inset) final size scale
+  the exported SVG themselves in Illustrator/InDesign — stroke widths and
+  labels scale proportionally, so the result is identical to exporting at
+  that size directly.
+
 ### 2026-07-06 — City blocks no longer streak over rivers and canals
 - **Fixes cream block fill showing on top of water** (reported in Ghent, along
   the Leie): the block cutter simplified water/park polygons and waterway

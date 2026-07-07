@@ -34,8 +34,10 @@ label actually was: a second short run shrinking past `nearName` suppression
 
 ## Scale facts that matter while reading traces
 
-- Real exports run `a3_300` = 4961px wide, so `getScaleFactor` = 1 and
-  `LABEL_STYLES` sizes are literal px (residential 22, spacing 500,
-  nameGap = spacing×0.85 = 425px).
+- Print size is derived from the bbox shape (`getPhysicalSizeMm`), not a fixed
+  preset. The committed Tilburg bbox comes out ~5249px wide (`sf` ≈ 1.058), so
+  `LABEL_STYLES` sizes aren't quite literal px anymore (residential 22 → ~23.3,
+  spacing 500 → ~529, nameGap = spacing×0.85 accordingly) — recompute `sf` for
+  the actual bbox in play rather than assuming 1.
 - The committed Tilburg bbox tile is
   `cache/mapexport_v3_street_labels_wjc4tv_a_51.545_5.07_51.562_5.1.json.gz`.

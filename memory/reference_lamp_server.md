@@ -41,8 +41,9 @@ Cache key for an adaptive (each axis < 0.095°) bbox:
 silently retires its old cache. To force a refetch, delete the matching
 `cache/*.json.gz`.
 
-**Headless real-world export:** `node tests/real-export.mjs [s,w,n,e] [a4_300|a3_300|a2_300|a1_300]`
-(default bbox `51.545,5.07,51.562,5.1`, A3). It loads the shipped `script.min.js` in
+**Headless real-world export:** `node tests/real-export.mjs [s,w,n,e]`
+(default bbox `51.545,5.07,51.562,5.1`; print size is derived from the bbox shape,
+see `getPhysicalSizeMm` in `script.js`). It loads the shipped `script.min.js` in
 a vm with browser stubs, runs the app's own `fetchLayer` + `buildSVG` against the live
 `cache.php` (so misses fetch Overpass and write the tile back), computes city blocks
 headlessly by running `BLOCK_WORKER_SRC` in a vm with ClipperLib (cached in the OS temp
