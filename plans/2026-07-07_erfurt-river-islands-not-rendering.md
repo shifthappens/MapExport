@@ -1,9 +1,48 @@
 # Fix: river islands render blank — island-aware green cover + hole-aware city blocks
 
-**Status: READY TO IMPLEMENT (2026-07-07, rev 2)** — this revision supersedes
-the first version of this plan after a verification session refuted half of
-its root-cause analysis and showed its fix B would not repair the visible
-problem. The corrected analysis and the new approach are below.
+**Status: IMPLEMENTED (2026-07-07)** — shipped in `script.js` (and verified
+offline against this archive's tiles; see "As shipped" below). Awaiting a
+visual sign-off in the real browser app before the reproduction archive is
+deleted.
+
+## As shipped (deviations from the rev-2 plan below)
+
+The rev-2 approach was implemented essentially as written, plus three things
+the plan didn't foresee, all found while verifying end-to-end against the
+archived Erfurt tiles:
+
+1. **The block cutter's water-overlap safety check discarded island blocks
+   two different ways.** (a) It used the *area centroid*, which for a
+   banana-curved island lands out in the channel → looked like water. Fixed
+   with `polyInteriorPoint` (worker), a guaranteed-inside point via the
+   widest-span of a horizontal scanline. (b) Even with a correct interior
+   point, the Breitstrom *waterway centreline* runs straight through the
+   island corridor (OSM maps one centreline for the whole channel, not routed
+   around each islet), and its buffer re-flagged the point as water. Fixed by
+   making island membership skip BOTH water checks (outer polygon AND waterway
+   buffer), not just the outer.
+2. **Deterministic hole winding** — outer rings forced positive, inner rings
+   negative in `prepareBlockData` (`ringIsPositive`) — was required for the
+   nonZero void union to carve islands (and, as a bonus, park courtyards) as
+   holes instead of depending on OSM's arbitrary ring winding.
+3. **The named-category widening** (cemetery/garden/allotments/zoo/…, and the
+   extra water surfaces) was folded in at the same time — see the two matching
+   CHANGELOG entries. `parksNamedGate` / `isIslandGreenCandidate` /
+   `islandGreenCover` are shared by the parks tagFilter, `pruneIslandGreens`,
+   and the render branch; `tests/lib.mjs` now evaluates layer expressions
+   inside the app sandbox so a tagFilter may call those helpers.
+
+Verified offline (parks refetched live for the new query, all other layers
+from the archive): the big island renders ~71% green + ~20% cream city block +
+~9% thin water-edge slivers (a pre-existing simplification class, not new),
+the two small islands render fully green, and no nameless green renders
+anywhere off-island. All four offline tests pass; `script.min.js` builds.
+
+---
+
+**Original rev-2 plan (READY TO IMPLEMENT, 2026-07-07)** — superseded the
+first version after a verification session refuted half of its root-cause
+analysis and showed its fix B would not repair the visible problem.
 
 ## Archive contents
 
