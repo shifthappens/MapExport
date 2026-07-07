@@ -83,3 +83,30 @@ becomes unreadable by `www-data` and Apache 403s the whole site. Hit this live
 once when this was still in `deploy.sh` locally; fixed by adding `chmod 644`
 right after the `sed` step. Worth double-checking if this step ever moves or
 gets rewritten again.
+
+**Triggering `workflow_dispatch` from a Claude Code cloud/web session
+(2026-07-07):** a local session with `gh` already authenticated (e.g. Coen's
+Mac, `repo` scope) can always run `gh workflow run deploy.yml --ref main`
+directly — none of the below applies there.
+
+From a *cloud* Claude Code session, the fix is to use the **built-in GitHub
+MCP tool**, not the `gh` CLI:
+- Installing `gh` in the cloud sandbox via a setup script and giving it a
+  fine-grained PAT through a `GH_TOKEN` env var **does not work** — `gh auth
+  status` reports the token as invalid even when it's correctly set, seemingly
+  blocked before it reaches GitHub's API at all. Don't re-attempt this route.
+- The actual fix: go to `github.com/settings/installations`, find the Claude
+  GitHub App, click **Configure**, and grant **"Read and write access to
+  actions, checks, code, discussions, issues, pull requests, repository
+  hooks, and workflows"** with repository access set to **All repositories**.
+  This scope *is* user-configurable (contrary to what Anthropic's own docs on
+  Claude Code on the web imply — they describe a fixed Contents/Issues/PRs-only
+  scope with no Actions access, which was true before this permission grant
+  existed/was accepted). Once granted, the MCP tool's `run_workflow` call
+  dispatches `deploy.yml` directly, same as the GitHub Actions UI or `gh`
+  would.
+- `shifthappens` is Coen's personal GitHub account, not an org — a cloud
+  session's earlier 403 saying "an org admin must connect the Claude GitHub
+  App for this organization" is generic wording from the same gate; there's
+  no separate org admin to loop in, it's just this account's own App
+  connection/permissions.
