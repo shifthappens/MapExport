@@ -450,7 +450,7 @@ async function fetchBoundaries(placeName) {
       item.className = 'boundary-item';
       const name = place.display_name.split(',').slice(0,3).join(',');
       const type = place.type || place.class;
-      item.innerHTML = `<div style="font-size:10px;color:var(--ink)">${name}</div><div style="font-size:9px;color:var(--muted)">${type} — click to use as export area</div>`;
+      item.innerHTML = `<div style="font-size:10px;color:var(--ink)">${escXml(name)}</div><div style="font-size:9px;color:var(--muted)">${type} — click to use as export area</div>`;
       item.addEventListener('mousedown', () => {
         const [s,n,w,e] = place.boundingbox.map(parseFloat);
         bbox = {south:s, north:n, west:w, east:e};
@@ -2967,7 +2967,7 @@ async function searchCity(query) {
       item.className='search-result-item';
       const name=place.display_name.split(',').slice(0,2).join(',');
       const detail=place.display_name.split(',').slice(2,4).join(',').trim();
-      item.innerHTML=`<div class="res-name">${name}</div><div class="res-detail">${detail}</div>`;
+      item.innerHTML=`<div class="res-name">${escXml(name)}</div><div class="res-detail">${escXml(detail)}</div>`;
       item.addEventListener('mousedown',()=>{
         map.setView([parseFloat(place.lat),parseFloat(place.lon)],13);
         resEl.classList.remove('show'); resEl.innerHTML='';

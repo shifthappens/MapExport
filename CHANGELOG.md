@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-07 — Escape place names in search result rendering
+- City search and admin-boundary search results now HTML-escape the place
+  name pulled from Nominatim before inserting it via `innerHTML`, closing a
+  DOM XSS vector if Nominatim (or a network MITM) ever returned a crafted
+  `display_name`.
+
 ### 2026-07-07 — Print size is now derived automatically, not user-picked
 - Removed the "Print size" dropdown (A4/A3/A2/A1 @ 300dpi + custom px) —
   those paper-format names never mapped onto USE-IT's own print convention
