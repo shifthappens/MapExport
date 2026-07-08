@@ -43,15 +43,25 @@ silently retires its old cache. To force a refetch, delete the matching
 
 **Headless real-world export:** `node tests/real-export.mjs [s,w,n,e]`
 (default bbox `51.545,5.07,51.562,5.1`; print size is derived from the bbox shape,
-see `getPhysicalSizeMm` in `script.js`). It loads the shipped `script.min.js` in
-a vm with browser stubs, runs the app's own `fetchLayer` + `buildSVG` against the live
-`cache.php` (so misses fetch Overpass and write the tile back), computes city blocks
-headlessly by running `BLOCK_WORKER_SRC` in a vm with ClipperLib (cached in the OS temp
+see `getPhysicalSizeMm` in `script.js`). It loads `script.js` itself (no build/
+minify step — same source the browser loads) in a vm with browser stubs, runs
+the app's own `fetchLayer` + `buildSVG` against the live `cache.php` (so misses
+fetch Overpass and write the tile back), computes city blocks headlessly by
+running `BLOCK_WORKER_SRC` in a vm with ClipperLib (cached in the OS temp
 dir), and writes the result to `exports/map-<preset>-<YYYY-MM-DD-HHMMSS>.svg` (local
 time; same format the web app's download uses, so same-day exports don't collide).
 `exports/` is committed as a trail of progress files; the bbox is in each SVG's
 `<metadata>`. Always save the SVG there when doing a live real-world test. Ready-made
 fully-cached test bbox: `51.545,5.07,51.562,5.1`.
+
+Requires a webserver at `:8080` serving this repo at `/mapexport/` with PHP
+support for `cache.php` — `lamp start` on Coen's machine, or plain `php -S`
+(pointed at a docroot with a `mapexport` symlink/copy of the repo) anywhere
+else, e.g. in a cloud/CI environment without the `lamp` CLI or Apache. Nothing
+about `cache.php` requires Apache or MySQL specifically — it's a flat
+file-based cache (`cache/*.json.gz`), so PHP's own built-in server is enough.
+Without a server at all, the test still runs — every tile just goes straight
+to Overpass instead of through the cache.
 
 **Faithful visual check — MANDATORY after every export (the standard test step):** never
 judge an export by `qlmanage`/QuickLook PNGs — Apple's SVG rasterizer mishandles

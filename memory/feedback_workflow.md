@@ -8,7 +8,7 @@ type: feedback
 
 **Why:** User corrected this mid-session — they want control over when changes go live.
 
-**How to apply:** After making changes, commit and/or minify as needed, but never run `deploy.sh` unless explicitly asked. Same for `git push`.
+**How to apply:** After making changes, commit as needed, but never run `deploy.sh` unless explicitly asked (same for `git push`). Never minify locally as part of normal work — see below, that's deploy-only now.
 
 ---
 
@@ -20,13 +20,19 @@ when writing source. First fix was gitignoring them but still generating them
 locally on every commit; Coen then pushed further — asked whether they're
 even needed locally, since the only reason was `index.html` referencing them.
 Answer: no. `index.html` now loads `script.js`/`style.css` directly, so
-there's **no local build step at all**. The minifier only runs on demand, from
-two places: `tests/real-export.mjs` (regenerates `script.min.js` itself before
-every run, since that test specifically exercises the shipped/minified code)
-and `deploy.sh` (builds fresh right before rsyncing, then rewrites the
-*deployed* `index.html` via `sed` to point at the minified files — the repo's
-own `index.html` is untouched). Never take code style from `*.min.*` files —
-they're compressed build output, not something anyone writes or reads.
+there's **no local build step at all**. Update (2026-07-08): even
+`tests/real-export.mjs` was later changed to test `script.js` directly
+instead of building/loading `script.min.js` first — there was never a real
+reason for that test to exercise minified output, and it meant the minifier
+ran (and left build artifacts sitting around) on every test run. The minifier
+now runs **only** in the GitHub Actions deploy workflow
+(`.github/workflows/deploy.yml`), which builds fresh right before rsyncing,
+then rewrites the *deployed* `index.html` via `sed` to point at the minified
+files (the repo's own `index.html` is untouched). `script.min.js`/
+`style.min.css` should exist on the production server and nowhere else — not
+even transiently in a local checkout; delete them if you ever run
+`tools/minify.sh` by hand to check it. Never take code style from `*.min.*`
+files — they're compressed build output, not something anyone writes or reads.
 
 **Build is tracked in-repo (since branch `claude/street-layers-alphabetical-v0hnyk`).**
 - `tools/minify.sh [js|css|all]` — canonical minifier (terser + clean-css, global-or-npx).

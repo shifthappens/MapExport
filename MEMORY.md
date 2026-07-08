@@ -8,4 +8,4 @@
 - [Label cartography](memory/feedback_label_cartography.md) — Labels must follow roads, never overflow, no horizontal on linear streets
 - [Label debug workflow](memory/reference_label_debug_workflow.md) — Trace `buildLabelsLayer` decisions on real cached city tiles via vm-sandbox source patching (found the Roggestraat 9px cause in minutes)
 - [Changelog](CHANGELOG.md) — Newest-first log of feature/behaviour changes. **Must be appended (top of "Unreleased") on every feature commit.** Rule also in CLAUDE.md.
-- [Build & hooks](CLAUDE.md) — `tools/minify.sh` (tracked build) + `.githooks/pre-commit` (re-minify + changelog enforcement); activate with `bash tools/setup-hooks.sh`.
+- [Build & hooks](CLAUDE.md) — `tools/minify.sh` (tracked build, deploy-only — never run for dev/tests) + `.githooks/pre-commit` (changelog enforcement only, doesn't minify); activate with `bash tools/setup-hooks.sh`.

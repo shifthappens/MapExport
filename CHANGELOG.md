@@ -7,9 +7,22 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 > the "Unreleased" section below in the same commit. Keep entries short and
 > user-facing — describe *what changed and why*, not every line touched. Group
 > related work under one dated entry. Pure-internal churn (formatting, comment
-> typos, regenerating `script.min.js`) does not need its own entry.
+> typos) does not need its own entry.
 
 ## Unreleased
+
+### 2026-07-08 — Tests no longer build or run minified code
+- `tests/real-export.mjs` now loads `script.js` directly, the same source the
+  browser runs in dev — it no longer builds `script.min.js` first. There was
+  never a real reason for this test to exercise minified output, and it meant
+  the minifier ran (and left gitignored build artifacts sitting around)
+  on every test run.
+- Minification (`tools/minify.sh`) now happens in exactly one place: the
+  GitHub Actions deploy workflow, right before rsyncing to production.
+  `script.min.js`/`style.min.css` should exist there and nowhere else — not
+  the repo, not a local checkout, not any test run.
+- No behaviour change to the exported maps themselves; this is test/build
+  tooling only.
 
 ### 2026-07-07 — River/lake islands render truthfully instead of blank
 - **Fixes islands in a river or lake exporting as blank white** (reported for

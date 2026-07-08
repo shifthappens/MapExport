@@ -11,29 +11,31 @@ of each says whether it is ready to implement, in progress, or retired).
 **Every commit that adds, changes, or removes a feature or behaviour MUST add an
 entry to the top of the "Unreleased" section in `CHANGELOG.md`, in the same
 commit. Newest entries go at the top.** Keep entries short and user-facing.
-Pure-internal churn (formatting, regenerating `script.min.js`) is exempt. The
-maintenance rule is restated at the top of `CHANGELOG.md` itself.
+Pure-internal churn (formatting, comment typos) is exempt. The maintenance
+rule is restated at the top of `CHANGELOG.md` itself.
 
 ## Source-of-truth & build
 
 - `script.js` is canonical, and `index.html` loads `script.js` / `style.css`
-  **directly in dev — there's no local build step.** `script.min.js` and
-  `style.min.css` are **generated and gitignored — never committed, never
-  hand-edited**, and only get built on demand by whatever actually needs the
-  minified output: `tests/real-export.mjs` (regenerates it itself before every
-  run) or the GitHub Actions deploy workflow (production, see Deploy below).
-  Don't take code style or naming cues from these files — they're
-  compressed/mangled build output, not something anyone wrote or reads; write
-  source-quality code in `script.js`.
-- To build them manually: **`bash tools/minify.sh`** (or `tools/minify.sh js` /
-  `css`). It uses terser for JS and clean-css for CSS, preferring global
-  installs and falling back to `npx`.
+  **directly, always — dev, tests, and this repo have no build step.**
+  `script.min.js` and `style.min.css` are **generated and gitignored — never
+  committed, never hand-edited, and never needed to run or test the app.**
+  The ONLY thing that ever builds them is the GitHub Actions deploy workflow
+  (production, see Deploy below) — nothing in `tests/` builds or reads them.
+  Don't take code style or naming cues from these files if you ever see
+  them — they're compressed/mangled build output, not something anyone
+  writes or reads; write source-quality code in `script.js`.
+- To build them manually anyway (e.g. to sanity-check the minifier itself):
+  **`bash tools/minify.sh`** (or `tools/minify.sh js` / `css`). It uses terser
+  for JS and clean-css for CSS, preferring global installs and falling back
+  to `npx`. Delete the output afterwards — these files should only ever exist
+  on the production server, never in a local checkout.
 - **Install the git hooks once per clone: `bash tools/setup-hooks.sh`.** This
   points `core.hooksPath` at the tracked `.githooks/`. The `pre-commit` hook
   only **enforces the changelog rule below** — it blocks commits that touch app
   source (`script.js`, `style.css`, `index.html`, `cache.php`) without a staged
   `CHANGELOG.md`. Pure-internal churn can bypass with `SKIP_CHANGELOG=1 git
-  commit`.
+  commit`. It does not minify anything.
 - The tracked build lives in `tools/`. Any personal root-level `minify.sh` is
   gitignored and superseded — prefer `tools/minify.sh`.
 
@@ -68,10 +70,12 @@ maintenance rule is restated at the top of `CHANGELOG.md` itself.
 
 - Offline (no network): `node tests/road-merge.mjs`, `tests/abbreviate.mjs`,
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`.
-- End-to-end: `node tests/real-export.mjs` builds `script.min.js` fresh, then runs
-  the shipped min code headless and writes a real SVG to `exports/` (a committed
-  "trail"). It hits live Overpass if the local LAMP cache isn't running, so it
-  can be slow.
+- End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build
+  step) headless and writes a real SVG to `exports/` (a committed "trail").
+  It hits live Overpass if the local cache isn't running, so it can be slow.
+  Needs a webserver serving the repo at `/mapexport/` on `:8080` with PHP
+  support for `cache.php` — `lamp start` on Coen's machine, or plain
+  `php -S` anywhere else (see `memory/reference_lamp_server.md`).
 
 ## Conventions worth preserving
 
