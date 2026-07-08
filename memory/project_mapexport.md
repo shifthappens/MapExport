@@ -17,15 +17,13 @@ type: project
 - **City blocks**: stylised USE-IT blocks = the **negative space between streets**. A Web Worker fills the whole canvas, then subtracts the buffered road/rail/water/park network; each road-bounded face becomes one solid cream shape, curb-to-curb. Derived from the existing Overpass roads/water/parks layers, not separately fetched. See "City blocks" section below.
 - **Output**: SVG with named Inkscape-compatible layers (`inkscape:label`, `inkscape:groupmode="layer"`)
 - **Caching**: Server-side PHP cache (`cache.php`) with 7-day TTL; cache key = `mapexport_v3_{layerId}_{qHash}_{s}_{w}`. Query hash auto-retires stale entries on any query change.
-- **Minification**: `minify.sh` (terser for JS, custom node script for CSS), runs via pre-commit hook on the user's local machine
-- **Deployment**: `deploy.sh` — rsync to coen.at server (see `reference_deploy.md`)
+- **Minification**: `tools/minify.sh` (terser for JS, clean-css for CSS) — runs **only** in the GitHub Actions deploy workflow, never locally, never in tests. `script.min.js`/`style.min.css` are gitignored and should only ever exist on the production server.
+- **Deployment**: GitHub Actions workflow (`.github/workflows/deploy.yml`), manual-only — rsyncs to the coen.at server (see `reference_deploy.md`)
 
 ## Key files
-- `script.js` — All application logic (~2500 lines). **This is the source of truth** — `script.min.js` is generated from it.
-- `index.html` — Loads `script.min.js`, `style.min.css`, ClipperLib CDN, Leaflet
-- `style.css` / `style.min.css` — UI styles
-- `minify.sh` — Build script (pre-commit hook, local only — not in repo)
-- `deploy.sh` — rsync deploy (gitignored)
+- `script.js` — All application logic (~2500 lines). **This is the source of truth**, loaded directly by `index.html` in dev AND tested directly by `tests/real-export.mjs` — no build step anywhere except deploy.
+- `index.html` — Loads `script.js`, `style.css`, ClipperLib CDN, Leaflet directly. The deploy workflow rewrites a separate, deployed copy to point at the minified files; the repo's own `index.html` never changes.
+- `style.css` — UI styles
 - `cache.php` — Server-side Overpass response cache
 
 ## Current color scheme (USE-IT preset)
@@ -122,9 +120,12 @@ All verified against the Tilburg fixture baseline (`51.530,5.040,51.590,5.130`).
 
 If users report missing driveways or farm tracks, restore `service` and/or `track` as a deliberate decision.
 
-### Minify pre-commit hook
-The pre-commit hook runs `minify.sh` and auto-stages the regenerated `script.min.js`
-and `style.min.css`. No manual amend needed — just commit normally.
+### Pre-commit hook (updated 2026-07-08 — no longer minifies)
+`.githooks/pre-commit` only enforces the CHANGELOG rule now (a commit touching
+app source must also stage a `CHANGELOG.md` entry). It does not run
+`tools/minify.sh` or touch `script.min.js`/`style.min.css` — those are built
+**only** by the GitHub Actions deploy workflow, right before rsyncing to
+production, and should never exist in a local checkout.
 
 ### Test harness
 See `tests/README.md`. Five scripts under `tests/`:

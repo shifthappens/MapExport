@@ -102,7 +102,8 @@ were off; now every named road type is labeled. UI checkboxes still allow toggli
 
 ## How to apply
 This branch (`roads-merge-segments`) is not yet merged to main. All changes are in
-`script.js` (+ `script.min.js` generated). The label engine is the most complex part
+`script.js` (no generated files — minification is deploy-only, see CLAUDE.md).
+The label engine is the most complex part
 and has the most tunable constants — see inline comments for `MIN_FS`, `MIN_STREET_M`,
 bend caps, `fpR`, and `style.spacing` multipliers.
 

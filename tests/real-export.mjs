@@ -1,12 +1,17 @@
 // tests/real-export.mjs — headless real-world export against the LIVE local stack.
 //
-// Runs the actual shipped code (script.min.js) outside a browser: fetches each
-// layer through the running cache.php (Apache+mod_php on :8080), hitting Overpass
-// on a miss and writing the result back to cache/. City blocks (normally a Web
-// Worker) are computed here in a vm sandbox with ClipperLib. The assembled SVG is
-// saved to exports/ using the app's own filename format, as a committable trail.
+// Runs script.js itself (the same source the browser loads — no build step,
+// no minification) outside a browser: fetches each layer through the running
+// cache.php, hitting Overpass on a miss and writing the result back to cache/.
+// City blocks (normally a Web Worker) are computed here in a vm sandbox with
+// ClipperLib. The assembled SVG is saved to exports/ using the app's own
+// filename format, as a committable trail. Minification only ever happens in
+// the GitHub Actions deploy workflow (`.github/workflows/deploy.yml`) — it is
+// not part of dev or test.
 //
-// Prereqs: `lamp start` (Apache serving ~/Sites at :8080). See
+// Prereqs: a webserver serving the repo at /mapexport/ on :8080 with PHP
+// support for cache.php (e.g. `php -S localhost:8080` from a directory whose
+// `mapexport/` entry points at this repo, or Coen's local `lamp start`). See
 // memory/reference_lamp_server.md.
 //
 // Usage:
@@ -34,7 +39,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import vm from 'node:vm';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { lintSvg } from './svg-lint.mjs';
 
@@ -68,15 +72,10 @@ const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[cit
 const bbox = { south, west, north, east };
 const bboxStr = `${south},${west},${north},${east}`;
 
-// ── this harness runs the actual shipped (minified) code, not script.js ──
-// script.min.js is a gitignored build artifact, not needed for normal dev
-// (index.html loads script.js directly). Build it fresh here so this test
-// always exercises the current source through the real minifier.
-console.log('building script.min.js…');
-execFileSync('bash', [path.join(REPO, 'tools/minify.sh'), 'js'], { stdio: 'inherit' });
-
-// ── load shipped code into a vm sandbox with browser stubs ─────────
-let src = fs.readFileSync(path.join(REPO, 'script.min.js'), 'utf8')
+// ── load the real source into a vm sandbox with browser stubs ──────
+// Same script.js the browser loads in dev — no build/minify step, so this
+// always tests exactly what's in the working tree.
+let src = fs.readFileSync(path.join(REPO, 'script.js'), 'utf8')
   + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset};';
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };

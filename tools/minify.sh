@@ -4,11 +4,13 @@
 #   script.js  -> script.min.js   (terser:   global if present, else `npx terser`)
 #   style.css  -> style.min.css   (cleancss: global if present, else npx clean-css-cli)
 #
-# Both *.min.* files are GITIGNORED build artifacts — never committed, and
-# not needed for local dev (index.html loads script.js / style.css directly
-# in the browser). Only two things run this on demand:
-#   - tests/real-export.mjs, which tests the actual shipped (minified) code
-#   - deploy.sh, which builds fresh right before rsyncing to production
+# Both *.min.* files are GITIGNORED build artifacts — never committed, never
+# needed for local dev or tests (index.html loads script.js / style.css
+# directly, and tests/real-export.mjs tests script.js itself). The ONLY thing
+# that ever runs this is the GitHub Actions deploy workflow
+# (.github/workflows/deploy.yml), right before rsyncing to production — these
+# files should exist there and nowhere else. If you run this locally to check
+# the minifier itself, delete script.min.js/style.min.css afterwards.
 #
 # This is the canonical, version-controlled build script. It supersedes any
 # personal, gitignored root-level minify.sh.

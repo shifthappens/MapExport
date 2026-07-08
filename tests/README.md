@@ -51,9 +51,9 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
    ```
    node tests/real-export.mjs [city|s,w,n,e] [--record]
    ```
-   Runs the **shipped** `script.min.js` headlessly (vm + browser stubs) against the live `lamp` Apache on **:8080**: fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<city>-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Requires `lamp start` (without it, every tile goes straight to Overpass — slower but works).
+   Runs `script.js` itself headlessly (vm + browser stubs) — no build/minify step, same source the browser loads — against a webserver on **:8080** serving this repo at `/mapexport/` with PHP support for `cache.php` (Coen's local `lamp start`, or plain `php -S` anywhere else): fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<city>-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Works without the server running too (every tile then goes straight to Overpass — slower).
 
-   The run **fails** (exit 1, SVG still written for inspection) on: any svg-lint error, zero roads or labels, or a default-on layer below its per-city floor in `tests/expectations.json`. Floors are recorded from an **approved** run with `--record` (counts ×0.5, so OSM churn never trips them but a broken query/filter does). It refuses to start when `script.min.js` is older than `script.js` (exit 3 → run `bash tools/minify.sh`).
+   The run **fails** (exit 1, SVG still written for inspection) on: any svg-lint error, zero roads or labels, or a default-on layer below its per-city floor in `tests/expectations.json`. Floors are recorded from an **approved** run with `--record` (counts ×0.5, so OSM churn never trips them but a broken query/filter does).
 
    Then **always** verify in a real browser — never trust `qlmanage`/QuickLook (Apple's SVG rasterizer mishandles `dominant-baseline`, `paint-order` and `fill-rule`). Use the preview MCP on **:8889** (it can't share :8080 with Apache):
    - `preview_start "MapExport (PHP)"`

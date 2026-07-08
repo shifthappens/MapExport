@@ -18,11 +18,9 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 
 ```
 .
-├── index.html             # Single HTML entry point (loads script.js/style.css directly in dev)
+├── index.html             # Single HTML entry point (loads script.js/style.css directly, always)
 ├── script.js              # All application logic (~2500 lines, source of truth)
-├── script.min.js          # Generated, gitignored — built on demand, not needed for dev
 ├── style.css              # UI styles
-├── style.min.css          # Generated, gitignored — built on demand, not needed for dev
 ├── cache.php              # Server-side Overpass response cache (PHP)
 ├── fonts/                 # Mayonnaise Black + Apfel Grotezk (WOFF2)
 ├── tests/                 # Node.js regression harness (no deps)
@@ -43,7 +41,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 
 ### Source of truth
 
-`script.js` is the canonical source, and `index.html` loads `script.js` / `style.css` directly — there's **no local build step**. `script.min.js` and `style.min.css` are generated on demand by the tracked build script `tools/minify.sh` (terser for JS, clean-css for CSS), are **gitignored, never committed**, and only get built when something actually needs the shipped/minified code: `tests/real-export.mjs` (tests the real minified output) or `deploy.sh` (production). Never edit the minified files directly. See [Build](#build).
+`script.js` is the canonical source, and `index.html` loads `script.js` / `style.css` directly, always — dev, tests, and this repo have **no build step**. `script.min.js` and `style.min.css` are generated on demand by the tracked build script `tools/minify.sh` (terser for JS, clean-css for CSS), are **gitignored, never committed, never needed to run or test the app**, and only ever get built by the GitHub Actions deploy workflow, right before rsyncing them to production. They should exist there and nowhere else. Never edit the minified files directly. See [Build](#build).
 
 ## Tech stack
 
@@ -228,12 +226,12 @@ SSH key, so it also works from a Claude Code mobile session. It:
 
 The build is tracked in the repo under `tools/` and `.githooks/` — no personal
 scripts required. **`script.min.js` and `style.min.css` are gitignored build
-artifacts, never committed, and not needed for local dev** — `index.html`
-loads `script.js` / `style.css` directly in the browser, so there's no build
-step to run day-to-day. The minifier only gets invoked on demand, by:
-
-- `tests/real-export.mjs`, which tests the actual shipped (minified) code path
-- `deploy.sh`, which builds fresh right before syncing to production
+artifacts, never committed, and never needed for local dev or tests** —
+`index.html` loads `script.js` / `style.css` directly, and
+`tests/real-export.mjs` tests `script.js` itself, so there's no build step to
+run day-to-day. The **only** thing that ever invokes the minifier is the
+GitHub Actions deploy workflow, right before syncing to production — these
+files should exist there and nowhere else.
 
 ```bash
 bash tools/setup-hooks.sh   # once per clone: points core.hooksPath at .githooks/
@@ -243,13 +241,14 @@ The tracked **pre-commit hook** (`.githooks/pre-commit`) only **enforces the
 changelog**: a commit touching app source (`script.js`, `style.css`,
 `index.html`, `cache.php`) must also stage a `CHANGELOG.md` entry, or the
 commit is rejected. Bypass pure-internal churn with
-`SKIP_CHANGELOG=1 git commit ...`.
+`SKIP_CHANGELOG=1 git commit ...`. It does not minify anything.
 
-You can also run the minifier directly: `tools/minify.sh [js|css|all]`. It prefers
-globally installed `terser` / `cleancss` and falls back to `npx`
-(`npm install -g terser clean-css-cli` to avoid the npx fetch). Any personal
-root-level `minify.sh` / `deploy.sh` remains gitignored and is superseded by the
-tracked tooling.
+You can also run the minifier directly to sanity-check it: `tools/minify.sh
+[js|css|all]`. It prefers globally installed `terser` / `cleancss` and falls
+back to `npx` (`npm install -g terser clean-css-cli` to avoid the npx fetch).
+Delete the generated `script.min.js`/`style.min.css` afterwards — they're not
+meant to linger in a local checkout. Any personal root-level `minify.sh` /
+`deploy.sh` remains gitignored and is superseded by the tracked tooling.
 
 ## Key design decisions
 

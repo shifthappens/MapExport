@@ -6,4 +6,4 @@ cd "$(git rev-parse --show-toplevel)"
 git config core.hooksPath .githooks
 chmod +x .githooks/* tools/*.sh 2>/dev/null || true
 echo "✓ git hooks installed: core.hooksPath -> .githooks"
-echo "  pre-commit will now minify staged assets and enforce CHANGELOG.md."
+echo "  pre-commit will now enforce the CHANGELOG.md rule (it does not minify)."
