@@ -2268,7 +2268,12 @@ self.onmessage = function(e) {
   // canals often have no natural=water area — only this centerline — so the
   // water-overlap safety check below needs these to catch blocks slipping
   // through over them, not just over closed water_bodies polygons.
-  const waterwayVoidPolys = [];
+  // The offset union isn't only solid rings: where waterways fork and rejoin
+  // (a river splitting around an island) the buffers close a loop and the
+  // union comes back with a HOLE ring over the enclosed dry land. Each ring
+  // therefore carries its orientation sign (+1 solid, -1 hole) so the check
+  // below can wind them instead of treating every ring as water.
+  const waterwayVoidPolys = []; // { pts: [[x,y],...], sign: +1 | -1 }
   if (waterwayLines && waterwayLines.length) {
     const wwGroups = new Map();
     for (const { pts, halfW } of waterwayLines) {
@@ -2283,7 +2288,12 @@ self.onmessage = function(e) {
       const buf = new CLP.Paths();
       co.Execute(buf, halfW * SCALE);
       for (const bp of buf) {
-        if (bp && bp.length >= 3) waterwayVoidPolys.push(bp.map(p => [p.X / SCALE, p.Y / SCALE]));
+        if (bp && bp.length >= 3) {
+          waterwayVoidPolys.push({
+            pts: bp.map(p => [p.X / SCALE, p.Y / SCALE]),
+            sign: CLP.Clipper.Area(bp) >= 0 ? 1 : -1,
+          });
+        }
       }
     }
   }
@@ -2378,9 +2388,15 @@ self.onmessage = function(e) {
         if (pointInPoly(px, py, wp)) { inWater = true; break; }
       }
       if (!inWater) {
+        // Wind the buffered waterway rings (+1 solid, -1 hole) instead of
+        // treating each as solid: land enclosed by a waterway loop (a river
+        // forking around an island) sits inside a hole ring, and a bare
+        // point-in-ring test would drown its block.
+        let wind = 0;
         for (const wp of waterwayVoidPolys) {
-          if (pointInPoly(px, py, wp)) { inWater = true; break; }
+          if (pointInPoly(px, py, wp.pts)) wind += wp.sign;
         }
+        if (wind > 0) inWater = true;
       }
     }
     if (inWater) continue;

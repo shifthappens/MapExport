@@ -1,9 +1,42 @@
 # Fix: river islands render blank — island-aware green cover + hole-aware city blocks
 
-**Status: IMPLEMENTED (2026-07-07)** — shipped in `script.js` (and verified
-offline against this archive's tiles; see "As shipped" below). Awaiting a
-visual sign-off in the real browser app before the reproduction archive is
-deleted.
+**Status: IMPLEMENTED (2026-07-07, follow-up 2026-07-09)** — shipped in
+`script.js` (and verified offline against this archive's tiles; see "As
+shipped" below). Awaiting a visual sign-off in the real browser app before
+the reproduction archive is deleted.
+
+## Follow-up (2026-07-09): a SECOND island class was still white
+
+The 2026-07-07 fix covered islands that are **inner rings of a water
+multipolygon**. The Erfurt export still showed a white island SE of
+Predigerhof (between the Bergstrom and Walkstrom arms of the Gera): that land
+is **not inside the water relation at all** — it sits in the concavity
+between the relation's outer boundary and two stroked waterway centrelines
+that fork and rejoin around it. No inner ring → `waterIslandRings` never sees
+it, so the island exception can't apply.
+
+Its city block WAS produced by the cutter, then discarded by the water-overlap
+safety check: buffering the waterway centrelines with `ClipperOffset` returns
+not just solid rings but also **hole rings** wherever the buffered lines close
+a loop (the enclosed dry land), and the check tested `pointInPoly` against
+every ring as if solid — so any land ringed by waterways was "in water".
+The same defect blanked an entire Ghent district inside the
+Muinkschelde/Leie canal loop (~200 blocks, present in every Ghent export
+since the waterway check landed).
+
+Fix (universal, no city-specific code): `waterwayVoidPolys` entries now carry
+their orientation sign (+1 solid, −1 hole, from `Clipper.Area`), and the check
+winds them — a point counts as waterway water only when its winding sum is
+positive. Verified against the archived Erfurt tiles (corridor renders as a
+cream block, island greens unchanged) and Ghent/Tilburg real exports
+(district restored; Tilburg unchanged).
+
+Known, deliberate limitation: unnamed green cover renders only on
+multipolygon-hole islands (`waterIslandRings`). On a waterway-loop island it
+would still be pruned and the land renders as a plain cream block — truthful
+land, no error-white. Detecting loop islands in lat/lon for
+`pruneIslandGreens` would need Clipper on the main thread; not worth it until
+a real city shows the need.
 
 ## As shipped (deviations from the rev-2 plan below)
 

@@ -11,7 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
-<<<<<<< HEAD
+### 2026-07-09 — Land enclosed by forking waterways no longer renders white
+- City blocks on land ringed by waterway centrelines — a river splitting and
+  rejoining around an island (Erfurt, between Bergstrom and Walkstrom), or a
+  whole district inside a canal loop (Ghent, south of Sint-Lievenslaan) —
+  were wrongly discarded as "in water" and left the area blank white. The
+  water-overlap check now winds the buffered waterway rings (solid vs hole)
+  instead of treating every ring as water, so enclosed dry land keeps its
+  cream blocks. Restores ~200 missing blocks in the Ghent test area alone.
+
 ### 2026-07-09 — Export filenames now include a place name
 - The exported filename now includes a place name, derived silently in the
   background: reverse-geocoded from the bbox centre after drawing a
