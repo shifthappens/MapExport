@@ -2191,27 +2191,57 @@ function polyCentroid(pts) {
   return [cx / (6 * a), cy / (6 * a)];
 }
 
-// A point GUARANTEED to lie inside the ring — the midpoint of the widest span
-// where a horizontal line through the ring's vertical middle crosses it. Unlike
-// the area centroid, this never lands outside a concave shape (e.g. a banana-
-// curved river island), so the water-overlap check below can't wrongly discard
-// an island block whose centroid falls out in the channel. pts: [{X,Y}, ...].
-function polyInteriorPoint(pts) {
+// Sorted x-crossings of a horizontal line at height y through a ring.
+function scanlineCrossings(ring, y) {
+  const xs = [];
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const yi = ring[i].Y, yj = ring[j].Y;
+    if ((yi > y) !== (yj > y)) xs.push(ring[i].X + (ring[j].X - ring[i].X) * (y - yi) / (yj - yi));
+  }
+  return xs.sort((a, b) => a - b);
+}
+// Interval difference: spans minus every span in subs (both lists of [lo,hi]).
+function subtractSpans(spans, subs) {
+  let out = spans;
+  for (const [sLo, sHi] of subs) {
+    const next = [];
+    for (const [lo, hi] of out) {
+      if (sHi <= lo || sLo >= hi) { next.push([lo, hi]); continue; }
+      if (sLo > lo) next.push([lo, sLo]);
+      if (sHi < hi) next.push([sHi, hi]);
+    }
+    out = next;
+  }
+  return out;
+}
+// A point GUARANTEED to lie inside the ring and OUTSIDE every hole — the
+// midpoint of the widest land span where a horizontal line through the
+// ring's vertical middle crosses it, holes subtracted out first. Unlike the
+// area centroid, this never lands outside a concave shape (e.g. a banana-
+// curved river island), so the water-overlap check below can't wrongly
+// discard an island block whose centroid falls out in the channel — and
+// unlike a bare outer-ring scanline, it can't land inside a hole either (a
+// courtyard pond sitting dead-centre in an otherwise dry block used to pick
+// its "interior" point inside the pond and get the whole block discarded
+// as water). pts/holes: Clipper paths ([{X,Y}, ...]).
+function polyInteriorPoint(pts, holes) {
   let minY = Infinity, maxY = -Infinity;
   for (const p of pts) { if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y; }
   const y = (minY + maxY) / 2;
-  const xs = [];
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const yi = pts[i].Y, yj = pts[j].Y;
-    if ((yi > y) !== (yj > y)) xs.push(pts[i].X + (pts[j].X - pts[i].X) * (y - yi) / (yj - yi));
+  const xs = scanlineCrossings(pts, y);
+  let spans = [];
+  for (let k = 0; k + 1 < xs.length; k += 2) spans.push([xs[k], xs[k + 1]]);
+  if (holes) {
+    for (const h of holes) {
+      const hxs = scanlineCrossings(h, y);
+      const hspans = [];
+      for (let k = 0; k + 1 < hxs.length; k += 2) hspans.push([hxs[k], hxs[k + 1]]);
+      spans = subtractSpans(spans, hspans);
+    }
   }
-  xs.sort((a, b) => a - b);
-  let bestX = null, bestW = -1;
-  for (let k = 0; k + 1 < xs.length; k += 2) {
-    const w = xs[k + 1] - xs[k];
-    if (w > bestW) { bestW = w; bestX = (xs[k] + xs[k + 1]) / 2; }
-  }
-  return bestX === null ? polyCentroid(pts) : [bestX, y];
+  let bestSpan = null, bestW = -1;
+  for (const s of spans) { const w = s[1] - s[0]; if (w > bestW) { bestW = w; bestSpan = s; } }
+  return bestSpan ? [(bestSpan[0] + bestSpan[1]) / 2, y] : polyCentroid(pts);
 }
 
 self.onmessage = function(e) {
@@ -2374,7 +2404,7 @@ self.onmessage = function(e) {
     // already in voidClean, but partial coverage/epsilon drift can leave
     // slivers). Tested at a guaranteed-interior point, not the centroid, which
     // for a concave island block lands out in the channel.
-    const [cx, cy] = polyInteriorPoint(raw.outer);
+    const [cx, cy] = polyInteriorPoint(raw.outer, raw.holes);
     const px = cx / SCALE, py = cy / SCALE; // waterPolys/holes are unscaled px
     // A point inside a water island (an inner ring) is dry land — it stays a
     // block even though it also sits inside the water OUTER ring, and even

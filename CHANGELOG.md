@@ -11,6 +11,21 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-10 — Blocks with an internal pond no longer discarded whole
+- A city block containing a small internal water feature — a courtyard pond,
+  fountain basin — near its horizontal midline could pick its "guaranteed
+  interior" test point from inside that pond instead of the surrounding dry
+  land, so the water-overlap safety check discarded the whole block (Ghent,
+  a full block near Burgstraat/Abrahamstraat rendered entirely blank except
+  for its pond). The interior-point picker now excludes hole spans (ponds,
+  courtyards) from its scanline before choosing a point, so it can no longer
+  land inside a hole.
+- Added a coverage lint (`tests/coverage-lint.mjs`, wired into
+  `tests/real-export.mjs`) that rasterises every block/water/park/road/
+  waterway/rail shape in an export and fails the run if any patch of land
+  above ~3x3mm on the printed sheet ends up painted by nothing — the general
+  form of both this bug and the 2026-07-09 waterway one. It found this one.
+
 ### 2026-07-09 — Land enclosed by forking waterways no longer renders white
 - City blocks on land ringed by waterway centrelines — a river splitting and
   rejoining around an island (Erfurt, between Bergstrom and Walkstrom), or a

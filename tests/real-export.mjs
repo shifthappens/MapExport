@@ -41,6 +41,7 @@ import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintSvg } from './svg-lint.mjs';
+import { checkCoverage } from './coverage-lint.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://localhost:8080/mapexport/';
@@ -76,7 +77,7 @@ const bboxStr = `${south},${west},${north},${east}`;
 // Same script.js the browser loads in dev — no build/minify step, so this
 // always tests exactly what's in the working tree.
 let src = fs.readFileSync(path.join(REPO, 'script.js'), 'utf8')
-  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset};';
+  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset,stitchMultipolygonRings};';
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
 const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
@@ -163,11 +164,12 @@ for (const layer of fetchable) {
 }
 
 // city blocks (derived) — compute then add an empty result so buildSVG renders them
-let blocks = [];
+let blocks = [], blockData = null, blockPr = null, blockH = null;
 if (cityBlocks) {
   const { pr, H } = X.makeProjector(bbox, W);
   const data = X.prepareBlockData(results, pr, W, H);
   blocks = computeBlocks(data, await getClipperSrc());
+  blockData = data; blockPr = pr; blockH = H;
   results.push({ layer: cityBlocks, data: { elements: [] } });
   console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks`);
 }
@@ -225,11 +227,35 @@ const lint = lintSvg(svg);
 for (const e of lint.errors) failures.push(`lint: ${e}`);
 console.log(`lint: ${lint.errors.length} error(s), ${lint.warnings.length} warning(s) over ${lint.labelCount} labels`);
 
-// 2. structural floors that hold for ANY city.
+// 2. coverage lint: any land in the bbox that no block/water/park/road/
+//    waterway/rail paints, so only the bare page background shows through
+//    (see plans/2026-07-07_erfurt-river-islands-not-rendering.md — this is
+//    the general form of the bug fixed twice there). The block cutter itself
+//    deliberately drops contours under 400px² as visual noise (`minArea` in
+//    BLOCK_WORKER_SRC) — every city has a few of these micro-slivers at
+//    complex junctions, and they are not the bug this check targets. The
+//    significance floor here must clear that intentional floor by a wide
+//    margin, and scale with physical print size (not raw px) so it means
+//    the same thing at any zoom: ~3x3mm on the printed sheet, comfortably
+//    bigger than a junction rounding artifact, small enough to catch a real
+//    dropped block.
+if (blockData) {
+  const cov = checkCoverage({ X, results, data: blockData, blocks, bbox, W, H: blockH, pr: blockPr });
+  const pxPerMm = W / physicalWidthMm;
+  const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
+  const real = cov.blobs.filter(b => b.cells * cov.step * cov.step >= minAreaPx2);
+  console.log(`coverage: ${cov.gapCells} empty grid cell(s) (step ${cov.step}px) in ${cov.blobs.length} blob(s), ${real.length} at/above the ${minAreaPx2.toFixed(0)}px² (~3x3mm) significance floor`);
+  for (const b of real.slice(0, 10)) {
+    failures.push(`coverage: unpainted land ~${(b.cells * cov.step * cov.step).toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)})`);
+  }
+  if (real.length > 10) failures.push(`coverage: ${real.length - 10} more gap(s) at/above the significance floor, not listed`);
+}
+
+// 3. structural floors that hold for ANY city.
 if (!layerCounts.roads) failures.push(`roads layer produced ${layerCounts.roads ?? 'no'} elements`);
 if (!lint.labelCount) failures.push('export contains zero labels');
 
-// 3. per-city floors captured from an approved run (--record), ~50% of that
+// 4. per-city floors captured from an approved run (--record), ~50% of that
 //    run's counts so OSM churn never trips them but a broken query/filter does.
 const expPath = path.join(REPO, 'tests', 'expectations.json');
 const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
