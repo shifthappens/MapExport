@@ -11,6 +11,16 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-09 — Illustrator export: curved labels no longer "dance"
+- Per-glyph curved labels in the Illustrator pipeline sampled their rotation
+  from a polyline whose bends sit at discrete vertices, so a single letter
+  could swallow an 8–11° direction change while its neighbours stayed flat —
+  designers reported letters visibly dancing along streets. The glyph
+  baseline is now resampled and low-passed (Gaussian sigma ≈ 0.9em) before
+  layout, and narrow glyphs get a minimum tangent-sampling window, spreading
+  each bend smoothly across neighbouring letters. Standard (Inkscape/others)
+  pipeline unchanged.
+
 ### 2026-07-07 — Escape place names in search result rendering
 - City search and admin-boundary search results now HTML-escape the place
   name pulled from Nominatim before inserting it via `innerHTML`, closing a

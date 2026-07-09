@@ -1570,6 +1570,39 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
   // QuickLook and Illustrator don't, which made labels sit on/above their
   // street in exactly the renderers designers use.
   const CAP_HALF=0.36;
+  // Low-pass a label baseline for per-glyph layout (Illustrator pipeline).
+  // Resamples the polyline at uniform arc-length steps of fontSize/4, then
+  // runs a pinned-endpoint [1,2,1]/4 relaxation enough times that the
+  // effective Gaussian sigma is ~0.9em — bends narrower than a glyph are
+  // typographic noise and get spread across neighbouring letters instead of
+  // being swallowed whole by one. (Each relaxation pass adds 1/2 sample² of
+  // variance, so rounds = 2·(sigma/step)² with sigma=0.9em, step=0.25em.)
+  // The inward pull this causes on a genuine bend is ~sigma²/(2·radius) —
+  // sub-pixel on ordinary street curvature, and still well under capHeight
+  // on the tightest label-worthy bends.
+  const smoothBaselineForGlyphLayout=(points,fontSize)=>{
+    const arcLens=[0];
+    for(let i=1;i<points.length;i++)
+      arcLens.push(arcLens[i-1]+Math.hypot(points[i][0]-points[i-1][0],points[i][1]-points[i-1][1]));
+    const totalLength=arcLens[arcLens.length-1];
+    const step=fontSize*0.25;
+    const sampleCount=Math.max(2,Math.ceil(totalLength/step));
+    let samples=[];
+    for(let k=0;k<=sampleCount;k++)
+      samples.push(pointAtArcLen(points,arcLens,totalLength*k/sampleCount));
+    const relaxationRounds=Math.round(2*Math.pow(0.9/0.25,2)); // ≈ 26
+    for(let round=0;round<relaxationRounds&&samples.length>2;round++){
+      const relaxed=[samples[0]];
+      for(let i=1;i<samples.length-1;i++)
+        relaxed.push([
+          (samples[i-1][0]+2*samples[i][0]+samples[i+1][0])/4,
+          (samples[i-1][1]+2*samples[i][1]+samples[i+1][1])/4
+        ]);
+      relaxed.push(samples[samples.length-1]);
+      samples=relaxed;
+    }
+    return samples;
+  };
   // Illustrator emission for curved labels. Illustrator's <textPath> import
   // is the single worst SVG quirk this exporter deals with: versions before
   // 23.0.6 place the glyphs along the path but never rotate them, every
@@ -1581,9 +1614,20 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
   // pipeline hands to <textPath>. Illustrator opens the group as plain
   // point-text objects that render identically in every version.
   const emitCurvedLabelAsGlyphs=(hw,name,attrs,label,baseline,fs)=>{
+    // The incoming baseline is a polyline: all of its curvature sits at
+    // discrete vertices, and Chaikin corner-cutting (2 rounds) still leaves
+    // each bend concentrated in a span narrower than one glyph. A browser
+    // hides that inside <textPath>, but per-glyph layout samples the tangent
+    // locally — so one letter would swallow an entire 8–11° bend while its
+    // neighbours stay flat, which reads as letters "dancing" along the
+    // street. Low-pass the baseline first: resample at uniform arc-length
+    // steps, then relax with a [1,2,1]/4 kernel until no curvature feature
+    // is narrower than roughly a glyph width. Endpoints stay pinned, and the
+    // smoothed line deviates from the road axis by well under capHeight.
+    const smoothedBaseline=smoothBaselineForGlyphLayout(baseline,fs);
     const arcLens=[0];
-    for(let i=1;i<baseline.length;i++)
-      arcLens.push(arcLens[i-1]+Math.hypot(baseline[i][0]-baseline[i-1][0],baseline[i][1]-baseline[i-1][1]));
+    for(let i=1;i<smoothedBaseline.length;i++)
+      arcLens.push(arcLens[i-1]+Math.hypot(smoothedBaseline[i][0]-smoothedBaseline[i-1][0],smoothedBaseline[i][1]-smoothedBaseline[i-1][1]));
     const baselineLength=arcLens[arcLens.length-1];
     // Tracking matches the letter-spacing every caller bakes into attrs
     // (uniformly fontSize*0.08); per-glyph layout adds it between advances
@@ -1606,14 +1650,18 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
       const glyphCenterArc=Math.max(0,Math.min(baselineLength,penArcPosition+advance/2));
       penArcPosition+=advance+letterSpacing;
       if(character===' ') continue; // nothing to draw, advance already taken
-      const [x,y]=pointAtArcLen(baseline,arcLens,glyphCenterArc);
-      // Local tangent over the glyph's own extent. Raw atan2 angle, NOT
-      // normalised into ±90° like pointAngleAtLength does for whole labels:
-      // the baseline is already reading-oriented, so the tangent direction
-      // IS the glyph rotation (momentarily past vertical on a wiggle is
-      // correct, flipping it there would turn one letter upside down).
-      const behind=pointAtArcLen(baseline,arcLens,Math.max(0,glyphCenterArc-advance/2));
-      const ahead=pointAtArcLen(baseline,arcLens,Math.min(baselineLength,glyphCenterArc+advance/2));
+      const [x,y]=pointAtArcLen(smoothedBaseline,arcLens,glyphCenterArc);
+      // Local tangent over the glyph's own extent — with a floor of 0.8em,
+      // because narrow glyphs ('I', '.') would otherwise sample a window so
+      // short that any residual vertex makes them rotate out of step with
+      // their neighbours. Raw atan2 angle, NOT normalised into ±90° like
+      // pointAngleAtLength does for whole labels: the baseline is already
+      // reading-oriented, so the tangent direction IS the glyph rotation
+      // (momentarily past vertical on a wiggle is correct, flipping it
+      // there would turn one letter upside down).
+      const tangentHalfWindow=Math.max(advance,fs*0.8)/2;
+      const behind=pointAtArcLen(smoothedBaseline,arcLens,Math.max(0,glyphCenterArc-tangentHalfWindow));
+      const ahead=pointAtArcLen(smoothedBaseline,arcLens,Math.min(baselineLength,glyphCenterArc+tangentHalfWindow));
       const angle=Math.atan2(ahead[1]-behind[1],ahead[0]-behind[0])*180/Math.PI;
       glyphTexts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" transform="rotate(${angle.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})">${escXml(character)}</text>`);
     }
