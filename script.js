@@ -17,6 +17,7 @@ const HELP = {
     content: `
       <p>Click <strong>Draw rectangle</strong>, then drag a box on the map to define what gets exported. The bounding box coordinates (N/S/E/W) are shown after drawing.</p>
       <p>You can redraw at any time — the new selection replaces the old one.</p>
+      <p>The exported filename includes a place name, looked up automatically from the selection (reverse geocoded from the bbox centre, or taken from the matched place if you used <strong>Use admin boundary</strong>). If none can be found, you'll be asked to type one in right before export.</p>
       <ul>
         <li>Small areas (a few city blocks) export in under a minute</li>
         <li>A typical city centre can take 2–5 minutes</li>
@@ -296,6 +297,9 @@ const METRO_PALETTE=['#e63030','#2979e6','#29b860','#f0a500','#9b30e6','#00aacc'
 let map, bboxRect=null, bbox=null, isDrawing=false, drawStart=null;
 let lastSvgString=null, lastSvgFilename=null;
 let searchTimeout=null;
+let currentAreaName='';       // best-known place name for the current bbox (silent, no UI field)
+let areaNameLookup=null;      // in-flight reverse-geocode promise, if any
+let areaNameLookupToken=0;    // invalidates a stale in-flight lookup after a redraw/re-pick
 let lastResults=null;   // cached Overpass data from the most recent export fetch
 let previewDebounce=null;
 let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
@@ -405,6 +409,8 @@ function startDraw() {
       updateBboxDisplay();
       document.getElementById('btn-export').disabled = false;
       setStatus('Area set — choose style and export','');
+      setAreaName('');
+      reverseGeocodeAreaName(bbox);
     }
     map.on('mousemove', onMove); map.on('mouseup', onUp);
   }
@@ -460,6 +466,7 @@ async function fetchBoundaries(placeName) {
         updateBboxDisplay();
         document.getElementById('btn-export').disabled = false;
         setStatus('Boundary loaded — choose style and export','');
+        setAreaName(pickAreaName(place.address, place.display_name));
         res.classList.remove('show');
       });
       res.appendChild(item);
@@ -2670,10 +2677,111 @@ function getAllSelectedLayers() {
   return layers;
 }
 
+// ════════════════════════════════════════════════════════════════
+//  AREA NAME  (derives a sensible filename slug from the selection)
+// ════════════════════════════════════════════════════════════════
+function slugifyName(name) {
+  return (name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+}
+
+// Picks the shortest human place name out of a Nominatim address breakdown
+// (OSM often returns several usable candidates at once — official vs.
+// colloquial, city vs. district — the shortest tends to be the plain city
+// name), falling back to the leading segment of display_name.
+function pickAreaName(address, displayName) {
+  const a=address||{};
+  const candidates=[a.city,a.town,a.village,a.hamlet,a.municipality,a.city_district,a.borough,a.suburb,a.county,a.state].filter(Boolean);
+  if (candidates.length) return candidates.reduce((shortest,c)=>c.length<shortest.length?c:shortest);
+  return displayName?displayName.split(',')[0].trim():'';
+}
+
+// Truncates a name for display in tight UI spots (e.g. the history list)
+// so it can't wrap or overflow; the full name is kept in the filename/storage.
+function truncateName(name, maxLen=24) {
+  if (!name || name.length<=maxLen) return name;
+  return name.slice(0,maxLen-1).trimEnd()+'…';
+}
+
+function setAreaName(name) {
+  areaNameLookupToken++; // invalidate any in-flight reverse-geocode from a previous selection
+  areaNameLookup=null;
+  currentAreaName=name||'';
+}
+
+// Reverse-geocodes the bbox centre so a manually-drawn rectangle still gets
+// a sensible default name, without ever showing a field for it — doExport()
+// awaits this (or falls back to the name-prompt modal) before proceeding.
+function reverseGeocodeAreaName(b) {
+  const token=++areaNameLookupToken;
+  currentAreaName='';
+  areaNameLookup=(async () => {
+    let name='';
+    try {
+      const lat=(b.north+b.south)/2, lon=(b.east+b.west)/2;
+      const url=`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1&zoom=10`;
+      const data=await (await fetch(url,{headers:{'Accept-Language':'en'}})).json();
+      name=pickAreaName(data.address, data.display_name);
+    } catch(e) { /* leave blank — doExport() will prompt for one */ }
+    if (token===areaNameLookupToken) { currentAreaName=name; areaNameLookup=null; }
+    return name;
+  })();
+  return areaNameLookup;
+}
+
+// Shows the "name this map" modal, resolving to the typed name or null if
+// the user cancels (via Cancel, Escape, or clicking the backdrop).
+function promptForAreaName() {
+  return new Promise(resolve => {
+    const modal=document.getElementById('name-modal');
+    const input=document.getElementById('name-modal-input');
+    const error=document.getElementById('name-modal-error');
+    const submitBtn=document.getElementById('name-modal-submit');
+    const cancelBtn=document.getElementById('name-modal-cancel');
+    input.value='';
+    error.textContent='';
+    modal.classList.add('show');
+    setTimeout(()=>input.focus(),0);
+
+    function cleanup() {
+      modal.classList.remove('show');
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      modal.removeEventListener('mousedown', onBackdrop);
+    }
+    function onSubmit() {
+      const v=input.value.trim();
+      if (!v) { error.textContent='Enter a name to continue'; input.focus(); return; }
+      cleanup();
+      resolve(v);
+    }
+    function onCancel() { cleanup(); resolve(null); }
+    function onKeydown(e) {
+      if (e.key==='Enter') onSubmit();
+      else if (e.key==='Escape') onCancel();
+    }
+    function onBackdrop(e) { if (e.target===modal) onCancel(); }
+
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+    modal.addEventListener('mousedown', onBackdrop);
+  });
+}
+
 async function doExport() {
   if (!bbox) return;
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
+  if (areaNameLookup) { setStatus('Looking up a name for this area…','loading'); await areaNameLookup; }
+  if (!slugifyName(currentAreaName)) {
+    const typed=await promptForAreaName();
+    if (typed===null) { setStatus('Export cancelled — no name given','error'); return; }
+    setAreaName(typed);
+  }
+  const areaName=currentAreaName;
+  const areaSlug=slugifyName(areaName);
   const physicalWidthMm=getPhysicalSizeMm(bbox).mmW;
   const W=Math.round(physicalWidthMm/25.4*PRINT_DPI);
   // Which serialization pipeline: Illustrator-compatible (default — most
@@ -2684,7 +2792,7 @@ async function doExport() {
   // YYYY-MM-DD-HHMMSS (local time) so multiple exports on the same day don't collide.
   const d=new Date(),p2=n=>String(n).padStart(2,'0');
   const stamp=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-  const filename=`map-${activePreset}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
+  const filename=`map-${activePreset}-${areaSlug}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
 
   document.getElementById('btn-export').disabled=true;
   clearFailedTileOverlays();
@@ -2922,7 +3030,7 @@ async function doExport() {
   document.getElementById('btn-export').disabled=false;
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
   showFailedTileSummary(totalFailedTiles);
-  saveHistory(bbox, activePreset, W, filename, actualMB, totalElements);
+  saveHistory(bbox, activePreset, W, filename, actualMB, totalElements, areaName);
 }
 
 function triggerDownload(svg,filename) {
@@ -2941,16 +3049,18 @@ function showPreview(svg,filename) {
 // ════════════════════════════════════════════════════════════════
 //  HISTORY  (localStorage)
 // ════════════════════════════════════════════════════════════════
-function saveHistory(b, preset, W, filename, mb, elements) {
+function saveHistory(b, preset, W, filename, mb, elements, areaName) {
   try {
     const key='mapexport_history';
     const existing=JSON.parse(localStorage.getItem(key)||'[]');
+    const now=new Date();
     const entry={
       id: Date.now(),
-      date: new Date().toLocaleDateString(),
+      date: now.toLocaleDateString(),
+      time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
       label: filename.replace('.svg',''),
       bbox: b,
-      preset, W, mb, elements,
+      preset, W, mb, elements, areaName,
       layers: getAllSelectedLayers().map(l=>l.id),
     };
     existing.unshift(entry);
@@ -2976,7 +3086,9 @@ function renderHistory() {
       div.className='history-item';
       const {south,west,north,east}=entry.bbox;
       const kmNS=((north-south)*111).toFixed(0), kmEW=((east-west)*111*Math.cos((north+south)/2*Math.PI/180)).toFixed(0);
-      div.innerHTML=`<div><div class="hi-label">${entry.date} · ${entry.preset}</div><div class="hi-meta">${kmNS}×${kmEW}km · ${entry.W}px · ${entry.mb}MB</div></div><button class="hi-del" title="Remove">✕</button>`;
+      const name=entry.areaName||entry.preset;
+      const when=entry.time?`${entry.date} ${entry.time}`:entry.date;
+      div.innerHTML=`<div class="hi-info"><div class="hi-label" title="${escXml(name)}">${escXml(truncateName(name))}</div><div class="hi-meta">${when} · ${kmNS}×${kmEW}km · ${entry.W}px · ${entry.mb}MB</div></div><button class="hi-del" title="Remove">✕</button>`;
       div.querySelector('.hi-del').addEventListener('click', e=>{
         e.stopPropagation();
         try { const h=JSON.parse(localStorage.getItem('mapexport_history')||'[]'); localStorage.setItem('mapexport_history',JSON.stringify(h.filter(x=>x.id!==entry.id))); renderHistory(); } catch(e){}
@@ -2988,10 +3100,11 @@ function renderHistory() {
         bboxRect=L.rectangle([[entry.bbox.south,entry.bbox.west],[entry.bbox.north,entry.bbox.east]],{color:'#bf3b1e',weight:1.5,fillColor:'#bf3b1e',fillOpacity:0.07,dashArray:'5 3'}).addTo(map);
         updateBboxDisplay();
         document.getElementById('btn-export').disabled=false;
+        setAreaName(entry.areaName||'');
         // Restore preset
         activePreset=PRESETS[entry.preset]?entry.preset:'useit';
         document.querySelectorAll('.preset-btn').forEach(b=>{b.classList.toggle('active',b.dataset.preset===activePreset);});
-        setStatus(`Loaded: ${entry.date} export`,'success');
+        setStatus(`Loaded: ${entry.areaName||entry.preset} · ${entry.date}${entry.time?' '+entry.time:''}`,'success');
       });
       list.appendChild(div);
     });

@@ -11,6 +11,21 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-09 — Export filenames now include a place name
+- The exported filename now includes a place name, derived silently in the
+  background: reverse-geocoded from the bbox centre after drawing a
+  rectangle, or taken from the matched place when using "Use admin
+  boundary". No UI field for this in the normal flow — it just works.
+- If no name could be derived (rural/unnamed areas), clicking **Export
+  SVG** now pops up a small modal asking for one before the export starts;
+  cancelling it cancels the export. This is expected to be rare.
+- The exported filename is now `map-{style}-{name}-{timestamp}.svg`
+  instead of just `map-{style}-{timestamp}.svg`. When OSM returns several
+  usable place names for a location, the shortest one is used.
+- **Recent exports** now show the area name and time instead of the style
+  name (which was always "useit" and told you nothing) — long names are
+  truncated with "…" so the list doesn't wrap.
+
 ### 2026-07-09 — Illustrator export: curved labels no longer "dance"
 - Per-glyph curved labels in the Illustrator pipeline sampled their rotation
   from a polyline whose bends sit at discrete vertices, so a single letter
