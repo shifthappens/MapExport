@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-10 — "Find my location" button in the city search
+- A locate icon inside the search field flies the map to your current
+  position via the browser Geolocation API and fills the search box with the
+  reverse-geocoded place name. Strictly opt-in: the browser's permission
+  prompt only appears when you click it, never on page load.
+
 ### 2026-07-10 — Blocks with an internal pond no longer discarded whole
 - A city block containing a small internal water feature — a courtyard pond,
   fountain basin — near its horizontal midline could pick its "guaranteed

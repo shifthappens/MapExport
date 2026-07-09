@@ -46,9 +46,16 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 
 /* ── Search ──────────────────────────────────────────── */
 #search-wrap{display:flex;gap:0;position:relative}
-#search-input{flex:1;padding:10px 12px;background:var(--white);border:2.5px solid var(--border);border-right:none;border-radius:2px 0 0 2px;font-family:var(--body);font-weight:500;font-size:15px;color:var(--ink);outline:none;min-width:0;transition:border-color .15s}
+#search-field{flex:1;position:relative;display:flex;min-width:0}
+#search-input{flex:1;padding:10px 38px 10px 12px;background:var(--white);border:2.5px solid var(--border);border-right:none;border-radius:2px 0 0 2px;font-family:var(--body);font-weight:500;font-size:15px;color:var(--ink);outline:none;min-width:0;transition:border-color .15s}
 #search-input:focus{border-color:var(--orange)}
 #search-input::placeholder{color:var(--muted)}
+#btn-locate{position:absolute;top:2.5px;bottom:2.5px;right:0;width:36px;padding:0;background:transparent;border:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:color .15s}
+#btn-locate:hover{color:var(--orange)}
+#btn-locate:focus-visible{outline:2px solid var(--orange);outline-offset:-2px}
+#btn-locate.locating{color:var(--orange);animation:locate-pulse 1s ease-in-out infinite}
+@keyframes locate-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){#btn-locate.locating{animation:none}}
 #btn-search{padding:10px 14px;background:var(--orange);border:2.5px solid var(--orange);border-radius:0 2px 2px 0;color:#fff;font-family:var(--display);font-weight:900;font-size:14px;cursor:pointer;white-space:nowrap;text-transform:uppercase;letter-spacing:.5px;transition:background .15s,border-color .15s;flex-shrink:0}
 #btn-search:hover{background:var(--orange-dk);border-color:var(--orange-dk)}
 #search-results{display:none;position:absolute;top:100%;left:0;right:0;margin-top:3px;border:2.5px solid var(--border);border-radius:2px;max-height:220px;overflow-y:auto;background:var(--white);z-index:200}

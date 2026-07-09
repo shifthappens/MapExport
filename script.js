@@ -8,6 +8,7 @@ const HELP = {
     title: 'Find a city',
     content: `
       <p>Type a city, neighbourhood, or address and press <strong>Go</strong> to search. Select a result to fly the map to that location.</p>
+      <p>The <strong>locate icon</strong> inside the search field flies the map to your current position instead, using the browser's geolocation. It's entirely optional — the browser only asks for location permission if you click it.</p>
       <p><strong>Use admin boundary</strong> draws the official administrative boundary of the matched area as a polygon on the map — useful as a visual reference frame.</p>
       <div class="tip">The boundary outline is shown on the map but is <em>not</em> included in the SVG export.</div>
     `
@@ -3351,6 +3352,36 @@ async function searchCity(query) {
   } catch(e) { statusEl.textContent='Search failed'; }
 }
 
+// Flies the map to the user's position via the browser Geolocation API.
+// Only ever called from the locate button — the permission prompt must
+// never appear on page load; searching by name stays the default flow.
+function locateMe() {
+  const statusEl=document.getElementById('search-status');
+  const btn=document.getElementById('btn-locate');
+  if (!('geolocation' in navigator)) { statusEl.textContent='Geolocation is not supported by this browser'; return; }
+  if (!window.isSecureContext) { statusEl.textContent='Geolocation needs HTTPS (or localhost)'; return; }
+  btn.classList.add('locating');
+  statusEl.textContent='Locating…';
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    btn.classList.remove('locating');
+    statusEl.textContent='';
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    map.setView([lat,lon],13);
+    // Fill the search box with the place name so "Use admin boundary"
+    // works right away without retyping.
+    try {
+      const data=await (await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1&zoom=10`,{headers:{'Accept-Language':'en'}})).json();
+      const name=pickAreaName(data.address, data.display_name);
+      if (name) document.getElementById('search-input').value=name;
+    } catch(e) { /* map already moved — name lookup is a nicety */ }
+  }, err=>{
+    btn.classList.remove('locating');
+    statusEl.textContent = err.code===err.PERMISSION_DENIED ? 'Location permission denied'
+      : err.code===err.TIMEOUT ? 'Location request timed out'
+      : 'Could not determine your location';
+  }, {enableHighAccuracy:false, timeout:10000, maximumAge:60000});
+}
+
 // ════════════════════════════════════════════════════════════════
 //  FAILED TILE OVERLAYS
 // ════════════════════════════════════════════════════════════════
@@ -3547,6 +3578,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   // Search
   document.getElementById('btn-search').addEventListener('click',()=>searchCity(document.getElementById('search-input').value));
+  document.getElementById('btn-locate').addEventListener('click',locateMe);
   document.getElementById('search-input').addEventListener('keydown',e=>{if(e.key==='Enter')searchCity(e.target.value);});
   document.getElementById('search-input').addEventListener('input',e=>{clearTimeout(searchTimeout);if(e.target.value.length>2)searchTimeout=setTimeout(()=>searchCity(e.target.value),500);});
   document.addEventListener('click',e=>{if(!e.target.closest('#search-wrap'))document.getElementById('search-results').classList.remove('show');if(!e.target.closest('.panel'))document.getElementById('boundary-results').classList.remove('show');});
