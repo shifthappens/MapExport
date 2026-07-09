@@ -34,9 +34,23 @@ cream block, island greens unchanged) and Ghent/Tilburg real exports
 Known, deliberate limitation: unnamed green cover renders only on
 multipolygon-hole islands (`waterIslandRings`). On a waterway-loop island it
 would still be pruned and the land renders as a plain cream block — truthful
-land, no error-white. Detecting loop islands in lat/lon for
-`pruneIslandGreens` would need Clipper on the main thread; not worth it until
-a real city shows the need.
+land, no error-white.
+
+**Measured 2026-07-10: extending the green exception to loop interiors would
+be a regression, not an improvement.** A multipolygon hole is land that
+mappers surveyed as surrounded by water — a true island, almost always green.
+A waterway-loop hole is just centreline topology: in cities with canal rings
+it encloses entire ordinary districts. Counted against the cached Ghent bbox:
+of 1603 nameless green candidates, **776 would newly render green** under the
+extension — grass verges, garden patches and forest slivers across the whole
+Muinkschelde/Leie loop district, exactly the stray green the
+`parksNamedGate` name gate exists to keep off the map. Amsterdam's canal
+ring would be strictly worse (the entire centre is nested loops). The only
+genuine residual gap is a *small* stroke-ringed island that also carries
+nameless green — never yet observed in a real export. If one appears, the fix
+is a scale gate in the worker (hole-ring area of the same order as the stroke
+width squared counts as island, district-sized holes do not), using the
+signed rings it already computes — not Clipper on the main thread.
 
 ## As shipped (deviations from the rev-2 plan below)
 
