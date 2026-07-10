@@ -200,23 +200,63 @@ server load is an ops problem, not a design input.
 
 ## Milestones
 
-0. **Done 2026-07-10** — query cost measured (numbers above).
-1. Scaffold: `engine-v2.js`, UI toggle, registry-parameterised fetch
-   plumbing; v2 renders a roads-only map end to end.
-2. Face cutter: faces, building classification, cream blocks below
-   everything, countryside threshold, hamlet blobs.
-3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
-   water/green subtraction from block shapes; coverage fallback pass
-   (needs the painted layers, so it lands here).
-4. Rail/tram/metro/transit port, path dashes + white twin.
-5. Labels port (street + feature), both emission pipelines.
-6. Squares + tunnels rules.
-7. Test-harness integration, five-city + Erfurt validation, side-by-side
-   review with Coen.
-8. (Separate decision) deploy integration.
+Checkbox state below is the single source of truth for progress. **Tick a
+box (and note partial state in a sub-bullet) in the same commit as the
+milestone work** — a session resuming cold must be able to read this list
+and know exactly where to pick up.
+
+- [x] 0. Query cost measured 2026-07-10 (numbers above).
+- [ ] 1. Scaffold: `engine-v2.js`, UI toggle, registry-parameterised fetch
+      plumbing; v2 renders a roads-only map end to end.
+- [ ] 2. Face cutter: faces, building classification, cream blocks below
+      everything, countryside threshold, hamlet blobs.
+- [ ] 3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
+      water/green subtraction from block shapes; coverage fallback pass
+      (needs the painted layers, so it lands here).
+- [ ] 4. Rail/tram/metro/transit port, path dashes + white twin.
+- [ ] 5. Labels port (street + feature), both emission pipelines.
+- [ ] 6. Squares + tunnels rules.
+- [ ] 7. Test-harness integration, five-city + Erfurt validation,
+      side-by-side review with Coen.
+- [ ] 8. (Separate decision) deploy integration.
 
 Each milestone that changes app behaviour gets its CHANGELOG entry in the
 same commit, per house rule.
+
+## Working method (binding for any session doing this work)
+
+- **Delegate heavy work to cheaper agents** (fable-chief-agent pattern):
+  discovery/reading of `script.js`, mechanical porting, and test runs go to
+  Haiku/Sonnet-tier agents; architecture calls, tricky geometry code and
+  final review stay with the lead model. Never read all of `script.js`
+  into the lead context — use the anchors below plus targeted greps.
+- **Code style:** full variable names, one statement per line, no golfing —
+  the minifier makes it prod-ready. Comments are concise and explain *why*,
+  never *how*; the code itself carries the how.
+- **v1 stays untouched** except the small behaviour-neutral refactor that
+  parameterises shared plumbing over a registry argument. Everything else
+  lands in `engine-v2.js`. Toggle default off.
+- **Resume procedure after an interrupted session:** read this plan
+  (milestone checkboxes + sub-bullets = state), `git log` since the last
+  plan commit, and the project memory index. No other state exists outside
+  the repo.
+
+### v1 anchors in `script.js` (line numbers as of cc1034f, 2026-07-10)
+
+| What | Where |
+|---|---|
+| `OVERPASS_ENDPOINTS` (rotation + backoff) | ~734 |
+| `LAYER_REGISTRY` | ~247–321 |
+| `ROAD_WIDTHS` / `PATH_STYLES` | ~372–386 / ~395–400 |
+| `buildRoadsLayer` (two-pass casing/fill) | ~1208 |
+| `buildLabelsLayer` (both emission pipelines) | ~1591 |
+| Block worker (`BLOCK_WORKER_SRC`, Clipper) | ~2158–2535 |
+| `prepareBlockData` (incl. hamlet dilate/erode) | ~2565–2686 |
+| `LAYER_ORDER` | ~2958 |
+| Blocks render (`fill-opacity`, evenodd) | ~2772–2795 |
+
+v1 is frozen during this work, so these drift only if the registry
+refactor lands first — re-grep after that commit.
 
 ## Risks
 
