@@ -86,6 +86,8 @@
           <label>Street name labels</label>
           <div style="flex:1;display:flex;flex-wrap:wrap;gap:4px;margin-top:2px" id="label-toggles"></div>
         </div>
+        <!-- engine-v2:start — dev/test only; deploy.yml deletes every
+             engine-v2 marker block from the production index -->
         <div class="opts-row">
           <label for="engine-v2-toggle">Engine v2 (experimental)</label>
           <div style="flex:1;margin-top:2px">
@@ -93,6 +95,7 @@
             <span style="font-size:9px;color:var(--muted)">Routes export through the new engine. Renders roads only for now; ignores the layer checkboxes above.</span>
           </div>
         </div>
+        <!-- engine-v2:end -->
       </div>
 
       <!-- History -->
@@ -171,6 +174,8 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="script.js"></script>
+<!-- engine-v2:start -->
 <script src="engine-v2.js"></script>
+<!-- engine-v2:end -->
 </body>
 </html>

@@ -26,6 +26,10 @@ leftover unpainted land into a generic cream block.
    set, same widths, same `ROAD_TUCK` under the casing as v1 — "van stoep tot
    stoep" is unchanged). Footway/cycleway/path/steps still never cut.
    Tunnels (`tunnel=yes|culvert`) are excluded from the cutter input.
+   Railways stay in the cutter set exactly as in v1 (amended 2026-07-11):
+   they cut mechanically like roads, and without them rail corridors would
+   repaint cream instead of staying open — a visual-parity break, and rail
+   is a hard block boundary in the USE-IT style anyway.
 2. **Buildings are always fetched** for the export bbox as bounding boxes
    (`out tags bb`; measured 2026-07-10: 23,662 buildings / 281 KB gzipped
    for central Ghent). They serve two purposes: classifying faces, and
@@ -217,9 +221,12 @@ and know exactly where to pick up.
         to v1 on the same input.
       - Combined-tile Overpass bundling deferred to milestone 3 (v2 uses
         per-layer `fetchLayer` until the area bundle exists).
-      - `deploy.yml` strips the `engine-v2.js` script tag from the
-        production index until v2 ships (file isn't in the rsync
-        whitelist; the tag would 404).
+      - Engine v2 is local/test-env only until it ships (Coen,
+        2026-07-11): the script tag AND the UI toggle sit between
+        `engine-v2:start`/`end` marker comments in `index.html`, and
+        `deploy.yml` deletes every marker block from the production
+        index. Anything v2-visible added to `index.html` later must go
+        inside such markers.
 - [ ] 2. Face cutter: faces, building classification, cream blocks below
       everything, countryside threshold, hamlet blobs.
 - [ ] 3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
