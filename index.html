@@ -86,6 +86,13 @@
           <label>Street name labels</label>
           <div style="flex:1;display:flex;flex-wrap:wrap;gap:4px;margin-top:2px" id="label-toggles"></div>
         </div>
+        <div class="opts-row">
+          <label for="engine-v2-toggle">Engine v2 (experimental)</label>
+          <div style="flex:1;margin-top:2px">
+            <input type="checkbox" id="engine-v2-toggle">
+            <span style="font-size:9px;color:var(--muted)">Routes export through the new engine. Renders roads only for now; ignores the layer checkboxes above.</span>
+          </div>
+        </div>
       </div>
 
       <!-- History -->
@@ -164,5 +171,6 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="script.js"></script>
+<script src="engine-v2.js"></script>
 </body>
 </html>

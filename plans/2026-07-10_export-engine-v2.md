@@ -206,8 +206,20 @@ milestone work** — a session resuming cold must be able to read this list
 and know exactly where to pick up.
 
 - [x] 0. Query cost measured 2026-07-10 (numbers above).
-- [ ] 1. Scaffold: `engine-v2.js`, UI toggle, registry-parameterised fetch
-      plumbing; v2 renders a roads-only map end to end.
+- [x] 1. Scaffold done 2026-07-11: `engine-v2.js` (single IIFE exposing
+      `EngineV2 = { layers, layerOrder, buildSVG, doExport }`), UI toggle
+      `#engine-v2-toggle`, `--engine=v2` flag in `tests/real-export.mjs`.
+      - No v1 refactor was needed: `fetchLayer`/cache/`layerQHash` were
+        already parameterised by layer objects. v2's only script.js hook is
+        a 3-line branch at the top of `doExport()`.
+      - v2's roads layer IS v1's registry object (looked up, not copied) —
+        same query hash, shared cache. Roads render proven byte-identical
+        to v1 on the same input.
+      - Combined-tile Overpass bundling deferred to milestone 3 (v2 uses
+        per-layer `fetchLayer` until the area bundle exists).
+      - `deploy.yml` strips the `engine-v2.js` script tag from the
+        production index until v2 ships (file isn't in the rsync
+        whitelist; the tag would 404).
 - [ ] 2. Face cutter: faces, building classification, cream blocks below
       everything, countryside threshold, hamlet blobs.
 - [ ] 3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
@@ -241,7 +253,9 @@ same commit, per house rule.
   plan commit, and the project memory index. No other state exists outside
   the repo.
 
-### v1 anchors in `script.js` (line numbers as of cc1034f, 2026-07-10)
+### v1 anchors in `script.js` (as of cc1034f; the countryside commit
+72809ec shifted later anchors by up to ~230 lines — re-grep, names are
+stable)
 
 | What | Where |
 |---|---|

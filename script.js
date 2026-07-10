@@ -3217,6 +3217,9 @@ function promptForAreaName() {
 
 async function doExport() {
   if (!bbox) return;
+  // Experimental engine v2 (default off) takes over the whole export when its
+  // toggle is checked. It owns its own orchestration in engine-v2.js.
+  if (document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined') return EngineV2.doExport();
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
   if (areaNameLookup) { setStatus('Looking up a name for this area…','loading'); await areaNameLookup; }

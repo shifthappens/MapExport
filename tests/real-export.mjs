@@ -72,6 +72,9 @@ const flags = process.argv.slice(2).filter(a => a.startsWith('--'));
 const [areaArg] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const recordExpectations = flags.includes('--record');
 const alsoIllustrator = flags.includes('--illustrator');
+// --engine=v2 routes assembly through the experimental engine-v2.js instead
+// of v1's buildSVG. v1 path is byte-for-byte unaffected when the flag is absent.
+const engineV2 = flags.includes('--engine=v2');
 const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
 const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[citySlug]).split(',').map(Number);
 const bbox = { south, west, north, east };
@@ -80,8 +83,16 @@ const bboxStr = `${south},${west},${north},${east}`;
 // ── load the real source into a vm sandbox with browser stubs ──────
 // Same script.js the browser loads in dev — no build/minify step, so this
 // always tests exactly what's in the working tree.
-let src = fs.readFileSync(path.join(REPO, 'script.js'), 'utf8')
-  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,prepareClusterData,BLOCK_BUILDINGS_LAYER,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset,stitchMultipolygonRings};';
+const scriptSrc = fs.readFileSync(path.join(REPO, 'script.js'), 'utf8');
+const xTail = '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,prepareClusterData,BLOCK_BUILDINGS_LAYER,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset,stitchMultipolygonRings};';
+// v2 needs script.js AND engine-v2.js in ONE vm script: vm doesn't reliably
+// share top-level `const`s across separate runInContext calls, so engine-v2.js
+// (which references script.js's globals) must be concatenated, not run apart.
+let src = scriptSrc + xTail;
+if (engineV2) {
+  const engineSrc = fs.readFileSync(path.join(REPO, 'engine-v2.js'), 'utf8');
+  src = scriptSrc + '\n;\n' + engineSrc + xTail + '\nglobalThis.__x2 = EngineV2;';
+}
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
 const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
@@ -124,6 +135,7 @@ sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.self = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox);
 const X = sandbox.__x;
+const X2 = engineV2 ? sandbox.__x2 : null;
 
 // ── ClipperLib (cached in the OS temp dir; the app loads it from a CDN) ──
 async function getClipperSrc() {
@@ -153,8 +165,13 @@ function computeBlocks(data, clipperSrc) {
 const W = X.getExportWidth(bbox);
 const physicalWidthMm = X.getPhysicalSizeMm(bbox).mmW;
 const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
-const fetchable = allLayers.filter(l => l.defaultOn && l.overpassQuery);
-const cityBlocks = allLayers.find(l => l.id === 'city_blocks');
+// v2 fetches its own flat layer list (roads only for M1); v2 skips the block
+// phase entirely (cityBlocks=null), which also skips coverage-lint below —
+// coverage turns on in M3 when the face cutter + fallback pass land.
+const fetchable = engineV2
+  ? X2.layers.filter(l => l.overpassQuery)
+  : allLayers.filter(l => l.defaultOn && l.overpassQuery);
+const cityBlocks = engineV2 ? null : allLayers.find(l => l.id === 'city_blocks');
 
 console.log(`area ${citySlug}  bbox ${bboxStr}  (${W}px / ${physicalWidthMm.toFixed(1)}mm)`);
 const results = [];
@@ -192,11 +209,15 @@ if (cityBlocks) {
   console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks (${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside)`);
 }
 
-const svg = X.buildSVG(results, bbox, W, physicalWidthMm, blocks);
+// v2 buildSVG has a leaner signature (no precomputedBlocks arg): options is
+// the 5th param, not the 6th.
+const svg = engineV2
+  ? X2.buildSVG(results, bbox, W, physicalWidthMm, { illustratorCompatible: false })
+  : X.buildSVG(results, bbox, W, physicalWidthMm, blocks);
 // YYYY-MM-DD-HHMMSS (local time), matching the web app, so same-day exports don't collide.
 const d = new Date(), p2 = n => String(n).padStart(2, '0');
 const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-const filename = `map-${X.activePreset}-${citySlug}-${stamp}.svg`;
+const filename = `map-${X.activePreset}-${citySlug}${engineV2 ? '-v2' : ''}-${stamp}.svg`;
 const dir = path.join(REPO, 'exports');
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, filename), svg);
@@ -205,8 +226,10 @@ fs.writeFileSync(path.join(dir, filename), svg);
 let illustratorFilename = null;
 const illustratorFailures = [];
 if (alsoIllustrator) {
-  const illustratorSvg = X.buildSVG(results, bbox, W, physicalWidthMm, blocks, { illustratorCompatible: true });
-  illustratorFilename = `map-${X.activePreset}-${citySlug}-${stamp}-illustrator.svg`;
+  const illustratorSvg = engineV2
+    ? X2.buildSVG(results, bbox, W, physicalWidthMm, { illustratorCompatible: true })
+    : X.buildSVG(results, bbox, W, physicalWidthMm, blocks, { illustratorCompatible: true });
+  illustratorFilename = `map-${X.activePreset}-${citySlug}${engineV2 ? '-v2' : ''}-${stamp}-illustrator.svg`;
   fs.writeFileSync(path.join(dir, illustratorFilename), illustratorSvg);
   console.log(`Illustrator variant: ${(illustratorSvg.length / 1048576).toFixed(2)} MB -> exports/${illustratorFilename}`);
   // Profile assertions: the whole point of this pipeline is that these
@@ -271,23 +294,37 @@ if (blockData) {
 
 // 3. structural floors that hold for ANY city.
 if (!layerCounts.roads) failures.push(`roads layer produced ${layerCounts.roads ?? 'no'} elements`);
-if (!lint.labelCount) failures.push('export contains zero labels');
+// v2: the rendered <g id="roads"> must carry actual geometry. Labels are
+// SKIPPED on the v2 path — the street/feature label port lands in M5.
+if (engineV2) {
+  // A non-greedy </g> match would stop at the first nested subgroup (which
+  // can legitimately be empty), so take everything from the roads group
+  // onward — precise enough while v2's map is roads-only; later milestones
+  // bring the real per-layer floors back.
+  const roadsStart = svg.indexOf('<g id="roads"');
+  if (roadsStart < 0 || !/<path\b/.test(svg.slice(roadsStart))) failures.push('v2: <g id="roads"> is missing or has no paths');
+} else if (!lint.labelCount) {
+  failures.push('export contains zero labels');
+}
 
 // 4. per-city floors captured from an approved run (--record), ~50% of that
 //    run's counts so OSM churn never trips them but a broken query/filter does.
 const expPath = path.join(REPO, 'tests', 'expectations.json');
 const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
-const exp = expectations[citySlug];
+// v2: per-city floors are SKIPPED — they were recorded against v1's full
+// layer set; v2 only renders roads for now, so they'll be re-recorded once v2
+// reaches feature parity (M7 validation).
+const exp = engineV2 ? null : expectations[citySlug];
 if (exp) {
   for (const [id, min] of Object.entries(exp.layers || {})) {
     if ((layerCounts[id] ?? 0) < min) failures.push(`${id}: ${layerCounts[id] ?? 0} elements < expected floor ${min} for ${citySlug}`);
   }
   if (exp.labels && lint.labelCount < exp.labels) failures.push(`labels: ${lint.labelCount} < expected floor ${exp.labels} for ${citySlug}`);
-} else if (citySlug !== 'custom') {
+} else if (!engineV2 && citySlug !== 'custom') {
   console.log(`(no per-city floors for '${citySlug}' in tests/expectations.json — generic checks only; record them with --record on an approved run)`);
 }
 
-if (recordExpectations && citySlug !== 'custom' && !failures.length) {
+if (recordExpectations && !engineV2 && citySlug !== 'custom' && !failures.length) {
   const entry = { recorded_at: new Date().toISOString().slice(0, 10), from: filename, layers: {}, labels: Math.floor(lint.labelCount * 0.5) };
   for (const [id, n] of Object.entries(layerCounts)) entry.layers[id] = Math.floor(n * 0.5);
   expectations[citySlug] = entry;

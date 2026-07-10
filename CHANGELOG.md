@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 scaffold (experimental)
+- A new "Engine v2 (experimental)" toggle in the export options (default off)
+  routes exports through the new `engine-v2.js` instead of the v1 pipeline. It
+  renders roads only for now and ignores the layer checkboxes. v1 is untouched
+  and remains the default.
+
 ### 2026-07-10 — Countryside follow-ups: forest z-order, lighter buildings fetch
 - Land cover now paints big polygons first and small ones on top: a CORINE
   meadow import spanning the whole bbox as one multipolygon used to hide every
