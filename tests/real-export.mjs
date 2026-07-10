@@ -61,6 +61,10 @@ const CITIES = {
   paris:       '48.81896,2.33906,48.84935,2.39433',
   bremerhaven: '53.51265,8.56247,53.56336,8.61380',
   oulu:        '64.99163,25.43747,65.02165,25.51197',
+  // Rural, not a city: hamlets + farmland/forest in the Nièvre (Burgundy).
+  // Exercises countryside faces, hamlet blocks, and the landcover layer —
+  // a run where every road face painted curb-to-curb would be wrong.
+  nievre:      '46.92190,3.85448,46.94663,3.90324',
 };
 
 // ── args ──────────────────────────────────────────────────────────
@@ -77,7 +81,7 @@ const bboxStr = `${south},${west},${north},${east}`;
 // Same script.js the browser loads in dev — no build/minify step, so this
 // always tests exactly what's in the working tree.
 let src = fs.readFileSync(path.join(REPO, 'script.js'), 'utf8')
-  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset,stitchMultipolygonRings};';
+  + '\n;globalThis.__x={LAYER_REGISTRY,fetchLayer,buildSVG,makeProjector,prepareBlockData,prepareClusterData,BLOCK_BUILDINGS_LAYER,BLOCK_WORKER_SRC,getExportWidth,getPhysicalSizeMm,activePreset,stitchMultipolygonRings};';
 
 const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
 const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
@@ -131,17 +135,18 @@ async function getClipperSrc() {
 }
 
 // Run the block Web Worker source headlessly: synchronous onmessage -> postMessage('done').
+// Returns { blocks, needsBuildings } like computeBlocksAsync in script.js.
 function computeBlocks(data, clipperSrc) {
-  if (!data.lines.length && !data.areas.length) return [];
-  let blocks = [];
+  if (!data.lines.length && !data.areas.length) return { blocks: [], needsBuildings: false };
+  let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') blocks = msg.blocks; };
+  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
   vm.runInContext(X.BLOCK_WORKER_SRC, w); // defines self.onmessage, loads ClipperLib
   w.onmessage({ data });
-  return blocks;
+  return out;
 }
 
 // ── run ───────────────────────────────────────────────────────────
@@ -163,15 +168,28 @@ for (const layer of fetchable) {
   console.log(`${layer.id.padEnd(14)} ${String(kept.length).padStart(6)} elements  (${Date.now() - t0}ms)`);
 }
 
-// city blocks (derived) — compute then add an empty result so buildSVG renders them
+// city blocks (derived) — compute then add an empty result so buildSVG renders them.
+// Two-phase, same as the export driver: countryside faces trigger an on-demand
+// buildings fetch, then a second worker run traces hamlet blocks from them.
 let blocks = [], blockData = null, blockPr = null, blockH = null;
 if (cityBlocks) {
   const { pr, H } = X.makeProjector(bbox, W);
-  const data = X.prepareBlockData(results, pr, W, H);
-  blocks = computeBlocks(data, await getClipperSrc());
+  const clipperSrc = await getClipperSrc();
+  const data = X.prepareBlockData(results, pr, W, H, bbox);
+  let res = computeBlocks(data, clipperSrc);
+  if (res.needsBuildings) {
+    const t0 = Date.now();
+    const { elements } = await X.fetchLayer(X.BLOCK_BUILDINGS_LAYER, bboxStr, bbox);
+    const kept = elements.filter(X.BLOCK_BUILDINGS_LAYER.tagFilter);
+    console.log(`block_buildings ${String(kept.length).padStart(5)} elements  (${Date.now() - t0}ms) — countryside faces found`);
+    data.clusterRings = X.prepareClusterData(kept, pr);
+    res = computeBlocks(data, clipperSrc);
+  }
+  blocks = res.blocks;
   blockData = data; blockPr = pr; blockH = H;
   results.push({ layer: cityBlocks, data: { elements: [] } });
-  console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks`);
+  const n = k => blocks.filter(b => (b.kind || 'urban') === k).length;
+  console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks (${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside)`);
 }
 
 const svg = X.buildSVG(results, bbox, W, physicalWidthMm, blocks);

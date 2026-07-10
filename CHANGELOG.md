@@ -11,6 +11,36 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-10 — Countryside follow-ups: forest z-order, lighter buildings fetch
+- Land cover now paints big polygons first and small ones on top: a CORINE
+  meadow import spanning the whole bbox as one multipolygon used to hide every
+  forest patch inside it.
+- The on-demand buildings fetch for hamlet blocks now asks Overpass for
+  bounding boxes only (`out tags bb`) instead of full outlines — a fraction of
+  the payload; after the buffer-and-merge the blocks look the same.
+
+### 2026-07-10 — Countryside rendering: farmland, forest, hamlet blocks
+- Rural exports no longer paint every road-bounded face as a solid building
+  block. A face whose paintable area exceeds 0.35 km² (dense-city faces top
+  out around 0.08 km²) is classified as countryside: it stays unfilled, and
+  only its actual building clusters — fetched on demand, buffered and merged
+  into chunky hamlet blocks — get the block fill. Pure-city exports never
+  fetch a single building and render exactly as before.
+- New default-on "Countryside" layer paints farmland/meadow/orchard/vineyard
+  in a pale field tint and unnamed forest/wood/scrub/heath in park green, at
+  the very bottom of the stack. Inside cities these polygons sit under the
+  block fill and stay invisible, so the urban "named destinations only" style
+  is untouched.
+- Each hamlet block is its own named shape (`hamlet_1`, …) in the SVG;
+  countryside test area added (`node tests/real-export.mjs nievre`).
+
+### 2026-07-10 — Every water body is its own named SVG shape
+- The water bodies layer now emits one `<path>` per lake/reservoir/dock,
+  named after its OSM name where present (`water_Étang_du_Perron` style ids),
+  instead of one merged path for the whole layer — matching how parks already
+  worked, so individual water bodies can be selected, recoloured, or hidden
+  in Illustrator/Inkscape.
+
 ### 2026-07-10 — "Find my location" button in the city search
 - A locate icon inside the search field flies the map to your current
   position via the browser Geolocation API and fills the search box with the

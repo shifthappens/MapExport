@@ -115,6 +115,9 @@ const PRESETS = {
     },
     water: '#A4DBF3', waterOp: 1,
     park:  '#51A886', parkOp: 1,
+    // Countryside land cover (landcover layer): fields stay a quiet tint so
+    // hamlet blocks and named parks keep the contrast; woods reuse park green.
+    field: '#EAF0DA',
     building: '#FEF6ED', buildingStroke: '#F4AFA7',
     labelColor: '#2a2a20',
   },
@@ -267,6 +270,19 @@ const LAYER_REGISTRY = [
       // forest|wood are fetched nameless (a superset of their named form).
       overpassQuery:(b)=>`wr["leisure"~"^(park|garden)$"](${b});wr["landuse"~"^(grass|village_green|meadow|forest)$"](${b});wr["natural"~"^(wood|scrub|wetland|heath)$"](${b});wr["leisure"~"^(nature_reserve|recreation_ground)$"]["name"](${b});wr["landuse"~"^(cemetery|allotments|recreation_ground)$"]["name"](${b});wr["amenity"="grave_yard"]["name"](${b});wr["tourism"="zoo"]["name"](${b});`,
       tagFilter:el=>parksNamedGate(el)||isIslandGreenCandidate(el) },
+    { id:'landcover',    label:'Countryside',       hint:'Farmland & woods outside built-up areas', color:'#9ec98f', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
+      // Rural land cover, fetched WITHOUT a name gate — the deliberate
+      // "named destinations only" style rule (see parks above) is an URBAN
+      // rule; in the countryside the fields and woods ARE the map. It paints
+      // at the very bottom of LAYER_ORDER, so inside a city every one of
+      // these polygons sits under the curb-to-curb block fill and stays
+      // invisible — city output is unchanged. Only where the block cutter
+      // classifies a face as countryside (see BLOCK_WORKER_SRC) does the
+      // face stay unfilled and this layer show through. Named forests are
+      // excluded here (!parksNamedGate) — those belong to parks, which also
+      // labels them; without the exclusion the same polygon would paint twice.
+      overpassQuery:(b)=>`wr["landuse"~"^(farmland|meadow|orchard|vineyard|forest)$"](${b});wr["natural"~"^(wood|scrub|heath)$"](${b});`,
+      tagFilter:el=>el.type!=='node'&&!parksNamedGate(el)&&(/^(farmland|meadow|orchard|vineyard|forest)$/.test(el.tags?.landuse||'')||/^(wood|scrub|heath)$/.test(el.tags?.natural||'')) },
   ]},
   { group: 'Built environment', layers: [
     // City blocks are derived, not fetched: the worker fills the negative space of
@@ -601,7 +617,10 @@ function fnv1a36(s) {
 }
 function layerQHash(layer) {
   if (layer._qHash) return layer._qHash;
-  return (layer._qHash = fnv1a36(layer.overpassQuery.toString()));
+  // overpassOut is part of the hash: the same query at a different output
+  // verbosity (e.g. block_buildings' bounds-only 'tags bb') returns
+  // differently-shaped elements, so it must not share a cache entry.
+  return (layer._qHash = fnv1a36(layer.overpassQuery.toString() + (layer.overpassOut || '')));
 }
 
 function bboxToTiles(bbox) {
@@ -745,7 +764,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
     const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
     // §1.3: same bbox hoisting as fetchTileCombined — single-layer path too.
     const stmt = layer.overpassQuery(tileBboxStr).replaceAll(`(${tileBboxStr})`, '');
-    const q = `[out:json][bbox:${tileBboxStr}][timeout:60];(${stmt});out body geom qt;`;
+    const q = `[out:json][bbox:${tileBboxStr}][timeout:60];(${stmt});out ${layer.overpassOut || 'body geom'} qt;`;
     const body = 'data=' + encodeURIComponent(q);
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
     let fetched = null;
@@ -2246,7 +2265,7 @@ function polyInteriorPoint(pts, holes) {
 }
 
 self.onmessage = function(e) {
-  const { lines, areas, waterPolys, waterHoles, waterwayLines, W, H } = e.data;
+  const { lines, areas, waterPolys, waterHoles, waterwayLines, W, H, bigFacePx2, mPerPx, clusterRings } = e.data;
   const CLP = ClipperLib;
   // Clipper works on integer coordinates; work at SCALE× so the cut keeps
   // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
@@ -2390,6 +2409,7 @@ self.onmessage = function(e) {
   for (let i = 0; i < tree.ChildCount(); i++) walk(tree.Childs()[i]);
 
   const blocks = [];
+  let countrysideFaces = 0;
 
   function toD(path) {
     const pts = path.map(p => [p.X / SCALE, p.Y / SCALE]);
@@ -2398,6 +2418,35 @@ self.onmessage = function(e) {
     let d = 'M' + s[0][0].toFixed(1) + ',' + s[0][1].toFixed(1);
     for (let i = 1; i < s.length; i++) d += 'L' + s[i][0].toFixed(1) + ',' + s[i][1].toFixed(1);
     return d + 'Z';
+  }
+
+  // Faces above this net paintable area are countryside, not city blocks
+  // (threshold sized in prepareBlockData; Infinity = classify nothing).
+  const bigPx2 = (bigFacePx2 || Infinity) * SCALE * SCALE;
+
+  // Hamlet clusters: buffered union of the building/parcel outlines, computed
+  // once and intersected with each countryside face below. Morphological
+  // closing — dilate wide enough that neighbouring houses fuse into one
+  // chunky USE-IT-style block, erode most of it back so an isolated barn
+  // doesn't balloon.
+  let clusterPolys = null;
+  if (clusterRings && clusterRings.length && mPerPx) {
+    const DILATE_M = 18, ERODE_M = 10;
+    const co = new CLP.ClipperOffset();
+    co.ArcTolerance = 0.5 * SCALE;
+    co.MiterLimit = 2;
+    for (const r of clusterRings) {
+      const p = r.map(([x,y]) => ({ X: Math.round(x*SCALE), Y: Math.round(y*SCALE) }));
+      if (p.length >= 3) co.AddPath(p, CLP.JoinType.jtRound, CLP.EndType.etClosedPolygon);
+    }
+    const grown = new CLP.Paths();
+    co.Execute(grown, (DILATE_M / mPerPx) * SCALE);
+    const co2 = new CLP.ClipperOffset();
+    co2.ArcTolerance = 0.5 * SCALE;
+    co2.MiterLimit = 2;
+    co2.AddPaths(grown, CLP.JoinType.jtRound, CLP.EndType.etClosedPolygon);
+    clusterPolys = new CLP.Paths();
+    co2.Execute(clusterPolys, -(ERODE_M / mPerPx) * SCALE);
   }
 
   for (const raw of rawBlocks) {
@@ -2432,13 +2481,56 @@ self.onmessage = function(e) {
     }
     if (inWater) continue;
 
+    // Countryside face: emit the face itself as an UNPAINTED placeholder
+    // (kind:'countryside' — the renderer skips it, the coverage lint counts
+    // it as deliberately-background land), plus one 'hamlet' block per
+    // building cluster inside it.
+    const netArea = Math.abs(CLP.Clipper.Area(raw.outer))
+      - raw.holes.reduce((s, h) => s + Math.abs(CLP.Clipper.Area(h)), 0);
+    if (netArea > bigPx2) {
+      countrysideFaces++;
+      const faceOuter = toD(raw.outer);
+      if (faceOuter) blocks.push({ kind:'countryside', outer: faceOuter, holes: raw.holes.map(h => toD(h)).filter(d => d) });
+      if (clusterPolys && clusterPolys.length) {
+        const ic = new CLP.Clipper();
+        ic.AddPath(raw.outer, CLP.PolyType.ptSubject, true);
+        for (const h of raw.holes) ic.AddPath(h, CLP.PolyType.ptSubject, true);
+        ic.AddPaths(clusterPolys, CLP.PolyType.ptClip, true);
+        const itree = new CLP.PolyTree();
+        ic.Execute(CLP.ClipType.ctIntersection, itree, CLP.PolyFillType.pftNonZero, CLP.PolyFillType.pftNonZero);
+        (function walkClusters(nodes) {
+          for (const node of nodes) {
+            if (!node.IsHole()) {
+              const c = node.Contour();
+              if (c && c.length >= 3 && Math.abs(CLP.Clipper.Area(c)) >= minArea) {
+                const hd = toD(c);
+                if (hd) {
+                  const hh = [];
+                  for (let i = 0; i < node.ChildCount(); i++) {
+                    const hc = node.Childs()[i].Contour();
+                    if (hc && hc.length >= 3) { const dd = toD(hc); if (dd) hh.push(dd); }
+                  }
+                  blocks.push({ kind:'hamlet', outer: hd, holes: hh });
+                }
+              }
+            }
+            walkClusters(node.Childs());
+          }
+        })(itree.Childs());
+      }
+      continue;
+    }
+
     const outer = toD(raw.outer);
     if (!outer) continue;
     const holes = raw.holes.map(h => toD(h)).filter(d => d);
-    blocks.push({ outer, holes });
+    blocks.push({ kind:'urban', outer, holes });
   }
 
-  self.postMessage({ type:'done', blocks });
+  // needsBuildings: countryside faces exist but no cluster input was given —
+  // the caller should fetch buildings and run again. An empty clusterRings
+  // array means "already fetched, nothing there" and does NOT re-trigger.
+  self.postMessage({ type:'done', blocks, needsBuildings: countrysideFaces > 0 && !clusterRings });
 };
 `;
 
@@ -2459,10 +2551,18 @@ function ringIsPositive(pts) {
   return a > 0;
 }
 
+// A face whose net paintable area exceeds this is COUNTRYSIDE, not a city
+// block: it isn't filled curb-to-curb, only its building clusters are (see
+// BLOCK_WORKER_SRC). Calibrated against the committed trail exports: the
+// largest face in dense-city Ghent is 0.084 km², genuine rural faces run
+// kilometres² — 0.35 km² sits 4× above the one and far below the other.
+const COUNTRYSIDE_MIN_KM2 = 0.35;
+
 // Prepare geometry data for the worker (project + simplify on main thread).
 // Collects the street/rail/water/park network whose negative space forms the
-// city blocks.
-function prepareBlockData(allResults, pr, W, H) {
+// city blocks. `b` (the export bbox) sizes the countryside-face threshold in
+// px²; without it every face is treated as a city block (legacy behaviour).
+function prepareBlockData(allResults, pr, W, H, b) {
   // Nameless island-green candidates must be resolved to real islands before
   // they can void a block (off-island ones would punch spurious holes); this
   // is idempotent and also runs in buildSVG, whichever executes first.
@@ -2572,14 +2672,72 @@ function prepareBlockData(allResults, pr, W, H) {
     }
   }
 
-  return { lines, areas, waterPolys, waterHoles, waterwayLines, W, H };
+  // Ground scale, for the countryside threshold and the hamlet-cluster
+  // buffers (metres → px). Mercator stretch across a city-scale bbox is
+  // far below what would matter for either.
+  let bigFacePx2, mPerPx;
+  if (b) {
+    const midLat = (b.north + b.south) / 2;
+    mPerPx = ((b.east - b.west) * 111320 * Math.cos(midLat * Math.PI / 180)) / W;
+    bigFacePx2 = COUNTRYSIDE_MIN_KM2 * 1e6 / (mPerPx * mPerPx);
+  }
+
+  return { lines, areas, waterPolys, waterHoles, waterwayLines, W, H, bigFacePx2, mPerPx };
 }
 
-// Run block computation in Web Worker, returns promise of block array
-function computeBlocksAsync(allResults, pr, W, H, onProgress) {
+// Buildings (+ residential/farmyard parcels) that trace hamlet blocks inside
+// countryside faces. Not a LAYER_REGISTRY entry — no checkbox, never rendered
+// as its own layer — but shaped like one so tileCacheKey/fetchLayer treat it
+// identically to visible layers. Fetched ON DEMAND, only after the block
+// worker reports countryside faces, so a pure-city export never pays for a
+// bbox-wide building download.
+const BLOCK_BUILDINGS_LAYER = {
+  id:'block_buildings', label:'Buildings (hamlet blocks)',
+  // Buildings ONLY — deliberately no landuse=residential/farmyard zoning:
+  // it's unreliably mapped, and as a bounds rectangle (see overpassOut) a
+  // diagonal village polygon swallows land across several road faces.
+  overpassQuery:(b)=>`wr["building"](${b});`,
+  // Bounds only ('tags bb'), not full outlines: a building's bounding box is
+  // 2 coordinate pairs instead of every wall vertex — a fraction of the
+  // payload on building-heavy tiles — and after the dilate/erode merge in the
+  // worker the resulting hamlet blocks are visually identical. Fine for
+  // building-sized shapes; do not add large-area queries to this layer
+  // without switching them back to real geometry.
+  overpassOut:'tags bb',
+  tagFilter:el=>el.type!=='node'&&!!el.tags?.building,
+};
+
+// Project the fetched building/parcel outlines to px rings for the worker.
+// Bounds-only elements (the normal case, see overpassOut above) become their
+// bounding rectangle; full geometry — e.g. an older cache entry — uses its
+// outer ring(s). Courtyards are noise at hamlet-block stylisation either way.
+function prepareClusterData(elements, pr) {
+  const rings = [];
+  for (const el of elements) {
+    let outers = [];
+    if (el.type === 'way' && el.geometry?.length >= 3) outers = [el.geometry];
+    else if (el.type === 'relation' && el.members) outers = stitchMultipolygonRings(el.members).outer;
+    else if (el.bounds) {
+      const { minlat, minlon, maxlat, maxlon } = el.bounds;
+      outers = [[{ lat:minlat, lon:minlon }, { lat:minlat, lon:maxlon }, { lat:maxlat, lon:maxlon }, { lat:maxlat, lon:minlon }]];
+    }
+    for (const g of outers) {
+      const pts = g.map(p => pr(p.lat, p.lon));
+      if (pts.length >= 3) rings.push(pts);
+    }
+  }
+  return rings;
+}
+
+// Run block computation in Web Worker. Resolves { blocks, needsBuildings } —
+// needsBuildings means countryside faces were found without cluster input, so
+// the caller should fetch BLOCK_BUILDINGS_LAYER and call again with
+// opts.clusterRings (see the export driver).
+function computeBlocksAsync(allResults, pr, W, H, onProgress, opts = {}) {
   return new Promise((resolve, reject) => {
-    const data = prepareBlockData(allResults, pr, W, H);
-    if (!data.lines.length && !data.areas.length) { resolve([]); return; }
+    const data = prepareBlockData(allResults, pr, W, H, opts.bbox);
+    if (opts.clusterRings) data.clusterRings = opts.clusterRings;
+    if (!data.lines.length && !data.areas.length) { resolve({ blocks: [], needsBuildings: false }); return; }
 
     const worker = new Worker(getBlockWorkerUrl());
     worker.onmessage = function(e) {
@@ -2588,13 +2746,13 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress) {
       }
       if (e.data.type === 'done') {
         worker.terminate();
-        resolve(e.data.blocks);
+        resolve({ blocks: e.data.blocks, needsBuildings: !!e.data.needsBuildings });
       }
     };
     worker.onerror = function(err) {
       worker.terminate();
       console.error('Block worker error:', err);
-      resolve([]); // fail gracefully — skip blocks
+      resolve({ blocks: [], needsBuildings: false }); // fail gracefully — skip blocks
     };
     worker.postMessage(data);
   });
@@ -2612,12 +2770,25 @@ function renderLayerSVG({ layer, data }, ctx) {
   // City blocks render from precomputed worker geometry, not from fetched
   // elements — check this before the empty-elements guard below.
   if (layer.id==='city_blocks') {
-    const blocks = ctx.precomputedBlocks || [];
+    // Countryside faces (kind:'countryside') are deliberately NOT painted:
+    // out there the cream fill would misread scenery as built-up area. The
+    // landcover layer and the page background show through instead, and the
+    // built spots inside such a face arrive as separate 'hamlet' blocks
+    // (buffered building clusters — see BLOCK_WORKER_SRC).
+    const blocks = (ctx.precomputedBlocks || []).filter(blk => (blk.kind || 'urban') !== 'countryside');
     if (!blocks.length) return '';
     const fo = layer.fillOpacity ?? 0.8;
-    const paths = blocks.map((blk, i) => {
+    // Hamlet blocks sit in open countryside with no road casing around them,
+    // so unlike urban blocks (stroke:none, edges drawn by the casings) they
+    // carry the casing-toned outline themselves or the cream fill vanishes
+    // against pale land cover.
+    const hamletStroke = ` stroke="${preset.buildingStroke}" stroke-width="${(2.5 * getScaleFactor(W)).toFixed(2)}" stroke-linejoin="round"`;
+    let nb = 0, nh = 0;
+    const paths = blocks.map(blk => {
       const d = blk.outer + (blk.holes.length ? ' ' + blk.holes.join(' ') : '');
-      return `<path id="block_${i+1}" inkscape:label="Block ${i+1}" d="${d}" fill="${preset.building}" fill-opacity="${fo}" fill-rule="evenodd" stroke="none"/>`;
+      const isHamlet = blk.kind === 'hamlet';
+      const [id, label] = isHamlet ? [`hamlet_${++nh}`, `Hamlet ${nh}`] : [`block_${++nb}`, `Block ${nb}`];
+      return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${preset.building}" fill-opacity="${fo}" fill-rule="evenodd"${isHamlet ? hamletStroke : ' stroke="none"'}/>`;
     }).join('\n    ');
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
   }
@@ -2645,13 +2816,75 @@ function renderLayerSVG({ layer, data }, ctx) {
   if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
   if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
 
-  const large=['landuse_residential','landuse_industrial','water_bodies','parks'];
+  const large=['landuse_residential','landuse_industrial','water_bodies','parks','landcover'];
   const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
   const isArea=layer.type==='area';
   let allD='', circles='';
 
   let fillColor=layer.color, strokeColor=layer.strokeColor||layer.color;
-  if (layer.id==='water_bodies'||layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
+  if (layer.id==='waterways') { fillColor=preset.water; strokeColor=preset.water; }
+  if (layer.id==='water_bodies') {
+    // One named <path> per water body (not one merged blob for the whole
+    // layer), mirroring the parks pattern below — so a lake can be selected,
+    // recoloured, or hidden by name in Illustrator/Inkscape.
+    let content = '';
+    const uid = makeUidGen();
+    const sw = layer.strokeWidth ?? 0.5;
+    elements.forEach(el => {
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
+      if (el.type === 'relation' && el.members) {
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        [...outer, ...inner].forEach(ring => { d += geomToPathD(ring, pr, EPS.area_large, true) + ' '; });
+        d = d.trim();
+      }
+      if (!d) return;
+      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
+      const name = el.tags?.name;
+      const id = name ? uid(`water_${safeName(name)}`) : uid(`water${el.id ? '_' + el.id : ''}`);
+      // Same self-coloured stroke the merged path carried: it seals the
+      // sub-pixel seam between the water edge and the abutting block edge.
+      content += `<path id="${id}" inkscape:label="${escXml(name || 'Water')}" d="${d}" fill="${preset.water}" fill-opacity="${preset.waterOp}" fill-rule="evenodd" stroke="${preset.water}" stroke-width="${sw}" stroke-linejoin="round"/>`;
+    });
+    if (!content) return '';
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+  if (layer.id==='landcover') {
+    let content = '';
+    const uid = makeUidGen();
+    // Paint big polygons first, small ones on top. CORINE-import meadows can
+    // span the whole bbox as ONE multipolygon; in fetch order it painted over
+    // every forest patch inside it (visible only when hiding the meadow path).
+    const approxDeg2 = el => {
+      const b = el.bounds;
+      if (b) return (b.maxlat - b.minlat) * (b.maxlon - b.minlon);
+      const g = el.type === 'way' ? el.geometry : null;
+      if (!g?.length) return 0;
+      let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
+      for (const p of g) { if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat; if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon; }
+      return (n - s) * (e - w);
+    };
+    [...elements].sort((a, z) => approxDeg2(z) - approxDeg2(a)).forEach(el => {
+      const cover = (/^(farmland|meadow|orchard|vineyard|forest)$/.test(el.tags?.landuse || '') && el.tags.landuse)
+                 || (/^(wood|scrub|heath)$/.test(el.tags?.natural || '') && el.tags.natural);
+      if (!cover) return;
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, pr, EPS.area_large, true);
+      if (el.type === 'relation' && el.members) {
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        [...outer, ...inner].forEach(ring => { d += geomToPathD(ring, pr, EPS.area_large, true) + ' '; });
+        d = d.trim();
+      }
+      if (!d) return;
+      const fill = cover === 'forest' || cover === 'wood' ? preset.park : preset.field;
+      const name = el.tags?.name;
+      const id = name ? uid(`landcover_${safeName(name)}`) : uid(`landcover_${cover}${el.id ? '_' + el.id : ''}`);
+      const label = name || cover.replace(/^\w/, c => c.toUpperCase());
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="none"/>`;
+    });
+    if (!content) return '';
+    return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
   if (layer.id==='parks') {
     fillColor=preset.park;
     let content = '';
@@ -2701,8 +2934,9 @@ function renderLayerSVG({ layer, data }, ctx) {
   const d=allD.trim();
   if (d) {
     if (isArea) {
-      if (layer.id==='water_bodies' && ctx.areaClipDs) ctx.areaClipDs.push(d);
-      const fo=layer.id==='water_bodies'?preset.waterOp:layer.id==='parks'?preset.parkOp:(layer.fillOpacity??0.7);
+      // water_bodies/parks/landcover never reach here — each has its own
+      // per-feature branch above.
+      const fo=layer.fillOpacity??0.7;
       const sw=layer.strokeWidth??0.5;
       content+=`<path d="${d}" fill="${fillColor}" fill-opacity="${fo}" fill-rule="evenodd" stroke="${strokeColor}" stroke-width="${sw}" stroke-linejoin="round"/>`;
     } else {
@@ -2721,7 +2955,7 @@ function renderLayerSVG({ layer, data }, ctx) {
 // possible anchor, so they stamp the shared label grid first and the
 // flexible street labels dodge them. Z-order between the two label groups
 // is irrelevant — the shared grid guarantees they never overlap.
-const LAYER_ORDER = ['water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
+const LAYER_ORDER = ['landcover','water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
 
 function buildSVGContext(b, W, precomputedBlocks, options = {}) {
   const { pr, H } = makeProjector(b, W);
@@ -3010,9 +3244,10 @@ async function doExport() {
   adaptiveTileDelay=350;
 
   const needsBlocks = selected.some(l => l.id === 'city_blocks');
-  // city_blocks has no overpassQuery — its buildings come from vector tiles.
-  // The Overpass fetch pipeline (cache keys, tile fetch, results) only handles
-  // layers that actually query Overpass.
+  // city_blocks has no overpassQuery — it's derived from the other layers'
+  // geometry in a worker (plus, for countryside faces only, an on-demand
+  // BLOCK_BUILDINGS_LAYER fetch — see the compute_blocks stage below). The
+  // combined fetch pipeline here only handles layers that query Overpass.
   const overpassLayers = selected.filter(l => typeof l.overpassQuery === 'function');
   const stages = [
     { id: 'plan_tiles',     label: 'Plan tiles' },
@@ -3193,12 +3428,27 @@ async function doExport() {
   if (needsBlocks) {
     progress.setStage('compute_blocks', 'active', { detail: 'Starting worker…' });
     const { pr: blockPr, H: blockH } = makeProjector(bbox, W);
-    precomputedBlocks = await computeBlocksAsync(results, blockPr, W, blockH, (msg, pct) => {
+    const onBlockProgress = (msg, pct) => {
       progress.setStage('compute_blocks', 'active', { detail: msg });
       progress.bar(70 + Math.round(pct * 0.20));
-    });
-    progress.setStage('compute_blocks', 'done', { meta: `${precomputedBlocks.length} blocks` });
-    progress.log(`Computed ${precomputedBlocks.length} city blocks`);
+    };
+    let blockRes = await computeBlocksAsync(results, blockPr, W, blockH, onBlockProgress, { bbox });
+    // Countryside faces need building footprints to trace hamlet blocks.
+    // Fetched only now, only when such faces exist — a pure-city export
+    // (every face under the threshold) never downloads a single building.
+    if (blockRes.needsBuildings) {
+      progress.setStage('compute_blocks', 'active', { detail: 'Countryside faces found — fetching buildings…' });
+      progress.log('Countryside faces found — fetching building footprints for hamlet blocks');
+      const { elements } = await fetchLayer(BLOCK_BUILDINGS_LAYER, bboxStr, bbox);
+      const kept = elements.filter(BLOCK_BUILDINGS_LAYER.tagFilter);
+      progress.log(`Fetched ${kept.length} building/parcel outlines`);
+      blockRes = await computeBlocksAsync(results, blockPr, W, blockH, onBlockProgress,
+        { bbox, clusterRings: prepareClusterData(kept, blockPr) });
+    }
+    precomputedBlocks = blockRes.blocks;
+    const painted = precomputedBlocks.filter(bl => (bl.kind || 'urban') !== 'countryside').length;
+    progress.setStage('compute_blocks', 'done', { meta: `${painted} blocks` });
+    progress.log(`Computed ${painted} city/hamlet blocks (${precomputedBlocks.length - painted} countryside faces left unpainted)`);
   }
 
   // Stage — render SVG, per-layer
