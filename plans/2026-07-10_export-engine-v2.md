@@ -39,9 +39,14 @@ leftover unpainted land into a generic cream block.
    water/green boundary, per the original spec.
 4. **Small faces without buildings** get no block in this primary pass.
 5. **Large faces** (>= `COUNTRYSIDE_MIN_KM2`, 0.35 km² as in v1) are not
-   cream-filled. Inside them, hamlet blobs are built from the
+   cream-filled (one farmhouse must not turn a huge rural face into a
+   cream slab). Inside them, hamlet blobs are built from the
    already-fetched building bounding boxes (dilate 18 m / erode 10 m),
-   exactly the v1 hamlet code.
+   exactly the v1 hamlet code. The dilate radius is the tuning knob for
+   how far apart rural buildings may sit and still merge into one block
+   (18 m bridges ~36 m gaps); it only applies inside large faces, so
+   raising it never affects city blocks. Start with v1's values (tuned on
+   the Nièvre exports) and adjust during milestone 7 validation.
 6. **Coverage fallback pass (final phase, decided by Coen 2026-07-11):**
    after all layers are assembled, land inside small faces that no layer
    painted (face minus blocks, water, green, landcover, road buffers) is
