@@ -27,15 +27,15 @@ const EngineV2 = (() => {
   const findLayer = (id) => LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === id);
   const roadsLayer = findLayer('roads');
 
-  // Rail, tram and metro are cutter input only in this milestone: v1 cuts
-  // faces with all three (a hard block boundary in the USE-IT style), but v2
-  // does not yet draw them — that port lands in milestone 4. So they are
-  // fetch-only inputs alongside buildings, kept out of the rendered results.
-  // Underground segments drop out via the tunnel filter, so a metro line only
-  // cuts where it actually surfaces.
+  // Rail, tram and metro both cut faces (a hard block boundary in the USE-IT
+  // style) and render, through v1's own builders (sleepers, tram/metro
+  // palettes) via renderLayerSVG. Underground segments drop out of the CUTTER
+  // via the tunnel filter, so a metro line only cuts where it surfaces; what
+  // the builders draw is v1 semantics, unchanged. Transit stops render only.
   const railLayer = findLayer('rail');
   const tramLayer = findLayer('tram');
   const metroLayer = findLayer('metro');
+  const transitStopsLayer = findLayer('transit_stops');
 
   // Buildings are fetched for every v2 export (bounding boxes) and serve two
   // purposes: classifying faces (does a small face contain a building?) and
@@ -97,12 +97,12 @@ const EngineV2 = (() => {
   const cityBlocksLayer = { id: 'city_blocks', label: 'City blocks', type: 'derived' };
   const fallbackBlocksLayer = { id: 'fallback_blocks', label: 'Fallback blocks', type: 'derived' };
 
-  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, buildingsLayer, areaFeaturesLayer, cityBlocksLayer];
+  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, buildingsLayer, areaFeaturesLayer, cityBlocksLayer];
 
   // Fetched to feed the face cutter / classifier, but never rendered as their
   // own layer. area_features is the fetch vehicle for water/green/landcover —
   // those render under their own ids after classification, not as area_features.
-  const fetchOnlyIds = new Set([railLayer.id, tramLayer.id, metroLayer.id, buildingsLayer.id, areaFeaturesLayer.id]);
+  const fetchOnlyIds = new Set([buildingsLayer.id, areaFeaturesLayer.id]);
 
   // The full v2 paint order from the plan. fallback_blocks sits directly after
   // city_blocks — its own group (structurally distinguishable, counted per
@@ -989,7 +989,7 @@ self.onmessage = function(event) {
   }
 
   // v2's per-layer dispatcher. Derived block layers render from precomputed
-  // worker geometry; fetch-only inputs (rail, buildings, area_features) never
+  // worker geometry; fetch-only inputs (buildings, area_features) never
   // render here; every other type is byte-for-byte v1, delegated to
   // renderLayerSVG (water/parks/landcover/waterways included).
   function renderLayer(result, ctx) {
@@ -1104,9 +1104,9 @@ self.onmessage = function(event) {
     const areaFeatureElements = results.find(r => r.layer.id === areaFeaturesLayer.id)?.data.elements || [];
     const { renderResults: areaRenderResults, classified } = buildAreaResults(areaFeatureElements, bbox);
 
-    // Faces stage. The cutter reads roads + rail; buildings classify faces and
-    // seed hamlet blobs; water/green/landcover/waterways feed the mechanical
-    // subtraction. Buildings, rail and area_features are fetch-only.
+    // Faces stage. The cutter reads roads + rail/tram/metro; buildings classify
+    // faces and seed hamlet blobs; water/green/landcover/waterways feed the
+    // mechanical subtraction. Buildings and area_features are fetch-only.
     progress.setStage('faces', 'active', { detail: 'Starting worker…' });
     const { pr, H } = makeProjector(bbox, widthPx);
     const buildingElements = results.find(r => r.layer.id === buildingsLayer.id)?.data.elements || [];

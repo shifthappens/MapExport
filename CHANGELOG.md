@@ -11,6 +11,13 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 transit rendering (experimental)
+- Engine v2 now draws railways (hatched sleepers), tram and metro lines and
+  transit stops, through the same builders v1 uses — they were already fetched
+  as block-cutter input, now they paint too. Path dashes and their white twin
+  over parks/water were already live via the shared clip plumbing. Still behind
+  the default-off "Engine v2 (experimental)" toggle; v1 is untouched.
+
 ### 2026-07-11 — Engine v2 area features (experimental)
 - Engine v2 now paints water, named parks/green, sports grounds and
   countryside land cover, classified from one combined fetch through an ordered

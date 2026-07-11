@@ -279,7 +279,19 @@ and know exactly where to pick up.
         beneath them the cream fill would vanish without it, which is why
         v1 added it. Ghent adds 607 urban + 52 fallback to the validation
         set; all three cities re-run green after the fix.
-- [ ] 4. Rail/tram/metro/transit port, path dashes + white twin.
+- [x] 4. Transit rendering done 2026-07-11: rail/tram/metro/transit_stops
+      render through v1's own builders via renderLayerSVG — the layers were
+      already fetched as cutter input, M4 only removed them from
+      `fetchOnlyIds` and added `transit_stops` to the v2 layer list.
+      - Path dashes + the white twin over parks/water turned out to be live
+        since M3: buildRoadsLayer reads `ctx.areaClipDs`, which the v2
+        water/parks renders populate (same ctx, layerOrder paints them
+        first). Verified: `greenblue_clip` + `roads_paths_green` present in
+        v2 output, matching v1.
+      - Validation (all PASS, lint + coverage clean): tilburg v2 rail group
+        byte-identical to v1's (23,955 bytes); ghent renders tram +
+        transit_stops, metro correctly absent (city has none). Rail
+        corridors also stamp the shared label grid, ready for M5.
 - [ ] 5. Labels port (street + feature), both emission pipelines.
 - [ ] 6. Squares + tunnels rules.
 - [ ] 7. Test-harness integration, five-city + Erfurt validation,

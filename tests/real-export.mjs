@@ -213,10 +213,11 @@ if (cityBlocks) {
   console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks (${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside)`);
 }
 
-// v2 area features + face cutter: faces = bbox minus roads/rail, classified by
-// building presence, with water/green/waterway strokes subtracted and a cream
-// coverage fallback for buildingless faces. Buildings, rail and area_features
-// are fetch-only inputs, separated out before buildSVG (mirroring doExport).
+// v2 area features + face cutter: faces = bbox minus roads/rail/tram/metro,
+// classified by building presence, with water/green/waterway strokes subtracted
+// and a cream coverage fallback for buildingless faces. Buildings and
+// area_features are fetch-only inputs, separated out before buildSVG (mirroring
+// doExport); rail/tram/metro render too (v1 builders) since M4.
 // coverage-lint is now ON for v2 (blockData set below).
 let v2Blocks = null, v2MaxShare = 0, v2Fallback = 0;
 if (engineV2) {
@@ -227,8 +228,8 @@ if (engineV2) {
   // geometry (the sea is closed against the bbox inside buildAreaResults).
   const areaFeatureElements = results.find(r => r.layer.id === X2.areaFeaturesLayer.id)?.data.elements || [];
   const { renderResults: areaRenderResults, classified } = X2.buildAreaResults(areaFeatureElements, bbox);
-  // Cutter input = roads + rail/tram/metro only (buildings + area_features are
-  // fetch-only and do not bound faces).
+  // Cutter input = roads + rail/tram/metro (buildings + area_features do not
+  // bound faces; area geometry subtracts instead).
   const cutterResults = results.filter(r => ['roads', 'rail', 'tram', 'metro'].includes(r.layer.type));
   const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox);
   v2Blocks = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC).blocks;
