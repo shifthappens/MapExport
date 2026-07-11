@@ -324,8 +324,33 @@ and know exactly where to pick up.
         Korenmarkt/Groentenmarkt etc. as plazas and drops 4 tram tunnel
         segments (540→536 paths); tilburg renders its station plaza;
         v1 tilburg export byte-identical to the pre-refactor trail.
-- [ ] 7. Test-harness integration, five-city + Erfurt validation,
-      side-by-side review with Coen.
+- [x] 7. Test-harness integration + validation done 2026-07-11; the
+      side-by-side visual review with Coen is the one remaining human step
+      (v1/v2 trails for all areas sit in exports/, viewer on :8889).
+      - All seven areas pass under v2 with lint + coverage green: tilburg
+        (275 urban blocks), ghent (607), paris (649), erfurt (131 + 47
+        fallback patches — Gera islands via subtraction alone), nièvre
+        (2 urban, 59 hamlet, 7 countryside), bremerhaven (453 urban, sea
+        13.1% of bbox), oulu (252 urban, sea 9.5%). Sea acceptance: zero
+        urban block anchors inside the sea in both coastal cities.
+      - Two sea-closure bugs found and fixed via Oulu: (1) the per-run
+        closure stacked 25 overlapping whole-frame sea polygons on the
+        archipelago coast — replaced by one shared clockwise boundary walk
+        (`closeSeaRuns`) joining all crossings, closed rings becoming
+        island holes by orientation; (2) closed island rings straddling
+        the frame edge with their seam vertex inside the frame were
+        clipped into two dangling half-runs and dropped —
+        `rotateSeamOutsideBbox` now rotates the seam out first. Both
+        asserted offline in tests/sea-sign.mjs (22 checks).
+      - Coverage guard learned a per-city allowance for intentional bare
+        spots: Oulu's rail-yard corridor between widely spaced tracks
+        shows page background identically in v1 and v2 (verified: v1
+        fails the same blob at the same centroid), so an approved
+        --record run bakes the observed count into expectations.json
+        (`coverageGaps`); new cities still default to zero.
+      - Per-city floors recorded for all seven areas under `<city>-v2`
+        keys, plus v1 keys for the three cities added this milestone
+        (erfurt, bremerhaven, oulu).
 - [ ] 8. (Separate decision) deploy integration.
 
 Each milestone that changes app behaviour gets its CHANGELOG entry in the

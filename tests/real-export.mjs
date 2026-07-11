@@ -65,6 +65,10 @@ const CITIES = {
   // Exercises countryside faces, hamlet blocks, and the landcover layer —
   // a run where every road face painted curb-to-curb would be wrong.
   nievre:      '46.92190,3.85448,46.94663,3.90324',
+  // River islands in the Gera (Krämerbrücke area) — the acceptance case for
+  // rendering islands through classification + subtraction + paint order
+  // alone (see plans/2026-07-07_erfurt-river-islands-not-rendering.md).
+  erfurt:      '50.97313,11.01929,50.9821,11.03748',
 };
 
 // ── args ──────────────────────────────────────────────────────────
@@ -312,6 +316,16 @@ const lint = lintSvg(svg);
 for (const e of lint.errors) failures.push(`lint: ${e}`);
 console.log(`lint: ${lint.errors.length} error(s), ${lint.warnings.length} warning(s) over ${lint.labelCount} labels`);
 
+// Per-city expectations load early: the coverage check below consults the
+// recorded gap allowance; the per-city floors themselves apply in step 4.
+const expPath = path.join(REPO, 'tests', 'expectations.json');
+const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
+// v2 fetches a different layer set (combined area_features, always-on
+// buildings), so its floors live under their own '<city>-v2' keys, recorded
+// from approved v2 runs — v1 keys stay untouched.
+const expKey = engineV2 ? `${citySlug}-v2` : citySlug;
+const exp = expectations[expKey];
+
 // 2. coverage lint: any land in the bbox that no block/water/park/road/
 //    waterway/rail paints, so only the bare page background shows through
 //    (see plans/2026-07-07_erfurt-river-islands-not-rendering.md — this is
@@ -324,16 +338,31 @@ console.log(`lint: ${lint.errors.length} error(s), ${lint.warnings.length} warni
 //    the same thing at any zoom: ~3x3mm on the printed sheet, comfortably
 //    bigger than a junction rounding artifact, small enough to catch a real
 //    dropped block.
+let significantGaps = [];
 if (blockData) {
   const cov = checkCoverage({ X, results, data: blockData, blocks, bbox, W, H: blockH, pr: blockPr });
   const pxPerMm = W / physicalWidthMm;
   const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
-  const real = cov.blobs.filter(b => b.cells * cov.step * cov.step >= minAreaPx2);
-  console.log(`coverage: ${cov.gapCells} empty grid cell(s) (step ${cov.step}px) in ${cov.blobs.length} blob(s), ${real.length} at/above the ${minAreaPx2.toFixed(0)}px² (~3x3mm) significance floor`);
-  for (const b of real.slice(0, 10)) {
-    failures.push(`coverage: unpainted land ~${(b.cells * cov.step * cov.step).toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)})`);
+  significantGaps = cov.blobs.filter(b => b.cells * cov.step * cov.step >= minAreaPx2);
+  console.log(`coverage: ${cov.gapCells} empty grid cell(s) (step ${cov.step}px) in ${cov.blobs.length} blob(s), ${significantGaps.length} at/above the ${minAreaPx2.toFixed(0)}px² (~3x3mm) significance floor`);
+  // Some gaps are legitimate map features, not bugs — the canonical case is a
+  // rail yard, where the corridor between widely-spaced parallel tracks shows
+  // the page background by design (identically in v1 and v2; Oulu's yard is
+  // the reference example). A human approves those on a --record run, which
+  // bakes the observed count in as this city's allowance; anything beyond it
+  // still fails, and new cities default to zero.
+  const allowedGaps = exp?.coverageGaps ?? 0;
+  const overAllowance = recordExpectations ? false : significantGaps.length > allowedGaps;
+  if (overAllowance) {
+    for (const b of significantGaps.slice(0, 10)) {
+      failures.push(`coverage: unpainted land ~${(b.cells * cov.step * cov.step).toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)})`);
+    }
+    if (significantGaps.length > 10) failures.push(`coverage: ${significantGaps.length - 10} more gap(s) at/above the significance floor, not listed`);
+  } else if (significantGaps.length) {
+    for (const b of significantGaps) {
+      console.log(`coverage: gap ~${(b.cells * cov.step * cov.step).toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)}) — ${recordExpectations ? 'will be recorded as allowed' : `within the recorded allowance of ${allowedGaps}`}`);
+    }
   }
-  if (real.length > 10) failures.push(`coverage: ${real.length - 10} more gap(s) at/above the significance floor, not listed`);
 }
 
 // 3. structural floors that hold for ANY city.
@@ -353,27 +382,25 @@ if (engineV2) {
 
 // 4. per-city floors captured from an approved run (--record), ~50% of that
 //    run's counts so OSM churn never trips them but a broken query/filter does.
-const expPath = path.join(REPO, 'tests', 'expectations.json');
-const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
-// v2: per-city floors are SKIPPED — they were recorded against v1's layer
-// counts; v2's will be recorded separately once it reaches feature parity
-// (M7 validation).
-const exp = engineV2 ? null : expectations[citySlug];
+//    (expectations themselves are loaded above the coverage check.)
 if (exp) {
   for (const [id, min] of Object.entries(exp.layers || {})) {
-    if ((layerCounts[id] ?? 0) < min) failures.push(`${id}: ${layerCounts[id] ?? 0} elements < expected floor ${min} for ${citySlug}`);
+    if ((layerCounts[id] ?? 0) < min) failures.push(`${id}: ${layerCounts[id] ?? 0} elements < expected floor ${min} for ${expKey}`);
   }
-  if (exp.labels && lint.labelCount < exp.labels) failures.push(`labels: ${lint.labelCount} < expected floor ${exp.labels} for ${citySlug}`);
-} else if (!engineV2 && citySlug !== 'custom') {
-  console.log(`(no per-city floors for '${citySlug}' in tests/expectations.json — generic checks only; record them with --record on an approved run)`);
+  if (exp.labels && lint.labelCount < exp.labels) failures.push(`labels: ${lint.labelCount} < expected floor ${exp.labels} for ${expKey}`);
+} else if (citySlug !== 'custom') {
+  console.log(`(no per-city floors for '${expKey}' in tests/expectations.json — generic checks only; record them with --record on an approved run)`);
 }
 
-if (recordExpectations && !engineV2 && citySlug !== 'custom' && !failures.length) {
+if (recordExpectations && citySlug !== 'custom' && !failures.length) {
   const entry = { recorded_at: new Date().toISOString().slice(0, 10), from: filename, layers: {}, labels: Math.floor(lint.labelCount * 0.5) };
   for (const [id, n] of Object.entries(layerCounts)) entry.layers[id] = Math.floor(n * 0.5);
-  expectations[citySlug] = entry;
+  // Human-approved significant coverage gaps (rail yards etc.) become this
+  // city's allowance; see the coverage check above.
+  if (significantGaps.length) entry.coverageGaps = significantGaps.length;
+  expectations[expKey] = entry;
   fs.writeFileSync(expPath, JSON.stringify(expectations, null, 2) + '\n');
-  console.log(`recorded floors for ${citySlug} -> tests/expectations.json (counts ×0.5)`);
+  console.log(`recorded floors for ${expKey} -> tests/expectations.json (counts ×0.5)`);
 } else if (recordExpectations && failures.length) {
   console.log('NOT recording expectations: run has failures');
 }

@@ -238,12 +238,12 @@ const EngineV2 = (() => {
   // subtracted from blocks). Done in lat/lon space, where "water on the right"
   // is the plain geographic convention (no projection y-flip to reason about).
   //
-  // Scope (per plans/2026-07-07_coastline-sea-fill.md): handles the common
-  // single-coast-across-frame case; punts on deeply nested coastline
-  // (island-in-lake-in-island) and on a frame entirely at sea (assumes land,
-  // a no-op). The water-side sign MUST be asserted against a coastal city
-  // (Bremerhaven/Oulu) during M7 validation — the required M3 test cities are
-  // inland, so this path is a strict no-op for them.
+  // Scope (per plans/2026-07-07_coastline-sea-fill.md): handles any number of
+  // coast crossings (estuaries, archipelagos — one shared boundary walk joins
+  // all runs) and closed island rings inside the frame (holes by orientation).
+  // Punts on a frame entirely at sea with no coastline in view (assumes land,
+  // a no-op) and on lakes-in-islands-in-lakes. Asserted offline by
+  // tests/sea-sign.mjs and against Bremerhaven/Oulu in M7 validation.
 
   const samePt = (a, b) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lon - b.lon) < 1e-9;
 
@@ -271,6 +271,24 @@ const EngineV2 = (() => {
       chains.push(chain);
     }
     return chains;
+  }
+
+  // A closed ring stored with its seam vertex inside the frame would be
+  // clipped into two dangling half-runs (each with one interior endpoint) and
+  // dropped as incomplete — Oulu's edge-straddling islands hit this. Rotate
+  // such rings to start at a vertex outside the bbox so the clip only splits
+  // at true edge crossings. Fully-interior rings are left alone (they stay
+  // closed and classify as island/lagoon by orientation).
+  function rotateSeamOutsideBbox(chain, bbox) {
+    if (!samePt(chain[0], chain[chain.length - 1])) return chain;
+    const inside = (p) => p.lat >= bbox.south && p.lat <= bbox.north && p.lon >= bbox.west && p.lon <= bbox.east;
+    if (!inside(chain[0])) return chain;
+    const open = chain.slice(0, -1);
+    const k = open.findIndex(p => !inside(p));
+    if (k < 0) return chain;
+    const rotated = open.slice(k).concat(open.slice(0, k));
+    rotated.push(rotated[0]);
+    return rotated;
   }
 
   // Clip a lat/lon polyline to the bbox, returning the inside runs (each a list
@@ -322,78 +340,127 @@ const EngineV2 = (() => {
     return runs.filter(r => r.length >= 2);
   }
 
-  // Close one clipped coastline run into a sea polygon by walking the bbox
-  // perimeter from its exit point back to its entry point, choosing the walk
-  // direction that puts the polygon on the water (right-hand) side of the coast.
-  function closeSeaPolygon(run, bbox) {
-    const W = bbox.east - bbox.west, Hh = bbox.north - bbox.south;
-    // Perimeter parameter (CCW from the SW corner) of a point on the bbox edge.
+  // Perimeter parameter (counterclockwise from the SW corner) of a point on
+  // the bbox edge, plus the frame corners — shared by the sea-closing walk.
+  // The 1e-7° tolerance absorbs the float error of clipped crossing points.
+  function perimeterGeometry(bbox) {
+    const width = bbox.east - bbox.west, height = bbox.north - bbox.south;
+    const total = 2 * (width + height);
     const param = (p) => {
-      if (Math.abs(p.lat - bbox.south) < 1e-9) return p.lon - bbox.west;                 // bottom
-      if (Math.abs(p.lon - bbox.east) < 1e-9) return W + (p.lat - bbox.south);           // right
-      if (Math.abs(p.lat - bbox.north) < 1e-9) return W + Hh + (bbox.east - p.lon);      // top
-      return 2 * W + Hh + (bbox.north - p.lat);                                          // left
+      if (Math.abs(p.lat - bbox.south) < 1e-7) return p.lon - bbox.west;                    // bottom
+      if (Math.abs(p.lon - bbox.east) < 1e-7) return width + (p.lat - bbox.south);          // right
+      if (Math.abs(p.lat - bbox.north) < 1e-7) return width + height + (bbox.east - p.lon); // top
+      return 2 * width + height + (bbox.north - p.lat);                                     // left
     };
-    const P = 2 * (W + Hh);
     const corners = [
-      { t: W, p: { lon: bbox.east, lat: bbox.south } },
-      { t: W + Hh, p: { lon: bbox.east, lat: bbox.north } },
-      { t: 2 * W + Hh, p: { lon: bbox.west, lat: bbox.north } },
-      { t: P, p: { lon: bbox.west, lat: bbox.south } },
+      { t: width, p: { lon: bbox.east, lat: bbox.south } },
+      { t: width + height, p: { lon: bbox.east, lat: bbox.north } },
+      { t: 2 * width + height, p: { lon: bbox.west, lat: bbox.north } },
+      { t: total, p: { lon: bbox.west, lat: bbox.south } },
     ];
-    const a = run[0], b = run[run.length - 1];
-    const walk = (from, to, dir) => {
-      // Corner points strictly between params `from` and `to`, walking in dir
-      // (+1 = increasing/CCW, -1 = decreasing/CW), wrapping around P.
-      const out = [];
-      const norm = (t) => ((t % P) + P) % P;
-      let steps = 0;
-      const ordered = dir > 0 ? corners : corners.slice().reverse();
-      for (let k = 0; k < ordered.length * 2 && steps < ordered.length * 2; k++) {
-        const c = ordered[k % ordered.length];
-        const between = dir > 0
-          ? norm(c.t - from) > 0 && norm(c.t - from) < norm(to - from)
-          : norm(from - c.t) > 0 && norm(from - c.t) < norm(from - to);
-        if (between) out.push(c.p);
-        steps++;
+    return { param, corners, total };
+  }
+
+  const onBboxEdge = (p, bbox) =>
+    Math.abs(p.lat - bbox.south) < 1e-7 || Math.abs(p.lat - bbox.north) < 1e-7 ||
+    Math.abs(p.lon - bbox.west) < 1e-7 || Math.abs(p.lon - bbox.east) < 1e-7;
+
+  // Shoelace orientation of a lat/lon ring: positive = counterclockwise.
+  const ringIsCCWLatLon = (ring) => ring.reduce((sum, p, i) => {
+    const q = ring[(i + 1) % ring.length];
+    return sum + (p.lon * q.lat - q.lon * p.lat);
+  }, 0) > 0;
+
+  // Close the open boundary runs into sea polygons with one shared walk: from
+  // each run's exit the sea boundary continues along the frame edge CLOCKWISE
+  // (decreasing perimeter parameter — the direction that keeps the water,
+  // which lies on the RIGHT of the coastline direction, enclosed) until it
+  // meets the nearest entry of any run, collecting frame corners on the way.
+  // This handles any number of coast crossings (estuaries, archipelagos) —
+  // the single-run-at-a-time closure it replaces stacked overlapping
+  // whole-frame polygons on Oulu's 25-crossing coastline.
+  function closeSeaRuns(runs, bbox) {
+    if (!runs.length) return [];
+    const { param, corners, total } = perimeterGeometry(bbox);
+    const norm = (t) => ((t % total) + total) % total;
+    const entries = runs.map((run, index) => ({ index, t: param(run[0]) }));
+    const visited = new Array(runs.length).fill(false);
+    const polygons = [];
+    for (let start = 0; start < runs.length; start++) {
+      if (visited[start]) continue;
+      const ring = [];
+      let currentIndex = start;
+      // Consistent data returns to the start run within runs.length hops.
+      for (let hop = 0; hop <= runs.length; hop++) {
+        visited[currentIndex] = true;
+        ring.push(...runs[currentIndex]);
+        const exitT = param(runs[currentIndex][runs[currentIndex].length - 1]);
+        // Nearest entry clockwise from this exit (0 = the run closes onto its
+        // own entry after a full lap, so treat it as the farthest).
+        let next = null;
+        for (const e of entries) {
+          const distance = norm(exitT - e.t) || total;
+          if (!next || distance < next.distance) next = { index: e.index, distance };
+        }
+        const passedCorners = corners
+          .map((c) => ({ p: c.p, distance: norm(exitT - c.t) }))
+          .filter((c) => c.distance > 0 && c.distance < next.distance)
+          .sort((a, z) => a.distance - z.distance);
+        ring.push(...passedCorners.map((c) => c.p));
+        if (next.index === start) break;
+        if (visited[next.index]) {
+          console.warn('engine-v2: inconsistent coastline runs — sea polygon closed early');
+          break;
+        }
+        currentIndex = next.index;
       }
-      return out;
-    };
-    const build = (dir) => run.concat(walk(param(b), param(a), dir));
-    // Test point just to the right of the coast's first interior segment; water
-    // is on the right of the way direction. Right normal of (dx,dy) is (dy,-dx).
-    const s0 = run[0], s1 = run[1];
-    const dx = s1.lon - s0.lon, dy = s1.lat - s0.lat, len = Math.hypot(dx, dy) || 1;
-    const eps = Math.min(W, Hh) * 1e-3;
-    const test = { lon: (s0.lon + s1.lon) / 2 + (dy / len) * eps, lat: (s0.lat + s1.lat) / 2 + (-dx / len) * eps };
-    const ccw = build(1);
-    return ringContains(ccw, test) ? ccw : build(-1);
-  }
-
-  // Ray-cast point-in-ring on a lat/lon ring ([{lat,lon}, ...]).
-  function ringContains(ring, pt) {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const xi = ring[i].lon, yi = ring[i].lat, xj = ring[j].lon, yj = ring[j].lat;
-      if (((yi > pt.lat) !== (yj > pt.lat)) && pt.lon < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi) inside = !inside;
+      if (ring.length >= 3) {
+        // Close explicitly so downstream stitching treats each polygon as a
+        // finished ring and never tries to join two sea polygons end-to-end.
+        ring.push(ring[0]);
+        polygons.push(ring);
+      }
     }
-    return inside;
+    return polygons;
   }
 
-  // Synthetic water elements for the sea, one per closed sea polygon. Shaped
-  // like an OSM way so v1's water renderer and the ring projector consume them
-  // unchanged. Empty (inland frame with no coastline) → a strict no-op.
+  // One synthetic multipolygon relation for the sea. Outer rings come from the
+  // boundary walk plus any closed clockwise coastline rings (water inside — a
+  // coastline-tagged lagoon); closed counterclockwise rings are islands (land
+  // inside, per OSM's land-on-the-left convention) and become inner rings, so
+  // the renderer's evenodd fill and the worker's oriented union both treat
+  // them as holes. Empty (inland frame, no coastline) → a strict no-op.
   function buildSeaElements(coastlineWays, bbox) {
     if (!coastlineWays || !coastlineWays.length) return [];
-    const seaElements = [];
-    let n = 0;
+    const outerRings = [], innerRings = [], boundaryRuns = [];
     for (const chain of stitchCoastlineChains(coastlineWays)) {
-      for (const run of clipChainToBbox(chain, bbox)) {
-        const ring = closeSeaPolygon(run, bbox);
-        if (ring.length >= 4) seaElements.push({ type: 'way', id: `sea_${++n}`, tags: { natural: 'water', name: 'Sea' }, geometry: ring });
+      for (const run of clipChainToBbox(rotateSeamOutsideBbox(chain, bbox), bbox)) {
+        if (run.length >= 4 && samePt(run[0], run[run.length - 1])) {
+          (ringIsCCWLatLon(run) ? innerRings : outerRings).push(run);
+        } else if (onBboxEdge(run[0], bbox) && onBboxEdge(run[run.length - 1], bbox)) {
+          boundaryRuns.push(run);
+        } else {
+          // An open chain that neither closes nor reaches the frame edge is
+          // incomplete OSM data; painting a guessed sea would be worse than
+          // painting none.
+          console.warn(`engine-v2: dropping incomplete coastline chain (${run.length} pts, ` +
+            `${run[0].lat.toFixed(5)},${run[0].lon.toFixed(5)} → ` +
+            `${run[run.length - 1].lat.toFixed(5)},${run[run.length - 1].lon.toFixed(5)})`);
+        }
       }
     }
-    return seaElements;
+    outerRings.push(...closeSeaRuns(boundaryRuns, bbox));
+    if (!outerRings.length) {
+      if (innerRings.length) console.warn('engine-v2: coastline islands without a sea polygon — dropped');
+      return [];
+    }
+    return [{
+      type: 'relation', id: 'sea', tags: { natural: 'water', name: 'Sea' },
+      members: [
+        ...outerRings.map((geometry) => ({ type: 'way', role: 'outer', geometry })),
+        ...innerRings.map((geometry) => ({ type: 'way', role: 'inner', geometry })),
+      ],
+    }];
   }
 
   // Build the classified render results (water/waterways/parks/landcover) from

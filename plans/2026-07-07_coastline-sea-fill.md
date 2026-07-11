@@ -2,9 +2,15 @@
 
 **Status: FOLDED INTO `plans/2026-07-10_export-engine-v2.md` (milestone 3,
 2026-07-11)** — the coastline→sea mechanism is implemented in `engine-v2.js`
-(v2 only; v1 unchanged). The water-side sign, chain stitching and bbox-corner
-walk are asserted offline by `tests/sea-sign.mjs`; real-city acceptance
-(Bremerhaven/Oulu) happens during M7. Original notes kept below.
+(v2 only; v1 unchanged). One shared boundary walk closes any number of coast
+crossings into sea polygons (estuaries, archipelagos) and closed coastline
+rings become island holes by orientation — the original per-run closure
+failed on Oulu's 25-crossing coastline (M7). Island rings straddling the
+frame edge get their ring seam rotated outside the bbox before clipping, or
+they split into two dangling half-runs and drop (Oulu's edge islands).
+Asserted offline by `tests/sea-sign.mjs` (sign, stitching, corners, channel,
+islands, edge islands) and against Bremerhaven/Oulu in M7. Original notes
+kept below.
 
 ## Problem
 

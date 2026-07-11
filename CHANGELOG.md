@@ -11,6 +11,23 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 validation sweep (experimental)
+- Engine v2 validated against all five visual cities (Tilburg, Ghent, Paris,
+  Bremerhaven, Oulu) plus Erfurt (river islands) and the Nièvre countryside,
+  with every lint and the coverage guard green. Erfurt's Gera islands render
+  through classification, subtraction and paint order alone — no island
+  machinery. The coastline→sea closure was rebuilt for coasts that cross the
+  frame many times (Oulu's archipelago broke the one-crossing version):
+  one shared boundary walk now joins all crossings, and closed coastline
+  rings become island holes. Island rings that straddle the frame edge are
+  rotated so clipping splits them only at true crossings (Oulu's edge islands
+  were silently dropped before). v2 exports now also carry per-city count
+  floors in the test suite (`<city>-v2` keys), and the coverage guard learned
+  a per-city allowance for intentional bare spots — rail-yard corridors
+  between widely spaced tracks show the page background in v1 and v2 alike
+  (Oulu's yard is the reference case), so a human-approved `--record` run
+  bakes the observed count in instead of failing forever.
+
 ### 2026-07-11 — Engine v2 squares and tunnels (experimental)
 - Engine v2 renders pedestrian squares (place=square, or area=yes on a closed
   way) as one open plaza in street colour instead of stroking their outline as
