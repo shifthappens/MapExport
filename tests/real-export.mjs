@@ -146,17 +146,21 @@ async function getClipperSrc() {
   return txt;
 }
 
-// Run the block Web Worker source headlessly: synchronous onmessage -> postMessage('done').
-// Returns { blocks, needsBuildings } like computeBlocksAsync in script.js.
-function computeBlocks(data, clipperSrc) {
-  if (!data.lines.length && !data.areas.length) return { blocks: [], needsBuildings: false };
+// Run a block/face Web Worker source headlessly: synchronous onmessage ->
+// postMessage('done'). Returns { blocks, needsBuildings } like
+// computeBlocksAsync in script.js. `workerSrc` defaults to v1's block worker;
+// the v2 path passes X2.FACE_WORKER_SRC (v1 call sites unchanged). v1 payloads
+// carry `lines`/`areas`, v2 payloads carry `cutterLines` — the empty guard
+// accepts either.
+function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
+  if (!data.lines?.length && !data.areas?.length && !data.cutterLines?.length) return { blocks: [], needsBuildings: false };
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
   w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
-  vm.runInContext(X.BLOCK_WORKER_SRC, w); // defines self.onmessage, loads ClipperLib
+  vm.runInContext(workerSrc, w); // defines self.onmessage, loads ClipperLib
   w.onmessage({ data });
   return out;
 }
@@ -165,9 +169,9 @@ function computeBlocks(data, clipperSrc) {
 const W = X.getExportWidth(bbox);
 const physicalWidthMm = X.getPhysicalSizeMm(bbox).mmW;
 const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
-// v2 fetches its own flat layer list (roads only for M1); v2 skips the block
-// phase entirely (cityBlocks=null), which also skips coverage-lint below —
-// coverage turns on in M3 when the face cutter + fallback pass land.
+// v2 fetches its own flat layer list (roads + rail + buildings). It runs the
+// face cutter below but leaves coverage-lint OFF (blockData stays null) —
+// coverage turns on in M3 when water/green subtraction + the fallback pass land.
 const fetchable = engineV2
   ? X2.layers.filter(l => l.overpassQuery)
   : allLayers.filter(l => l.defaultOn && l.overpassQuery);
@@ -207,6 +211,29 @@ if (cityBlocks) {
   results.push({ layer: cityBlocks, data: { elements: [] } });
   const n = k => blocks.filter(b => (b.kind || 'urban') === k).length;
   console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks (${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside)`);
+}
+
+// v2 face cutter: faces = bbox minus roads/rail, classified by building
+// presence. Buildings + rail are fetch-only cutter input, not rendered, so
+// they are separated out before buildSVG (mirroring engine-v2's doExport).
+// coverage-lint stays off (blockData null) until M3.
+let v2Blocks = null, v2MaxShare = 0;
+if (engineV2) {
+  const { pr, H } = X.makeProjector(bbox, W);
+  const clipperSrc = await getClipperSrc();
+  const buildingElements = results.find(r => r.layer.id === X2.buildingsLayer.id)?.data.elements || [];
+  const cutterResults = results.filter(r => r.layer.id !== X2.buildingsLayer.id); // everything but buildings: roads + rail/tram/metro
+  const data = X2.prepareFaceData(cutterResults, buildingElements, pr, W, H, bbox);
+  v2Blocks = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC).blocks;
+  const n = k => v2Blocks.filter(b => (b.kind || 'urban') === k).length;
+  const bboxAreaPx = W * H;
+  v2MaxShare = v2Blocks.reduce((m, b) => Math.max(m, b.areaPx || 0), 0) / bboxAreaPx;
+  console.log(`city_blocks v2: ${v2Blocks.length} blocks (${n('urban')} urban, ${n('hamlet')} hamlet); largest block = ${(v2MaxShare * 100).toFixed(1)}% of bbox`);
+  // Rebuild the render set: drop fetch-only inputs, add the derived blocks.
+  const renderResults = results.filter(r => !X2.fetchOnlyIds.has(r.layer.id));
+  renderResults.push({ layer: X2.cityBlocksLayer, data: { blocks: v2Blocks } });
+  results.length = 0;
+  results.push(...renderResults);
 }
 
 // v2 buildSVG has a leaner signature (no precomputedBlocks arg): options is
@@ -303,6 +330,10 @@ if (engineV2) {
   // bring the real per-layer floors back.
   const roadsStart = svg.indexOf('<g id="roads"');
   if (roadsStart < 0 || !/<path\b/.test(svg.slice(roadsStart))) failures.push('v2: <g id="roads"> is missing or has no paths');
+  // The face cutter must produce at least one city block for a dense city.
+  if (citySlug === 'tilburg' && (!v2Blocks || v2Blocks.length < 1)) {
+    failures.push(`v2: expected at least 1 city block for tilburg, got ${v2Blocks ? v2Blocks.length : 'none'}`);
+  }
 } else if (!lint.labelCount) {
   failures.push('export contains zero labels');
 }

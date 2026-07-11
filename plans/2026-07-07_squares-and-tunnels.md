@@ -1,8 +1,9 @@
 # Plan: pedestrian squares as open areas, and tunnels not drawn as surface
 
-**Status: READY TO IMPLEMENT (2026-07-07)** — two small, independent
-rendering-correctness items scoped out of the Erfurt river-island work. Either
-can be done alone. Not started.
+**Status: FOLDED INTO `plans/2026-07-10_export-engine-v2.md` (2026-07-11)** —
+engine v2 milestone 2 already excludes tunnels from the block cutter; the
+drawn-surface tunnel rule and the squares item land in v2 milestone 6. Don't
+implement against v1.
 
 ## A. Pedestrian squares should render as an open filled area, not a ring
 

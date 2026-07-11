@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 face cutter (experimental)
+- Engine v2 now builds city blocks. Faces are the space between roads and
+  railways (tunnels excluded); a face becomes a cream block only when it is
+  small and actually contains a building, so open land and water are never
+  painted over — no water heuristics involved. Large rural faces instead grow
+  chunky hamlet blobs from their buildings, as in v1. Blocks render in a
+  flat cream (`#FEF8F1`) below everything else. Still behind the default-off
+  "Engine v2 (experimental)" toggle; v1 is untouched.
+
 ### 2026-07-11 — Engine v2 scaffold (experimental)
 - A new "Engine v2 (experimental)" toggle in the export options (default off)
   routes exports through the new `engine-v2.js` instead of the v1 pipeline. It

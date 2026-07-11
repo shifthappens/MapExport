@@ -227,8 +227,27 @@ and know exactly where to pick up.
         `deploy.yml` deletes every marker block from the production
         index. Anything v2-visible added to `index.html` later must go
         inside such markers.
-- [ ] 2. Face cutter: faces, building classification, cream blocks below
-      everything, countryside threshold, hamlet blobs.
+- [x] 2. Face cutter done 2026-07-11: worker (`FACE_WORKER_SRC`) buffers
+      cutter lines, unions at Clipper SCALE, cuts bbox−voids into PolyTree
+      faces; small face + ≥1 building → cream block, large face
+      (≥ COUNTRYSIDE_MIN_KM2 net) → hamlet blobs only. Rendered as
+      `<g id="city_blocks">` with solid `#FEF8F1`.
+      - Cutter set amended during review: rail AND tram AND metro cut
+        faces (v1 parity, plan item 1 as amended 2026-07-11) — tram/metro
+        fetch as cutter-only inputs via `fetchOnlyIds`.
+      - Constants verified against v1 source, not trusted from the port:
+        road `halfW = (fillW + casingW) * sf / 2 − ROAD_TUCK` with flat
+        `getEps()`; rail/tram/metro `halfW = 20 * sf / 2`, no tuck;
+        tunnels (`tunnel=yes|culvert`) dropped from cutter input;
+        hamlet closing DILATE_M=18 / ERODE_M=10; minArea 400 px².
+      - Validation (all PASS, lint clean): tilburg 266 urban blocks
+        (v1: 310 — building-less faces dropped, water/parks don't split
+        faces until M3), ghent 545 urban, nièvre 2 urban + 59 hamlet
+        with largest block 2.4% of bbox (no cream slab).
+      - M3 note: block subtraction of water/green must use
+        `getAreaLargeEps()` and `stitchMultipolygonRings` (see the
+        warning at the eps definitions in script.js) — flat `getEps()`
+        is only correct for road cutters.
 - [ ] 3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
       water/green subtraction from block shapes; coverage fallback pass
       (needs the painted layers, so it lands here).
