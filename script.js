@@ -194,6 +194,16 @@ function parksNamedGate(el) {
     || /^(forest|cemetery|allotments|recreation_ground)$/.test(el.tags.landuse || '')
     || el.tags.natural === 'wood' || el.tags.amenity === 'grave_yard' || el.tags.tourism === 'zoo';
 }
+// Canonical OSM open-square tagging: an explicit place=square, or area=yes on
+// a highway way. The one shared square predicate — used by the street-label
+// builder (lays the plaza name flat) and by engine v2's geometry pass (fills
+// the plaza as one open surface instead of stroking its ring). The label side
+// is additionally lenient about closed pedestrian loops (see looksLikeSquare);
+// that leniency is fine for a label and deliberately NOT shared — flood-filling
+// every closed courtyard footway would be wrong.
+function isSquareTagged(tags) {
+  return tags?.place === 'square' || tags?.area === 'yes';
+}
 // Ray-cast point-in-polygon for [lon,lat]/[x,y] rings on the main thread
 // (the block worker's own pointInPoly lives inside a source string, out of
 // reach here).
@@ -1846,7 +1856,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
   // never "written across".
   const isClosedRun=r=>r.pts.length>=3 && Math.hypot(r.pts[0][0]-r.pts[r.pts.length-1][0],r.pts[0][1]-r.pts[r.pts.length-1][1])<2;
   const looksLikeSquare=rs=>rs.some(r=>
-    r.el.tags?.place==='square' || r.el.tags?.area==='yes' ||
+    isSquareTagged(r.el.tags) ||
     (isClosedRun(r) && (r.hw==='pedestrian'||r.hw==='footway'||r.hw==='living_street')));
 
   // Merge fragments into continuous runs, project + measure each, drop hidden

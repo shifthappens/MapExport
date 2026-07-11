@@ -306,7 +306,24 @@ and know exactly where to pick up.
         14, label-placement 46).
       - Harness: zero-labels floor now applies to v2 runs too;
         per-city expectation floors stay v1-only until M7 re-records.
-- [ ] 6. Squares + tunnels rules.
+- [x] 6. Squares + tunnels done 2026-07-11 (folds in
+      plans/2026-07-07_squares-and-tunnels.md):
+      - Squares: shared `isSquareTagged(tags)` predicate added to script.js
+        (place=square / area=yes; the label builder's looksLikeSquare now
+        calls it — behaviour-neutral, v1 output verified byte-identical).
+        v2 renders qualifying closed, non-roundabout ways as filled plazas
+        in pedestrian surface colour (`<g id="squares">`, before the roads
+        strokes) and excludes them from street stroking. The closed
+        pedestrian-loop leniency stays label-only — flood-filling every
+        courtyard footway would be wrong. Perimeters still cut blocks.
+      - Tunnels: tunnel=yes|culvert drops from drawn roads/rail/tram AND
+        street labels (cutter already dropped them since M2). Bridges,
+        building_passage, covered stay. Metro keeps its tunnels by design —
+        that layer IS the underground network.
+      - Validation (all PASS, lint + coverage clean): ghent renders
+        Korenmarkt/Groentenmarkt etc. as plazas and drops 4 tram tunnel
+        segments (540→536 paths); tilburg renders its station plaza;
+        v1 tilburg export byte-identical to the pre-refactor trail.
 - [ ] 7. Test-harness integration, five-city + Erfurt validation,
       side-by-side review with Coen.
 - [ ] 8. (Separate decision) deploy integration.

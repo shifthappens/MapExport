@@ -8,17 +8,19 @@
 // by referencing them directly (loaded as a classic script AFTER script.js,
 // so all of script.js's top-level declarations are in scope here).
 //
-// Milestone 3 (area features): v2 now classifies one combined area-features
-// fetch through the ordered AREA_FEATURES table into water / green / landcover
-// layers, closes natural=coastline into a sea polygon, and strokes linear
-// waterways. Urban blocks and hamlet blobs have water/green/waterway strokes
-// subtracted mechanically (plain Clipper difference, evenodd holes — NO water
-// heuristics: no winding, no island checks, no interior-point tests). A final
-// coverage fallback pass paints any small buildingless face that no layer
-// covered as cream in a separate fallback_blocks group (this is also how river
-// islands render — no island machinery). See
-// plans/2026-07-10_export-engine-v2.md — the milestone checkboxes there are
-// the single source of truth for progress.
+// The v2 model (milestones 2-6): faces = bbox minus the buffered
+// road/rail/tram/metro network; a small face with a building becomes a cream
+// block, with water/green/waterway strokes subtracted mechanically (plain
+// Clipper difference, evenodd holes — NO water heuristics: no winding, no
+// island checks, no interior-point tests). Area features come from one
+// combined fetch classified through the ordered AREA_FEATURES table;
+// natural=coastline closes into a sea polygon. A final coverage fallback pass
+// paints any small buildingless face that no layer covered as cream in a
+// separate counted fallback_blocks group (this is also how river islands
+// render — no island machinery). Transit and labels run v1's own builders on
+// the shared context; squares fill as open plazas; tunnels neither draw nor
+// bound blocks. See plans/2026-07-10_export-engine-v2.md — the milestone
+// checkboxes there are the single source of truth for progress.
 
 const EngineV2 = (() => {
   // v2's flat layer list. Renderable layers reuse v1's own registry objects,
@@ -996,14 +998,68 @@ self.onmessage = function(event) {
     return `  <g id="fallback_blocks" inkscape:label="Fallback blocks" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
   }
 
+  // ── Squares + tunnels (milestone 6) ────────────────────────────────
+  // Tunnels are not surface: tunnel=yes|culvert ways drop from the drawn
+  // road/rail/tram network and from street labels (the block cutter already
+  // drops them since M2, so a tunnel neither draws nor bounds a block).
+  // Bridges, tunnel=building_passage and covered=yes stay — those are
+  // usable surface. Metro is the deliberate exception: that layer IS the
+  // underground network, drawn as a schematic overlay, so it keeps its
+  // tunnel segments.
+  const isTunnelElement = (el) => /^(yes|culvert)$/.test(el.tags?.tunnel || '');
+
+  // An open plaza: canonical square tagging (the shared isSquareTagged
+  // predicate, also used by the street-label builder) on a closed way that is
+  // not a roundabout. A square renders as one filled polygon in the pedestrian
+  // surface colour instead of having its ring stroked as a street. Its
+  // perimeter still feeds the block cutter, so neighbouring cream keeps
+  // ending at the plaza edge.
+  function isSquareElement(el) {
+    if (el.type !== 'way' || !el.geometry || el.geometry.length < 4) return false;
+    if (!isSquareTagged(el.tags)) return false;
+    if (el.tags?.junction === 'roundabout') return false;
+    return samePt(el.geometry[0], el.geometry[el.geometry.length - 1]);
+  }
+
+  function renderSquares(squareElements, ctx) {
+    if (!squareElements.length) return '';
+    const fill = ctx.preset.roads.pedestrian.fill;
+    const uid = makeUidGen();
+    let paths = '';
+    for (const el of squareElements) {
+      const d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area, true);
+      if (!d) continue;
+      const name = el.tags?.name;
+      const id = uid(name ? `square_${safeName(name)}` : `square${el.id ? '_' + el.id : ''}`);
+      // Same self-coloured seam stroke the water bodies carry: it seals the
+      // sub-pixel gap between the plaza edge and the abutting block edge.
+      paths += `<path id="${id}" inkscape:label="${escXml(name || 'Square')}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="1" stroke-linejoin="round"/>`;
+    }
+    if (!paths) return '';
+    return `  <g id="squares" inkscape:label="Squares" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+  }
+
   // v2's per-layer dispatcher. Derived block layers render from precomputed
   // worker geometry; fetch-only inputs (buildings, area_features) never
-  // render here; every other type is byte-for-byte v1, delegated to
+  // render here; roads/rail/tram/street-labels get the square + tunnel
+  // treatment above; everything else is byte-for-byte v1, delegated to
   // renderLayerSVG (water/parks/landcover/waterways included).
   function renderLayer(result, ctx) {
     if (fetchOnlyIds.has(result.layer.id)) return '';
     if (result.layer.id === 'city_blocks') return renderCityBlocks(result.data?.blocks || [], ctx);
     if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || []);
+    if (result.layer.id === 'roads') {
+      const elements = result.data?.elements || [];
+      const squares = elements.filter(isSquareElement);
+      const streets = elements.filter(el => !isSquareElement(el) && !isTunnelElement(el));
+      // Squares paint first, so street strokes crossing a plaza stay on top.
+      return renderSquares(squares, ctx)
+        + renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx);
+    }
+    if (result.layer.type === 'rail' || result.layer.type === 'tram' || result.layer.id === streetLabelsLayer.id) {
+      const surfaceElements = (result.data?.elements || []).filter(el => !isTunnelElement(el));
+      return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
+    }
     return renderLayerSVG(result, ctx);
   }
 

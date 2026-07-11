@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 squares and tunnels (experimental)
+- Engine v2 renders pedestrian squares (place=square, or area=yes on a closed
+  way) as one open plaza in street colour instead of stroking their outline as
+  a ring street, and drops tunnels (tunnel=yes/culvert) from the drawn
+  road/rail/tram network and street labels — a tunnel no longer looks like a
+  surface street. Bridges, building passages and covered streets still draw;
+  the metro layer keeps its underground lines by design. Still behind the
+  default-off "Engine v2 (experimental)" toggle; v1 output is unchanged (the
+  square predicate is shared with the label engine, refactor verified
+  behaviour-neutral).
+
 ### 2026-07-11 — Engine v2 labels (experimental)
 - Engine v2 now places street and water/park labels through the full v1 label
   engine — same placement, collision grid, abbreviations and repeats, in both

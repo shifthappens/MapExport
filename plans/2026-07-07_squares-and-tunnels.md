@@ -1,9 +1,10 @@
 # Plan: pedestrian squares as open areas, and tunnels not drawn as surface
 
-**Status: FOLDED INTO `plans/2026-07-10_export-engine-v2.md` (2026-07-11)** —
-engine v2 milestone 2 already excludes tunnels from the block cutter; the
-drawn-surface tunnel rule and the squares item land in v2 milestone 6. Don't
-implement against v1.
+**Status: DONE via `plans/2026-07-10_export-engine-v2.md` (2026-07-11)** —
+both items shipped in engine v2 milestone 6 (squares as filled plazas via the
+shared `isSquareTagged` predicate; tunnels dropped from drawn surface, labels
+and the block cutter). v1 untouched apart from the behaviour-neutral predicate
+extraction. Original notes kept below.
 
 ## A. Pedestrian squares should render as an open filled area, not a ring
 
