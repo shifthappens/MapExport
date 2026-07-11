@@ -96,6 +96,18 @@ const EngineV2 = (() => {
       // nameless remainder is the countryside land the block cutter shows through).
       `wr["landuse"~"^(farmland|meadow|forest)$"](${b});`,
       `wr["natural"="wood"](${b});`,
+      // Label-only sweep. Never painted: anything here that no AREA_FEATURES
+      // row claims lands in the labelOnly bucket, used solely to give
+      // Uncategorized patches a designer-facing name (what OSM says the land
+      // is). Broad on purpose — fetch cost is not a design input, and the
+      // parksNamedGate/table rows are tag-specific, so widening the fetch
+      // cannot widen what paints.
+      `wr["landuse"](${b});`,
+      `wr["natural"~"^(scrub|shrubbery|heath|grassland|sand|beach|wetland|shingle|bare_rock)$"](${b});`,
+      `wr["amenity"="parking"](${b});`,
+      `wr["man_made"~"^(embankment|pier|breakwater)$"](${b});`,
+      `wr["aeroway"~"^(aerodrome|apron|runway|taxiway|helipad)$"](${b});`,
+      `wr["military"](${b});`,
     ].join(''),
   };
 
@@ -214,7 +226,7 @@ const EngineV2 = (() => {
   // linear waterways are pulled out by their own coded paths BEFORE the table;
   // everything else passes the closed-way/multipolygon gate, then the table.
   function classifyAreaFeatures(elements) {
-    const water = [], green = [], landcover = [], waterways = [], coastline = [];
+    const water = [], green = [], landcover = [], waterways = [], coastline = [], labelOnly = [];
     for (const el of (elements || [])) {
       if (el.type === 'node') continue;
       const tags = el.tags || {};
@@ -225,8 +237,11 @@ const EngineV2 = (() => {
       if (category === 'water') water.push(el);
       else if (category === 'green') green.push(el);
       else if (category === 'landcover') landcover.push(el);
+      // No row claims it → label-only: never painted, but its tags name the
+      // land under an Uncategorized patch (see renderFallbackBlocks).
+      else if (el.tags) labelOnly.push(el);
     }
-    return { water, green, landcover, waterways, coastline };
+    return { water, green, landcover, waterways, coastline, labelOnly };
   }
 
   // ── Coastline → sea ────────────────────────────────────────────────
@@ -1080,18 +1095,123 @@ self.onmessage = function(event) {
   // (buildingless small faces, dry river islands, OSM data gaps). Visually
   // identical to a city block, but its own group so gaps stay auditable and
   // countable. Sits below water in layerOrder, same as city_blocks.
-  function renderFallbackBlocks(blocks) {
+  // Designer-facing category for an Uncategorized patch, from the tags of a
+  // label-only element found under it. First key wins; OSM name appended.
+  function fallbackCategoryLabel(tags) {
+    for (const k of ['landuse', 'natural', 'railway', 'aeroway', 'military', 'leisure', 'amenity', 'man_made']) {
+      if (tags[k]) return `${k}=${tags[k]}${tags.name ? ` “${tags.name}”` : ''}`;
+    }
+    return null;
+  }
+
+  // Representative interior point of a patch outer ring: the vertex mean when
+  // it lands inside the ring, else a coarsening grid probe over the ring bbox.
+  // Label-grade only — a rare miss labels one patch generically, nothing more.
+  function patchLabelPoint(ring) {
+    const inRing = (x, y) => {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+        if (((yi > y) !== (yj > y)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    let mx = 0, my = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of ring) {
+      mx += x; my += y;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    mx /= ring.length; my /= ring.length;
+    if (inRing(mx, my)) return [mx, my];
+    for (let n = 4; n <= 32; n *= 2) {
+      for (let i = 1; i < n; i++) for (let j = 1; j < n; j++) {
+        const x = minX + (maxX - minX) * i / n, y = minY + (maxY - minY) * j / n;
+        if (inRing(x, y)) return [x, y];
+      }
+    }
+    return [mx, my];
+  }
+
+  // The Uncategorized layer (kind:'fallback' internally): land the coverage
+  // pass painted cream because no fetched feature claimed it. Each patch is
+  // labelled with what the label-only fetch says the land is (rail yard,
+  // parking, scrub, …) so a designer can decide per patch what to do with it.
+  function renderFallbackBlocks(blocks, labelElements, ctx) {
+    // Project the label-only polygons once, with a bbox each for prefiltering.
+    const areas = [];
+    for (const el of (labelElements || [])) {
+      const rings = el.type === 'way'
+        ? [el.geometry]
+        : (el.members || []).filter(m => m.role !== 'inner' && m.geometry?.length >= 4).map(m => m.geometry);
+      for (const geom of rings) {
+        if (!geom || geom.length < 3) continue;
+        const pts = geom.map(g => ctx.pr(g.lat, g.lon));
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [x, y] of pts) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+        areas.push({ pts, minX, minY, maxX, maxY, tags: el.tags });
+      }
+    }
+    const inPts = (pts, x, y) => {
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+        if (((yi > y) !== (yj > y)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
     let n = 0;
     const paths = (blocks || []).filter(blk => blk.kind === 'fallback').map(blk => {
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
+      const outerRing = [...blk.outer.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
+      let label = 'Uncategorized';
+      if (outerRing.length >= 3) {
+        const [x, y] = patchLabelPoint(outerRing);
+        const cats = [];
+        for (const a of areas) {
+          if (x < a.minX || x > a.maxX || y < a.minY || y > a.maxY) continue;
+          if (!inPts(a.pts, x, y)) continue;
+          const cat = fallbackCategoryLabel(a.tags);
+          if (cat && !cats.includes(cat)) cats.push(cat);
+        }
+        if (cats.length) label = `Uncategorized — ${cats.slice(0, 2).join(' + ')}`;
+      }
       // Self-coloured seam stroke (as on water bodies and squares): fallback
       // patches often abut hamlet blobs and each other edge-to-edge, and the
       // sub-pixel gap between two unstroked fills renders as a hairline of
       // page background.
-      return `<path id="fallback_${++n}" inkscape:label="Fallback ${n}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
+      return `<path id="fallback_${++n}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
     }).join('\n    ');
     if (!paths) return '';
-    return `  <g id="fallback_blocks" inkscape:label="Fallback blocks" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+    return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+  }
+
+  // Rail/tram/metro corridors are carved out of the blocks at 20px·sf, but the
+  // drawn tracks are narrower (rail casing 12px·sf), so every line used to
+  // leave a bare page-background flank on each side, plus a bare round cap
+  // past each spur end — invisible on white, glaring on any test background.
+  // Paint the whole carved corridor cream, directly above the block layers and
+  // below water (so rivers still show under rail bridges). Same centerlines
+  // and eps as the cutter, so the bed edge parallels the block edge exactly;
+  // +1px absorbs Clipper's arc tolerance at joins.
+  function renderCorridorBeds(results, ctx) {
+    const bandW = (20 * getScaleFactor(ctx.W) + 1).toFixed(2);
+    let paths = '';
+    for (const result of results) {
+      const t = result.layer.type;
+      if (t !== 'rail' && t !== 'tram' && t !== 'metro') continue;
+      for (const el of (result.data?.elements || [])) {
+        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
+        if (isTunnel(el)) continue;
+        const d = geomToPathD(el.geometry, ctx.pr, getEps(), false);
+        if (d) paths += `<path d="${d}"/>`;
+      }
+    }
+    if (!paths) return '';
+    return `  <g id="corridor_beds" inkscape:label="Rail corridor beds" inkscape:groupmode="layer" fill="none" stroke="${CREAM}" stroke-width="${bandW}" stroke-linecap="round" stroke-linejoin="round">${paths}</g>\n`;
   }
 
   // ── Squares + tunnels (milestone 6) ────────────────────────────────
@@ -1148,7 +1268,7 @@ self.onmessage = function(event) {
   function renderLayer(result, ctx) {
     if (fetchOnlyIds.has(result.layer.id)) return '';
     if (result.layer.id === 'city_blocks') return renderCityBlocks(result.data?.blocks || [], ctx);
-    if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || []);
+    if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || [], result.data?.labelElements, ctx);
     if (result.layer.id === 'roads') {
       const elements = result.data?.elements || [];
       const squares = elements.filter(isSquareElement);
@@ -1174,6 +1294,9 @@ self.onmessage = function(event) {
     let layersSVG = '';
     for (const result of sortResults(results)) {
       layersSVG += renderLayer(result, ctx);
+      // Corridor beds ride directly above the coverage patches (and below
+      // water) — see renderCorridorBeds.
+      if (result.layer.id === 'fallback_blocks') layersSVG += renderCorridorBeds(results, ctx);
     }
     return ctx.illustratorCompatible
       ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
@@ -1295,7 +1418,7 @@ self.onmessage = function(event) {
     const renderableResults = results.filter(r => !fetchOnlyIds.has(r.layer.id));
     renderableResults.push(...areaRenderResults);
     renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
-    renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks } });
+    renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
 
     // Cache for the shared live-preview path.
     lastResults = renderableResults;

@@ -11,6 +11,27 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 rail beds, Uncategorized layer, render-based coverage check (experimental)
+- Rail/tram/metro corridors no longer show bare page beside the tracks: the
+  block cutter carves them at 20px·sf but the drawn tracks are narrower, so
+  every line left an unpainted flank on each side (plus a bare cap past each
+  spur end). A cream corridor bed now paints the whole carved band, above the
+  block layers and below water so rivers still show under rail bridges. This
+  also fills the previously-allowed rail-yard gap in Oulu.
+- The fallback layer is now called "Uncategorized" in the SVG, and every patch
+  carries a designer-facing label saying what OSM thinks the land is
+  ("Uncategorized — landuse=railway", "… amenity=parking “Autoranta”"), driven
+  by a new label-only Overpass sweep (broad landuse/natural/parking/aeroway/
+  military fetch that is never painted — the paint rules are tag-specific, so
+  widening the fetch cannot widen what paints).
+- New render-based coverage check in the export test: the finished SVG is
+  rasterized over a magenta page in headless Chrome and actual bare pixels are
+  counted and clustered. The geometric lint checks the worker's model of the
+  map; this checks the ink, so paint/model disagreements (the rail flanks
+  above, simplification drift) can no longer pass silently. Same significance
+  floor and --record approval channel (allowance key: bareBlobs); skipped
+  gracefully when no Chrome binary is available.
+
 ### 2026-07-11 — Engine v2 countryside coverage + square band fixes (experimental)
 - Engine v2 no longer leaves bare page background inside large rural/harbour
   faces: the countryside remainder (whatever landcover, green, water and

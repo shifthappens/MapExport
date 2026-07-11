@@ -42,6 +42,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintSvg } from './svg-lint.mjs';
 import { checkCoverage } from './coverage-lint.mjs';
+import { checkRenderedCoverage } from './render-coverage.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://localhost:8080/mapexport/';
@@ -249,7 +250,7 @@ if (engineV2) {
   const renderResults = results.filter(r => !X2.fetchOnlyIds.has(r.layer.id));
   renderResults.push(...areaRenderResults);
   renderResults.push({ layer: X2.cityBlocksLayer, data: { blocks: v2Blocks } });
-  renderResults.push({ layer: X2.fallbackBlocksLayer, data: { blocks: v2Blocks } });
+  renderResults.push({ layer: X2.fallbackBlocksLayer, data: { blocks: v2Blocks, labelElements: classified.labelOnly } });
   results.length = 0;
   results.push(...renderResults);
   // Feed the shared coverage lint below: v2's face data carries .lines
@@ -338,11 +339,11 @@ const exp = expectations[expKey];
 //    the same thing at any zoom: ~3x3mm on the printed sheet, comfortably
 //    bigger than a junction rounding artifact, small enough to catch a real
 //    dropped block.
+const pxPerMm = W / physicalWidthMm;
+const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
 let significantGaps = [];
 if (blockData) {
   const cov = checkCoverage({ X, results, data: blockData, blocks, bbox, W, H: blockH, pr: blockPr, countrysideCovers: !engineV2 });
-  const pxPerMm = W / physicalWidthMm;
-  const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
   significantGaps = cov.blobs.filter(b => b.cells * cov.step * cov.step >= minAreaPx2);
   console.log(`coverage: ${cov.gapCells} empty grid cell(s) (step ${cov.step}px) in ${cov.blobs.length} blob(s), ${significantGaps.length} at/above the ${minAreaPx2.toFixed(0)}px² (~3x3mm) significance floor`);
   // Some gaps are legitimate map features, not bugs — the canonical case is a
@@ -362,6 +363,41 @@ if (blockData) {
     for (const b of significantGaps) {
       console.log(`coverage: gap ~${(b.cells * cov.step * cov.step).toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)}) — ${recordExpectations ? 'will be recorded as allowed' : `within the recorded allowance of ${allowedGaps}`}`);
     }
+  }
+}
+
+// 2b. render coverage (v2 only): rasterize the ACTUAL SVG over a magenta page
+//     and count what shows through. The geometric lint above checks the
+//     worker's model of the map; the model and the paint have disagreed
+//     before (rail corridors carved wider than the drawn tracks, paint/void
+//     simplification drift), and every such class is invisible to a
+//     model-side check by construction. This one measures the ink itself.
+//     v1 is exempt: it deliberately shows the page through countryside faces.
+//     Same significance floor and the same --record human-approval channel as
+//     the geometric check (allowance key: bareBlobs).
+let bareBlobs = [];
+if (engineV2) {
+  try {
+    const rc = checkRenderedCoverage({ svgText: svg, W, H: blockH, bbox, minAreaPx2 });
+    if (rc.skipped) {
+      console.log('render coverage: skipped — no Chrome/Chromium found (set CHROME_BIN)');
+    } else {
+      bareBlobs = rc.blobs;
+      console.log(`render coverage: ${rc.barePct.toFixed(3)}% bare pixels, ${bareBlobs.length} blob(s) at/above the ${minAreaPx2.toFixed(0)}px² floor`);
+      const allowedBare = exp?.bareBlobs ?? 0;
+      if (!recordExpectations && bareBlobs.length > allowedBare) {
+        for (const b of bareBlobs.slice(0, 10)) {
+          failures.push(`render coverage: bare page ~${b.px2.toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)})`);
+        }
+        if (bareBlobs.length > 10) failures.push(`render coverage: ${bareBlobs.length - 10} more bare blob(s), not listed`);
+      } else {
+        for (const b of bareBlobs) {
+          console.log(`render coverage: bare ~${b.px2.toFixed(0)}px² at ${b.lat.toFixed(5)},${b.lng.toFixed(5)} (px ${b.px.toFixed(0)},${b.py.toFixed(0)}) — ${recordExpectations ? 'will be recorded as allowed' : `within the recorded allowance of ${allowedBare}`}`);
+        }
+      }
+    }
+  } catch (e) {
+    failures.push(`render coverage: ${e.message}`);
   }
 }
 
@@ -398,6 +434,7 @@ if (recordExpectations && citySlug !== 'custom' && !failures.length) {
   // Human-approved significant coverage gaps (rail yards etc.) become this
   // city's allowance; see the coverage check above.
   if (significantGaps.length) entry.coverageGaps = significantGaps.length;
+  if (bareBlobs.length) entry.bareBlobs = bareBlobs.length;
   expectations[expKey] = entry;
   fs.writeFileSync(expPath, JSON.stringify(expectations, null, 2) + '\n');
   console.log(`recorded floors for ${expKey} -> tests/expectations.json (counts ×0.5)`);
