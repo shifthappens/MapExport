@@ -11,6 +11,25 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 countryside coverage + square band fixes (experimental)
+- Engine v2 no longer leaves bare page background inside large rural/harbour
+  faces: the countryside remainder (whatever landcover, green, water and
+  hamlet blobs do not cover) now paints cream through the coverage fallback,
+  so dock yards, quays and unfarmed floodplain render as land instead of
+  white holes (Bremerhaven's Geeste bend was the reference failure; Nièvre's
+  unmapped patch heals too). The coverage lint stops counting unpainted
+  countryside placeholders as covered on v2 runs — coverage must be proven
+  by real paint.
+- Squares no longer leave a bare road-width ring: the plaza absorbs its
+  former ring street by stroking its outline in plaza colour at full street
+  width (the perimeter still cuts blocks at that width, but M6 excluded
+  squares from road stroking, so the band was painted by nothing).
+- Fallback patches carry a self-coloured seam stroke so abutting cream
+  shapes don't show hairline background between them.
+- The synthetic sea takes its name from the coastline when OSM offers
+  exactly one (open ways only — island rings never name the sea); otherwise
+  it stays the generic "Sea" layer name.
+
 ### 2026-07-11 — Engine v2 validation sweep (experimental)
 - Engine v2 validated against all five visual cities (Tilburg, Ghent, Paris,
   Bremerhaven, Oulu) plus Erfurt (river islands) and the Nièvre countryside,

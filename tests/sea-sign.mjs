@@ -120,7 +120,21 @@ check('sea west of the edge island', inSea(sea, 50.9, 4.2));
 check('sea between edge island and coast', inSea(sea, 50.65, 4.5));
 check('land south of the coast stays land', !inSea(sea, 50.2, 4.5));
 
-// Case 7: no coastline → strict no-op.
+// Case 7: sea naming. One agreeing name on the open coastline names the sea;
+// island (closed-ring) names never do; unnamed coast keeps 'Sea'.
+const named = (id, pts, name) => ({ type: 'way', id, tags: { natural: 'coastline', name }, geometry: pts });
+sea = X2.buildSeaElements([named(11, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }], 'Waddenzee')], bbox);
+check('single-named coast names the sea', sea[0].tags.name === 'Waddenzee');
+sea = X2.buildSeaElements([
+  coastWay(12, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }]),
+  named(13, [
+    { lat: 50.2, lon: 4.4 }, { lat: 50.2, lon: 4.6 }, { lat: 50.3, lon: 4.6 },
+    { lat: 50.3, lon: 4.4 }, { lat: 50.2, lon: 4.4 },
+  ], 'Hietasaari'),
+], bbox);
+check('island name never names the sea', sea[0].tags.name === 'Sea');
+
+// Case 8: no coastline → strict no-op.
 check('no coastline → no sea elements', X2.buildSeaElements([], bbox).length === 0);
 
 if (failures) { console.error(`${failures} failure(s)`); process.exit(1); }

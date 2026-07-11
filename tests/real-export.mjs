@@ -340,7 +340,7 @@ const exp = expectations[expKey];
 //    dropped block.
 let significantGaps = [];
 if (blockData) {
-  const cov = checkCoverage({ X, results, data: blockData, blocks, bbox, W, H: blockH, pr: blockPr });
+  const cov = checkCoverage({ X, results, data: blockData, blocks, bbox, W, H: blockH, pr: blockPr, countrysideCovers: !engineV2 });
   const pxPerMm = W / physicalWidthMm;
   const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
   significantGaps = cov.blobs.filter(b => b.cells * cov.step * cov.step >= minAreaPx2);

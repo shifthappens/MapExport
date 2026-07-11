@@ -454,8 +454,18 @@ const EngineV2 = (() => {
       if (innerRings.length) console.warn('engine-v2: coastline islands without a sea polygon — dropped');
       return [];
     }
+    // Name the sea when OSM does: if every named OPEN coastline way in the
+    // frame agrees on one name, use it. Closed ways are islands and carry the
+    // island's name (Oulu), never the sea's; most open coastline is unnamed
+    // (Bremerhaven's Außenweser) — those keep the generic 'Sea', which only
+    // surfaces as the layer path id/label; the synthetic relation never feeds
+    // the label engine.
+    const coastNames = new Set(coastlineWays
+      .filter(w => w.tags?.name && w.geometry?.length >= 2 && !samePt(w.geometry[0], w.geometry[w.geometry.length - 1]))
+      .map(w => w.tags.name));
+    const seaName = coastNames.size === 1 ? coastNames.values().next().value : 'Sea';
     return [{
-      type: 'relation', id: 'sea', tags: { natural: 'water', name: 'Sea' },
+      type: 'relation', id: 'sea', tags: { natural: 'water', name: seaName },
       members: [
         ...outerRings.map((geometry) => ({ type: 'way', role: 'outer', geometry })),
         ...innerRings.map((geometry) => ({ type: 'way', role: 'inner', geometry })),
@@ -771,6 +781,20 @@ self.onmessage = function(event) {
     erodeOffset.Execute(clusterPolys, -(ERODE_M / mPerPx) * SCALE);
   }
 
+  // Countryside faces get the same coverage promise as everything else: their
+  // remainder (after landcover/green/water AND the hamlet blobs) paints cream
+  // via the fallback pass. Without this, land the landcover query doesn't know
+  // (harbour quays, dock yards, unfarmed floodplain) showed bare page — the
+  // Bremerhaven Geeste bend was the reference failure.
+  let countrysideVoid = fallbackVoid;
+  if (clusterPolys && clusterPolys.length) {
+    const unionClipper = new Clipper.Clipper();
+    unionClipper.AddPaths(fallbackVoid, ptSubject, true);
+    unionClipper.AddPaths(clusterPolys, ptSubject, true);
+    countrysideVoid = new Clipper.Paths();
+    unionClipper.Execute(ctUnion, countrysideVoid, NZ, NZ);
+  }
+
   const blocks = [];
   for (const face of rawFaces) {
     const netAreaScaled = Math.abs(Clipper.Clipper.Area(face.outer))
@@ -778,11 +802,11 @@ self.onmessage = function(event) {
     const faceSubject = [face.outer].concat(face.holes);
 
     if (netAreaScaled >= bigFaceScaled) {
-      // Large (countryside) face: no cream fill. Emit an unpainted placeholder
-      // (the renderer skips kind:'countryside'; the coverage lint counts its
-      // geometry, so open countryside is treated as intentional background, not
-      // a gap) plus one hamlet blob per building cluster, with the same
-      // water/green/waterway subtraction the urban blocks get.
+      // Large (countryside) face: no curb-to-curb cream fill. Emit an unpainted
+      // placeholder for stats (the renderer skips kind:'countryside'), one
+      // hamlet blob per building cluster, and a fallback remainder so whatever
+      // landcover/green/water/hamlets do NOT cover still paints cream instead
+      // of bare page.
       const faceOuterD = toPathD(face.outer);
       if (faceOuterD) blocks.push({ kind: 'countryside', outer: faceOuterD, holes: face.holes.map(h => toPathD(h)).filter(d => d), areaPx: netAreaScaled / (SCALE * SCALE) });
       if (clusterPolys && clusterPolys.length) {
@@ -793,6 +817,7 @@ self.onmessage = function(event) {
         intersectClipper.Execute(ctIntersection, hamletPaths, NZ, NZ);
         emitTree(subtractVoid(hamletPaths, blockVoid), 'hamlet', blocks);
       }
+      emitTree(subtractVoid(faceSubject, countrysideVoid), 'fallback', blocks);
       continue;
     }
 
@@ -1059,7 +1084,11 @@ self.onmessage = function(event) {
     let n = 0;
     const paths = (blocks || []).filter(blk => blk.kind === 'fallback').map(blk => {
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
-      return `<path id="fallback_${++n}" inkscape:label="Fallback ${n}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="none"/>`;
+      // Self-coloured seam stroke (as on water bodies and squares): fallback
+      // patches often abut hamlet blobs and each other edge-to-edge, and the
+      // sub-pixel gap between two unstroked fills renders as a hairline of
+      // page background.
+      return `<path id="fallback_${++n}" inkscape:label="Fallback ${n}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
     }).join('\n    ');
     if (!paths) return '';
     return `  <g id="fallback_blocks" inkscape:label="Fallback blocks" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
@@ -1098,9 +1127,14 @@ self.onmessage = function(event) {
       if (!d) continue;
       const name = el.tags?.name;
       const id = uid(name ? `square_${safeName(name)}` : `square${el.id ? '_' + el.id : ''}`);
-      // Same self-coloured seam stroke the water bodies carry: it seals the
-      // sub-pixel gap between the plaza edge and the abutting block edge.
-      paths += `<path id="${id}" inkscape:label="${escXml(name || 'Square')}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="1" stroke-linejoin="round"/>`;
+      // The perimeter still cuts blocks at its street width, so the plaza must
+      // absorb its former ring street: stroke the outline in plaza colour at
+      // the full stroked-road width. A hairline seam instead leaves a bare
+      // road-width band around every square (blocks stop at the cutter edge,
+      // and squares are excluded from road stroking) — Bremerhaven M7 review.
+      const width = ROAD_WIDTHS[el.tags?.highway] || ROAD_WIDTHS._default;
+      const bandW = ((width.fillW + width.casingW) * getScaleFactor(ctx.W)).toFixed(2);
+      paths += `<path id="${id}" inkscape:label="${escXml(name || 'Square')}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="${bandW}" stroke-linejoin="round"/>`;
     }
     if (!paths) return '';
     return `  <g id="squares" inkscape:label="Squares" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;

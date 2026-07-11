@@ -66,7 +66,11 @@ function makeInverseProjector(bbox, W, H) {
 // results: post prepareBlockData (island-green pruning already applied)
 // data: { lines, areas, waterPolys, waterHoles, W, H } from prepareBlockData
 // blocks: [{ outer, holes }] from the block worker
-export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr }) {
+// countrysideCovers: v1 leaves countryside faces unpainted by design (landcover
+// is assumed to be the map there), so its placeholders count as covered. v2
+// paints the countryside remainder cream via the fallback pass, so its
+// placeholders must NOT count — coverage has to be proven by real paint.
+export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr, countrysideCovers = true }) {
   const step = Math.max(6, Math.round(W / 320));
   const cols = Math.ceil(W / step), rows = Math.ceil(H / step);
   const covered = new Uint8Array(cols * rows);
@@ -115,6 +119,7 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr }) {
 
   // 1. City blocks — each is its own evenodd shape (outer + its holes).
   for (const blk of blocks) {
+    if (blk.kind === 'countryside' && !countrysideCovers) continue; // unpainted placeholder
     const rings = [parseBlockPath(blk.outer), ...blk.holes.map(parseBlockPath)].filter(r => r.length >= 3);
     markShape(rings);
   }
