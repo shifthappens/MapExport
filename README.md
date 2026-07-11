@@ -19,7 +19,9 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 ```
 .
 ├── index.html             # Single HTML entry point (loads script.js/style.css directly, always)
-├── script.js              # All application logic (~2500 lines, source of truth)
+├── script.js              # All application logic (v1 engine + shared UI/fetch/labels, source of truth)
+├── engine-v2.js           # Experimental v2 map-construction engine (behind a UI toggle)
+├── ENGINE-V2.md           # v2 design contract — binding invariants, read before changing engine-v2.js
 ├── style.css              # UI styles
 ├── cache.php              # Server-side Overpass response cache (PHP)
 ├── fonts/                 # Mayonnaise Black + Apfel Grotezk (WOFF2)

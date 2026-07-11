@@ -11,6 +11,14 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 design contract + named corridor-bed paths (experimental)
+- New `ENGINE-V2.md`: the binding design contract for engine v2 (coverage
+  promise, complement rule, paint order, named-green rule, sea semantics,
+  change discipline). Referenced from CLAUDE.md and README so any future
+  change is checked against the invariants instead of re-deriving them.
+- Corridor-bed strokes now carry ids and labels (`bed_rail_<osmid>`,
+  "Rail bed" / "<line name> (bed)") instead of being anonymous paths.
+
 ### 2026-07-11 — Engine v2 named-green rule restored, named waterway paths (experimental)
 - Nameless sports/recreation green (pitches, sports centres, golf courses)
   no longer paints: it was a v2-only addition that broke v1's "only named

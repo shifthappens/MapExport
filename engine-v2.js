@@ -1245,15 +1245,19 @@ self.onmessage = function(event) {
   // +1px absorbs Clipper's arc tolerance at joins.
   function renderCorridorBeds(results, ctx) {
     const bandW = (20 * getScaleFactor(ctx.W) + 1).toFixed(2);
+    const uid = makeUidGen();
     let paths = '';
     for (const result of results) {
       const t = result.layer.type;
       if (t !== 'rail' && t !== 'tram' && t !== 'metro') continue;
+      const kindLabel = t.charAt(0).toUpperCase() + t.slice(1) + ' bed';
       for (const el of (result.data?.elements || [])) {
         if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
         if (isTunnel(el)) continue;
         const d = geomToPathD(el.geometry, ctx.pr, getEps(), false);
-        if (d) paths += `<path d="${d}"/>`;
+        if (!d) continue;
+        const label = el.tags?.name ? `${el.tags.name} (bed)` : kindLabel;
+        paths += `<path id="${uid(`bed_${t}_${el.id}`)}" inkscape:label="${escXml(label)}" d="${d}"/>`;
       }
     }
     if (!paths) return '';
