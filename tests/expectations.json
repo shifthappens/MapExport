@@ -29,7 +29,7 @@
   },
   "tilburg-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-tilburg-v2-2026-07-11-202808.svg",
+    "from": "map-useit-tilburg-v2-2026-07-11-210421.svg",
     "layers": {
       "roads": 1118,
       "rail": 37,
@@ -45,7 +45,7 @@
   },
   "ghent-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-ghent-v2-2026-07-11-202845.svg",
+    "from": "map-useit-ghent-v2-2026-07-11-210453.svg",
     "layers": {
       "roads": 2581,
       "rail": 37,
@@ -61,7 +61,7 @@
   },
   "nievre-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-nievre-v2-2026-07-11-202905.svg",
+    "from": "map-useit-nievre-v2-2026-07-11-210506.svg",
     "layers": {
       "roads": 8,
       "rail": 0,
@@ -77,7 +77,7 @@
   },
   "erfurt-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-erfurt-v2-2026-07-11-202933.svg",
+    "from": "map-useit-erfurt-v2-2026-07-11-210522.svg",
     "layers": {
       "roads": 622,
       "rail": 0,
@@ -93,7 +93,7 @@
   },
   "paris-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-paris-v2-2026-07-11-203001.svg",
+    "from": "map-useit-paris-v2-2026-07-11-210544.svg",
     "layers": {
       "roads": 8897,
       "rail": 504,
@@ -109,7 +109,7 @@
   },
   "bremerhaven-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-bremerhaven-v2-2026-07-11-203031.svg",
+    "from": "map-useit-bremerhaven-v2-2026-07-11-210603.svg",
     "layers": {
       "roads": 1708,
       "rail": 61,
@@ -125,7 +125,7 @@
   },
   "oulu-v2": {
     "recorded_at": "2026-07-11",
-    "from": "map-useit-oulu-v2-2026-07-11-203043.svg",
+    "from": "map-useit-oulu-v2-2026-07-11-210616.svg",
     "layers": {
       "roads": 3962,
       "rail": 118,
@@ -137,8 +137,7 @@
       "block_buildings": 1771,
       "area_features": 1821
     },
-    "labels": 135,
-    "coverageGaps": 1
+    "labels": 135
   },
   "erfurt": {
     "recorded_at": "2026-07-11",

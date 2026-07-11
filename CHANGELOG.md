@@ -11,6 +11,25 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 zero bare pixels, no more fake hamlets (experimental)
+- Big faces only classify as countryside when OSM actually shows open land
+  (green + landcover) across a real share of them (water excluded — harbour
+  basins sit inside dock faces and faked a rural signal). Dock peninsulas and
+  industrial estates now get ordinary curb-to-curb city blocks instead of
+  hamlet blobs: Bremerhaven loses its 32 invented in-city "hamlets"; Nièvre's
+  real countryside (59 hamlets, 7 rural faces) is untouched.
+- The countryside fallback remainder now subtracts the PAINTED hamlet shapes
+  instead of the raw cluster blobs, so no seam can open between a blob and
+  the cream around it (the Oulu forest-edge bites).
+- Sub-400px² faces and block pieces are no longer dropped as noise — they
+  paint as Uncategorized cream (a dropped sliver was a bare-page sliver;
+  junction micro-faces were a measured bare-pixel class in every city).
+- Net effect, measured on the rendered ink: 0.000% bare pixels across all
+  seven validation areas (was 0.002–0.024%); Oulu's last recorded coverage
+  allowance is gone.
+- Uncategorized patch labels read the tag value only ("Railway", "Parking
+  “Autoranta”"); plain "Uncategorized" is reserved for truly untagged land.
+
 ### 2026-07-11 — Engine v2 rail beds, Uncategorized layer, render-based coverage check (experimental)
 - Rail/tram/metro corridors no longer show bare page beside the tracks: the
   block cutter carves them at 20px·sf but the drawn tracks are narrower, so

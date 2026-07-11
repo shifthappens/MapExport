@@ -642,15 +642,19 @@ self.onmessage = function(event) {
 
   self.postMessage({ type: 'progress', msg: 'Classifying faces…', pct: 80 });
 
-  // Confetti guard: faces and hamlet blobs below 400 px² are dropped as
-  // traffic-island noise. Ported from v1's minArea.
+  // Block-styling floor: pieces below 400 px² are too small to be blocks
+  // (v1's minArea) — but they are NOT dropped anymore: emitTree downgrades
+  // them to fallback cream, and collectFace keeps every face above a
+  // degenerate-ring guard, because a dropped sliver is a bare-page sliver
+  // (junction micro-faces were a measured bare-pixel class in every city).
   const minArea = 400 * SCALE * SCALE;
+  const tinyGuard = 4 * SCALE * SCALE;
 
   const rawFaces = [];
   function collectFace(node) {
     if (node.IsHole()) return;
     const contour = node.Contour();
-    if (contour && contour.length >= 3 && Math.abs(Clipper.Clipper.Area(contour)) >= minArea) {
+    if (contour && contour.length >= 3 && Math.abs(Clipper.Clipper.Area(contour)) >= tinyGuard) {
       const holes = [];
       for (let i = 0; i < node.ChildCount(); i++) {
         const child = node.Childs()[i];
@@ -746,9 +750,12 @@ self.onmessage = function(event) {
               if (hc && hc.length >= 3) { holesArea += Math.abs(Clipper.Clipper.Area(hc)); const hd = toPathD(hc); if (hd) holeDs.push(hd); }
             }
             const netArea = Math.abs(Clipper.Clipper.Area(contour)) - holesArea;
-            if (netArea >= minArea) {
+            // Below the block floor it can't be a styled block, but it must
+            // still paint: downgrade to fallback cream instead of dropping.
+            if (netArea >= tinyGuard) {
               const outerD = toPathD(contour);
-              if (outerD) out.push({ kind: kind, outer: outerD, holes: holeDs, areaPx: netArea / (SCALE * SCALE) });
+              const pieceKind = netArea >= minArea ? kind : 'fallback';
+              if (outerD) out.push({ kind: pieceKind, outer: outerD, holes: holeDs, areaPx: netArea / (SCALE * SCALE) });
             }
           }
           for (let i = 0; i < node.ChildCount(); i++) recurse(node.Childs()[i].Childs());
@@ -796,18 +803,25 @@ self.onmessage = function(event) {
     erodeOffset.Execute(clusterPolys, -(ERODE_M / mPerPx) * SCALE);
   }
 
-  // Countryside faces get the same coverage promise as everything else: their
-  // remainder (after landcover/green/water AND the hamlet blobs) paints cream
-  // via the fallback pass. Without this, land the landcover query doesn't know
-  // (harbour quays, dock yards, unfarmed floodplain) showed bare page — the
-  // Bremerhaven Geeste bend was the reference failure.
-  let countrysideVoid = fallbackVoid;
-  if (clusterPolys && clusterPolys.length) {
-    const unionClipper = new Clipper.Clipper();
-    unionClipper.AddPaths(fallbackVoid, ptSubject, true);
-    unionClipper.AddPaths(clusterPolys, ptSubject, true);
-    countrysideVoid = new Clipper.Paths();
-    unionClipper.Execute(ctUnion, countrysideVoid, NZ, NZ);
+  // Open-land signal for big-face classification: green + landcover cover
+  // (NOT water — harbour basins sit inside dock faces and would fake a rural
+  // signal). A big face is only "countryside" if OSM actually shows open land
+  // across a real share of it; a big face without that cover is just a
+  // coarsely-roaded urban face (dock peninsulas, industrial estates) and gets
+  // the ordinary curb-to-curb treatment — hamlet blobs there invent hamlets
+  // inside the city (Bremerhaven M7 review).
+  const openLandVoid = buildVoid([greenPolys, landcoverPolys], null);
+  const waterVoid = buildVoid([waterPolys], waterwayStrokePaths);
+  const COUNTRYSIDE_MIN_OPEN_SHARE = 0.35;
+  function intersectArea(faceSubject, clipPaths) {
+    const clipper = new Clipper.Clipper();
+    for (const p of faceSubject) clipper.AddPath(p, ptSubject, true);
+    clipper.AddPaths(clipPaths, ptClip, true);
+    const out = new Clipper.Paths();
+    clipper.Execute(ctIntersection, out, NZ, NZ);
+    let area = 0;
+    for (const p of out) area += Clipper.Clipper.Area(p); // signed: holes subtract
+    return Math.abs(area);
   }
 
   const blocks = [];
@@ -816,23 +830,45 @@ self.onmessage = function(event) {
       - face.holes.reduce((sum, h) => sum + Math.abs(Clipper.Clipper.Area(h)), 0);
     const faceSubject = [face.outer].concat(face.holes);
 
+    let isCountryside = false;
     if (netAreaScaled >= bigFaceScaled) {
-      // Large (countryside) face: no curb-to-curb cream fill. Emit an unpainted
+      const landArea = Math.max(1, netAreaScaled - intersectArea(faceSubject, waterVoid));
+      isCountryside = intersectArea(faceSubject, openLandVoid) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE;
+    }
+
+    if (isCountryside) {
+      // Countryside face: no curb-to-curb cream fill. Emit an unpainted
       // placeholder for stats (the renderer skips kind:'countryside'), one
       // hamlet blob per building cluster, and a fallback remainder so whatever
       // landcover/green/water/hamlets do NOT cover still paints cream instead
-      // of bare page.
+      // of bare page (harbour quays and unfarmed floodplain were the
+      // Bremerhaven reference failure).
       const faceOuterD = toPathD(face.outer);
       if (faceOuterD) blocks.push({ kind: 'countryside', outer: faceOuterD, holes: face.holes.map(h => toPathD(h)).filter(d => d), areaPx: netAreaScaled / (SCALE * SCALE) });
+      // The fallback remainder subtracts the PAINTED hamlet shapes (not the
+      // raw cluster blobs): complement built from the same polygons that get
+      // emitted, so no seam can open between a blob and the cream around it
+      // (the Oulu forest-edge bites came from exactly that disagreement).
+      let hamletPaintedPaths = null;
       if (clusterPolys && clusterPolys.length) {
         const intersectClipper = new Clipper.Clipper();
         for (const p of faceSubject) intersectClipper.AddPath(p, ptSubject, true);
         intersectClipper.AddPaths(clusterPolys, ptClip, true);
         const hamletPaths = new Clipper.Paths();
         intersectClipper.Execute(ctIntersection, hamletPaths, NZ, NZ);
-        emitTree(subtractVoid(hamletPaths, blockVoid), 'hamlet', blocks);
+        const hamletTree = subtractVoid(hamletPaths, blockVoid);
+        emitTree(hamletTree, 'hamlet', blocks);
+        hamletPaintedPaths = Clipper.Clipper.PolyTreeToPaths(hamletTree);
       }
-      emitTree(subtractVoid(faceSubject, countrysideVoid), 'fallback', blocks);
+      let remainderVoid = fallbackVoid;
+      if (hamletPaintedPaths && hamletPaintedPaths.length) {
+        const unionClipper = new Clipper.Clipper();
+        unionClipper.AddPaths(fallbackVoid, ptSubject, true);
+        unionClipper.AddPaths(hamletPaintedPaths, ptSubject, true);
+        remainderVoid = new Clipper.Paths();
+        unionClipper.Execute(ctUnion, remainderVoid, NZ, NZ);
+      }
+      emitTree(subtractVoid(faceSubject, remainderVoid), 'fallback', blocks);
       continue;
     }
 
@@ -1096,10 +1132,15 @@ self.onmessage = function(event) {
   // identical to a city block, but its own group so gaps stay auditable and
   // countable. Sits below water in layerOrder, same as city_blocks.
   // Designer-facing category for an Uncategorized patch, from the tags of a
-  // label-only element found under it. First key wins; OSM name appended.
+  // label-only element found under it: the tag VALUE only ("railway",
+  // "parking"), capitalized, underscores as spaces, OSM name appended. First
+  // key wins.
   function fallbackCategoryLabel(tags) {
     for (const k of ['landuse', 'natural', 'railway', 'aeroway', 'military', 'leisure', 'amenity', 'man_made']) {
-      if (tags[k]) return `${k}=${tags[k]}${tags.name ? ` “${tags.name}”` : ''}`;
+      if (tags[k]) {
+        const v = tags[k].replace(/_/g, ' ');
+        return v.charAt(0).toUpperCase() + v.slice(1) + (tags.name ? ` “${tags.name}”` : '');
+      }
     }
     return null;
   }
@@ -1177,7 +1218,9 @@ self.onmessage = function(event) {
           const cat = fallbackCategoryLabel(a.tags);
           if (cat && !cats.includes(cat)) cats.push(cat);
         }
-        if (cats.length) label = `Uncategorized — ${cats.slice(0, 2).join(' + ')}`;
+        // Categorized patches read as their category ("Railway", "Parking
+        // “Autoranta”"); "Uncategorized" is reserved for truly untagged land.
+        if (cats.length) label = cats.slice(0, 2).join(' + ');
       }
       // Self-coloured seam stroke (as on water bodies and squares): fallback
       // patches often abut hamlet blobs and each other edge-to-edge, and the
