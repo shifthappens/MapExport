@@ -11,6 +11,13 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 labels (experimental)
+- Engine v2 now places street and water/park labels through the full v1 label
+  engine — same placement, collision grid, abbreviations and repeats, in both
+  the standard and Illustrator pipelines. Rail corridors and feature names
+  claim their space first, exactly as in v1. Still behind the default-off
+  "Engine v2 (experimental)" toggle; v1 is untouched.
+
 ### 2026-07-11 — Engine v2 transit rendering (experimental)
 - Engine v2 now draws railways (hatched sleepers), tram and metro lines and
   transit stops, through the same builders v1 uses — they were already fetched

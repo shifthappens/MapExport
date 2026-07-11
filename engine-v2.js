@@ -37,6 +37,14 @@ const EngineV2 = (() => {
   const metroLayer = findLayer('metro');
   const transitStopsLayer = findLayer('transit_stops');
 
+  // Labels reuse the full v1 engine (placement, collision grid, abbreviations,
+  // both emission pipelines) via renderLayerSVG. Feature labels render before
+  // street labels in layerOrder: they have exactly one possible anchor, so
+  // they stamp the shared ctx.labelGrid first — same reasoning as v1's
+  // LAYER_ORDER. Rail corridors stamped that grid earlier in the same pass.
+  const waterLabelsLayer = findLayer('water_labels');
+  const streetLabelsLayer = findLayer('street_labels');
+
   // Buildings are fetched for every v2 export (bounding boxes) and serve two
   // purposes: classifying faces (does a small face contain a building?) and
   // forming hamlet blobs inside rural faces. Reuse v1's BLOCK_BUILDINGS_LAYER
@@ -97,7 +105,7 @@ const EngineV2 = (() => {
   const cityBlocksLayer = { id: 'city_blocks', label: 'City blocks', type: 'derived' };
   const fallbackBlocksLayer = { id: 'fallback_blocks', label: 'Fallback blocks', type: 'derived' };
 
-  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, buildingsLayer, areaFeaturesLayer, cityBlocksLayer];
+  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, cityBlocksLayer];
 
   // Fetched to feed the face cutter / classifier, but never rendered as their
   // own layer. area_features is the fetch vehicle for water/green/landcover —

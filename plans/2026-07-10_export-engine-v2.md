@@ -292,7 +292,20 @@ and know exactly where to pick up.
         byte-identical to v1's (23,955 bytes); ghent renders tram +
         transit_stops, metro correctly absent (city has none). Rail
         corridors also stamp the shared label grid, ready for M5.
-- [ ] 5. Labels port (street + feature), both emission pipelines.
+- [x] 5. Labels done 2026-07-11: `water_labels` + `street_labels` are v1's
+      registry objects in the v2 layer list — the full v1 label engine
+      (placement, shared collision grid, abbreviations, repeats, endPad,
+      squares/roundabouts) runs via renderLayerSVG on the shared ctx. No
+      port was needed: v2 shares v1's global scope, so "port, don't
+      rewrite" collapsed to wiring. Feature labels stamp the grid before
+      street labels (layerOrder), rail corridors before both (M4).
+      - Both emission pipelines verified: standard (tilburg v2 329 labels —
+        exactly v1's count — nièvre 38, ghent 608, lint + coverage clean)
+        and Illustrator (per-glyph: 0 textPath, 0 dominant-baseline,
+        greenblue_clip in root defs). Label unit tests pass (label-fit
+        14, label-placement 46).
+      - Harness: zero-labels floor now applies to v2 runs too;
+        per-city expectation floors stay v1-only until M7 re-records.
 - [ ] 6. Squares + tunnels rules.
 - [ ] 7. Test-harness integration, five-city + Erfurt validation,
       side-by-side review with Coen.

@@ -338,30 +338,26 @@ if (blockData) {
 
 // 3. structural floors that hold for ANY city.
 if (!layerCounts.roads) failures.push(`roads layer produced ${layerCounts.roads ?? 'no'} elements`);
-// v2: the rendered <g id="roads"> must carry actual geometry. Labels are
-// SKIPPED on the v2 path — the street/feature label port lands in M5.
+if (!lint.labelCount) failures.push('export contains zero labels');
 if (engineV2) {
   // A non-greedy </g> match would stop at the first nested subgroup (which
   // can legitimately be empty), so take everything from the roads group
-  // onward — precise enough while v2's map is roads-only; later milestones
-  // bring the real per-layer floors back.
+  // onward.
   const roadsStart = svg.indexOf('<g id="roads"');
   if (roadsStart < 0 || !/<path\b/.test(svg.slice(roadsStart))) failures.push('v2: <g id="roads"> is missing or has no paths');
   // The face cutter must produce at least one city block for a dense city.
   if (citySlug === 'tilburg' && (!v2Blocks || v2Blocks.length < 1)) {
     failures.push(`v2: expected at least 1 city block for tilburg, got ${v2Blocks ? v2Blocks.length : 'none'}`);
   }
-} else if (!lint.labelCount) {
-  failures.push('export contains zero labels');
 }
 
 // 4. per-city floors captured from an approved run (--record), ~50% of that
 //    run's counts so OSM churn never trips them but a broken query/filter does.
 const expPath = path.join(REPO, 'tests', 'expectations.json');
 const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath, 'utf8')) : {};
-// v2: per-city floors are SKIPPED — they were recorded against v1's full
-// layer set; v2 only renders roads for now, so they'll be re-recorded once v2
-// reaches feature parity (M7 validation).
+// v2: per-city floors are SKIPPED — they were recorded against v1's layer
+// counts; v2's will be recorded separately once it reaches feature parity
+// (M7 validation).
 const exp = engineV2 ? null : expectations[citySlug];
 if (exp) {
   for (const [id, min] of Object.entries(exp.layers || {})) {
