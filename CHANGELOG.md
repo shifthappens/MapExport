@@ -11,6 +11,19 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 named-green rule restored, named waterway paths (experimental)
+- Nameless sports/recreation green (pitches, sports centres, golf courses)
+  no longer paints: it was a v2-only addition that broke v1's "only named
+  parks and greenery" rule inside cities (Bremerhaven review). Those
+  elements are still fetched, but label-only — a pitch under an
+  Uncategorized patch now labels it "Pitch". Named parks, gardens and
+  nature reserves are untouched (Bremerhaven's parks layer: 79 paths → 23,
+  all named).
+- Waterways render as one named path per waterway instead of v1's single
+  merged anonymous path ("path124" in editors): same-named segments merge
+  into one path ("Geeste"), nameless ones are labelled by their waterway
+  tag ("Stream", "Canal"). Stroke styling unchanged.
+
 ### 2026-07-11 — Engine v2 zero bare pixels, no more fake hamlets (experimental)
 - Big faces only classify as countryside when OSM actually shows open land
   (green + landcover) across a real share of them (water excluded — harbour

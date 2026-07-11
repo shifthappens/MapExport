@@ -90,7 +90,9 @@ const EngineV2 = (() => {
       `wr["natural"="wood"]["name"](${b});`,
       `wr["amenity"="grave_yard"]["name"](${b});`,
       `wr["tourism"="zoo"]["name"](${b});`,
-      // Green sports/recreation (rendered distinct from cream, so nameless too).
+      // Sports/recreation: label-only (no AREA_FEATURES row — nameless green
+      // in cities broke the named-parks rule; named nature reserves still
+      // paint via the gate row).
       `wr["leisure"~"^(pitch|stadium|sports_centre|golf_course|dog_park|nature_reserve)$"](${b});`,
       // Countryside land cover (named forests classify as green above; the
       // nameless remainder is the countryside land the block cutter shows through).
@@ -195,10 +197,11 @@ const EngineV2 = (() => {
     { match: (t) => /^(reservoir|basin)$/.test(t.landuse || ''), category: 'water' },
     { match: (t) => /^(marina|swimming_pool)$/.test(t.leisure || ''), category: 'water' },
     // Named green destinations: reuse v1's exact gate (name + junk-name filter),
-    // so v2 keeps the "named parks only, not every verge" look.
+    // so v2 keeps the "named parks only, not every verge" look. No nameless
+    // sports/recreation row: v1 never fetches pitches/sports centres, and a
+    // nameless-green row broke the named-only rule in cities (Bremerhaven
+    // review) — those elements are still fetched, but label-only.
     { match: (t) => parksNamedGate({ type: 'way', tags: t }), category: 'green' },
-    // Sports/recreation green, nameless allowed (reads green, not cream).
-    { match: (t) => /^(pitch|stadium|sports_centre|golf_course|dog_park|nature_reserve)$/.test(t.leisure || ''), category: 'green' },
     // Countryside land cover: farmland/meadow → field tint, wood/forest → park
     // green. v1's landcover renderer picks the colour from the tag.
     { match: (t) => /^(farmland|meadow)$/.test(t.landuse || ''), category: 'landcover' },
@@ -1303,15 +1306,50 @@ self.onmessage = function(event) {
     return `  <g id="squares" inkscape:label="Squares" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
   }
 
+  // One named path per waterway, mirroring v1's per-feature water_bodies
+  // pattern: same-named ways merge into one path (a river fetched as many
+  // segments becomes one "Geeste"), nameless ways carry their waterway tag as
+  // the label. v1 merges the whole layer into a single anonymous path, which
+  // editors display as "path124" — useless to a designer. Stroke attributes
+  // are identical to v1's line emission (fixed 12px width — v1's known quirk,
+  // kept for parity — round caps, 0.92 opacity).
+  function renderWaterways(result, ctx) {
+    const elements = (result.data?.elements || []).filter(el => el.type === 'way' && el.geometry?.length >= 2);
+    if (!elements.length) return '';
+    const water = ctx.preset.water;
+    const uid = makeUidGen();
+    const groups = new Map();
+    for (const el of elements) {
+      const key = el.tags?.name ? `n:${el.tags.name}` : `a:${el.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(el);
+    }
+    let content = '';
+    for (const els of groups.values()) {
+      let d = '';
+      for (const el of els) d += geomToPathD(el.geometry, ctx.pr, ctx.EPS.line, false) + ' ';
+      d = d.trim();
+      if (!d) continue;
+      const name = els[0].tags?.name;
+      const kind = els[0].tags?.waterway || 'waterway';
+      const id = name ? uid(`waterway_${safeName(name)}`) : uid(`waterway_${kind}_${els[0].id}`);
+      const label = name || kind.replace(/^\w/, c => c.toUpperCase());
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="none" stroke="${water}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>`;
+    }
+    if (!content) return '';
+    return `  <g id="waterways" inkscape:label="Waterways" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
   // v2's per-layer dispatcher. Derived block layers render from precomputed
   // worker geometry; fetch-only inputs (buildings, area_features) never
   // render here; roads/rail/tram/street-labels get the square + tunnel
   // treatment above; everything else is byte-for-byte v1, delegated to
-  // renderLayerSVG (water/parks/landcover/waterways included).
+  // renderLayerSVG (water/parks/landcover included).
   function renderLayer(result, ctx) {
     if (fetchOnlyIds.has(result.layer.id)) return '';
     if (result.layer.id === 'city_blocks') return renderCityBlocks(result.data?.blocks || [], ctx);
     if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || [], result.data?.labelElements, ctx);
+    if (result.layer.id === 'waterways') return renderWaterways(result, ctx);
     if (result.layer.id === 'roads') {
       const elements = result.data?.elements || [];
       const squares = elements.filter(isSquareElement);
