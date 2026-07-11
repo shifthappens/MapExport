@@ -69,7 +69,8 @@ rule is restated at the top of `CHANGELOG.md` itself.
 ## Testing
 
 - Offline (no network): `node tests/road-merge.mjs`, `tests/abbreviate.mjs`,
-  `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`.
+  `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
+  `tests/sea-sign.mjs` (engine v2 coastline→sea geometry).
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build
   step) headless and writes a real SVG to `exports/` (a committed "trail").
   It hits live Overpass if the local cache isn't running, so it can be slow.

@@ -248,9 +248,37 @@ and know exactly where to pick up.
         `getAreaLargeEps()` and `stitchMultipolygonRings` (see the
         warning at the eps definitions in script.js) — flat `getEps()`
         is only correct for road cutters.
-- [ ] 3. `AREA_FEATURES` table: water, green, landcover, coastline/sea;
-      water/green subtraction from block shapes; coverage fallback pass
-      (needs the painted layers, so it lands here).
+- [x] 3. Area features done 2026-07-11: one `area_features` fetch through the
+      existing fetchLayer/tile/cache, classified by the ordered `AREA_FEATURES`
+      table (first match wins) into water / green / landcover, plus two coded
+      exceptions (coastline→sea closed against the bbox in lat/lon; linear
+      waterways→stroked lines). Rendered through v1's own per-feature renderers
+      (reused verbatim). Blocks + hamlets carve out water/green/waterway strokes
+      via plain Clipper difference (evenodd holes, `getAreaLargeEps()` for the
+      void — NOT flat eps); coverage fallback paints leftover buildingless land
+      as cream in a counted `fallback_blocks` group (also how river islands
+      render). All in `engine-v2.js`.
+      - No aeroway/military/power rows: v1 renders none distinct from cream and
+        PRESETS.useit has no colour for them, so per the plan's "where v1
+        renders them distinctly" qualifier there was nothing to port. Add a row
+        + query statement + preset colour if a city ever needs one.
+      - Countryside faces emit an unpainted placeholder (renderer skips it,
+        coverage lint counts it) so open rural land reads as intentional
+        background, matching v1; they are exempt from the fallback pass.
+      - `coverage-lint.mjs` now also marks `landcover` as painted (v2 subtracts
+        it from the fallback, so it must count as covered; safe for v1).
+      - Coverage lint is ON for `--engine=v2`; label/expectations floors stay
+        skipped (M5/M7). Validation (all PASS, lint + coverage clean): tilburg
+        275 urban + 35 fallback, nièvre 2 urban + 59 hamlet + 7 countryside + 0
+        fallback, both with zero significant coverage gaps.
+      - The coastline water-side sign, chain stitching and bbox-corner walk
+        are asserted offline by `tests/sea-sign.mjs` (added in review);
+        real-city acceptance (Bremerhaven/Oulu) stays in M7.
+      - Review fix: hamlet blobs keep v1's casing-toned outline
+        (`preset.buildingStroke`, 2.5 × sf) — with landcover now painting
+        beneath them the cream fill would vanish without it, which is why
+        v1 added it. Ghent adds 607 urban + 52 fallback to the validation
+        set; all three cities re-run green after the fix.
 - [ ] 4. Rail/tram/metro/transit port, path dashes + white twin.
 - [ ] 5. Labels port (street + feature), both emission pipelines.
 - [ ] 6. Squares + tunnels rules.

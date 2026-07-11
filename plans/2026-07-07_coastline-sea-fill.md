@@ -1,7 +1,10 @@
 # Plan: render the sea (natural=coastline) as water
 
-**Status: READY TO IMPLEMENT (2026-07-07)** — scoped out of the Erfurt
-river-island work; written so a fresh session can pick it up. Not started.
+**Status: FOLDED INTO `plans/2026-07-10_export-engine-v2.md` (milestone 3,
+2026-07-11)** — the coastline→sea mechanism is implemented in `engine-v2.js`
+(v2 only; v1 unchanged). The water-side sign, chain stitching and bbox-corner
+walk are asserted offline by `tests/sea-sign.mjs`; real-city acceptance
+(Bremerhaven/Oulu) happens during M7. Original notes kept below.
 
 ## Problem
 

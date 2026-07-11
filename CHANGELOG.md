@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 area features (experimental)
+- Engine v2 now paints water, named parks/green, sports grounds and
+  countryside land cover, classified from one combined fetch through an ordered
+  AREA_FEATURES table (first match wins). Coastlines close into a filled sea,
+  and rivers/canals/streams draw as lines. City and hamlet blocks have water,
+  green and waterway strokes carved out mechanically (no water heuristics), and
+  a final pass fills any leftover buildingless land — dry river islands, data
+  gaps — as cream in a separate, counted `fallback_blocks` group, so land is
+  never left bare. Still behind the default-off "Engine v2 (experimental)"
+  toggle; v1 is untouched.
+
 ### 2026-07-11 — Engine v2 face cutter (experimental)
 - Engine v2 now builds city blocks. Faces are the space between roads and
   railways (tunnels excluded); a face becomes a cream block only when it is

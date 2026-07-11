@@ -119,11 +119,15 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr }) {
     markShape(rings);
   }
 
-  // 2. Water/park areas — re-derive per feature (not the flattened `data.areas`
-  //    list) so each relation's outer+inner rings are tested together as one
-  //    evenodd shape, exactly like the <path> the renderer emits for it.
+  // 2. Water/park/landcover areas — re-derive per feature (not the flattened
+  //    `data.areas` list) so each relation's outer+inner rings are tested
+  //    together as one evenodd shape, exactly like the <path> the renderer
+  //    emits for it. landcover is included because v2 subtracts it from the
+  //    coverage fallback (a buildingless face over farmland shows landcover,
+  //    not cream), so it must count as painted land; it also paints in v1's
+  //    countryside faces, so marking it there is correct too.
   for (const { layer, data: rdata } of results) {
-    if (layer.id !== 'water_bodies' && layer.id !== 'parks') continue;
+    if (layer.id !== 'water_bodies' && layer.id !== 'parks' && layer.id !== 'landcover') continue;
     for (const el of rdata.elements) {
       let outer, inner;
       if (el.type === 'way' && el.geometry?.length >= 3) { outer = [el.geometry]; inner = []; }

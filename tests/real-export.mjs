@@ -213,27 +213,43 @@ if (cityBlocks) {
   console.log(`city_blocks    ${String(blocks.length).padStart(6)} blocks (${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside)`);
 }
 
-// v2 face cutter: faces = bbox minus roads/rail, classified by building
-// presence. Buildings + rail are fetch-only cutter input, not rendered, so
-// they are separated out before buildSVG (mirroring engine-v2's doExport).
-// coverage-lint stays off (blockData null) until M3.
-let v2Blocks = null, v2MaxShare = 0;
+// v2 area features + face cutter: faces = bbox minus roads/rail, classified by
+// building presence, with water/green/waterway strokes subtracted and a cream
+// coverage fallback for buildingless faces. Buildings, rail and area_features
+// are fetch-only inputs, separated out before buildSVG (mirroring doExport).
+// coverage-lint is now ON for v2 (blockData set below).
+let v2Blocks = null, v2MaxShare = 0, v2Fallback = 0;
 if (engineV2) {
   const { pr, H } = X.makeProjector(bbox, W);
   const clipperSrc = await getClipperSrc();
   const buildingElements = results.find(r => r.layer.id === X2.buildingsLayer.id)?.data.elements || [];
-  const cutterResults = results.filter(r => r.layer.id !== X2.buildingsLayer.id); // everything but buildings: roads + rail/tram/metro
-  const data = X2.prepareFaceData(cutterResults, buildingElements, pr, W, H, bbox);
+  // Classify the combined area-features fetch into render layers + subtraction
+  // geometry (the sea is closed against the bbox inside buildAreaResults).
+  const areaFeatureElements = results.find(r => r.layer.id === X2.areaFeaturesLayer.id)?.data.elements || [];
+  const { renderResults: areaRenderResults, classified } = X2.buildAreaResults(areaFeatureElements, bbox);
+  // Cutter input = roads + rail/tram/metro only (buildings + area_features are
+  // fetch-only and do not bound faces).
+  const cutterResults = results.filter(r => ['roads', 'rail', 'tram', 'metro'].includes(r.layer.type));
+  const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox);
   v2Blocks = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC).blocks;
   const n = k => v2Blocks.filter(b => (b.kind || 'urban') === k).length;
+  v2Fallback = n('fallback');
   const bboxAreaPx = W * H;
-  v2MaxShare = v2Blocks.reduce((m, b) => Math.max(m, b.areaPx || 0), 0) / bboxAreaPx;
-  console.log(`city_blocks v2: ${v2Blocks.length} blocks (${n('urban')} urban, ${n('hamlet')} hamlet); largest block = ${(v2MaxShare * 100).toFixed(1)}% of bbox`);
-  // Rebuild the render set: drop fetch-only inputs, add the derived blocks.
+  // Largest PAINTED block only (urban/hamlet) — countryside placeholders span
+  // whole rural faces and are never filled cream, so they don't count here.
+  v2MaxShare = v2Blocks.filter(b => b.kind === 'urban' || b.kind === 'hamlet').reduce((m, b) => Math.max(m, b.areaPx || 0), 0) / bboxAreaPx;
+  console.log(`city_blocks v2: ${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside; fallback_blocks: ${v2Fallback} patches; largest block = ${(v2MaxShare * 100).toFixed(1)}% of bbox`);
+  // Rebuild the render set: drop fetch-only inputs, add classified area layers
+  // and both derived block layers (each carries the full block list).
   const renderResults = results.filter(r => !X2.fetchOnlyIds.has(r.layer.id));
+  renderResults.push(...areaRenderResults);
   renderResults.push({ layer: X2.cityBlocksLayer, data: { blocks: v2Blocks } });
+  renderResults.push({ layer: X2.fallbackBlocksLayer, data: { blocks: v2Blocks } });
   results.length = 0;
   results.push(...renderResults);
+  // Feed the shared coverage lint below: v2's face data carries .lines
+  // (roads/rail cutters + waterway strokes) and its full block list.
+  blocks = v2Blocks; blockData = data; blockPr = pr; blockH = H;
 }
 
 // v2 buildSVG has a leaner signature (no precomputedBlocks arg): options is
