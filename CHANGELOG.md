@@ -11,6 +11,38 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-11 — Engine v2 sea map label + landcover occlusion cull (experimental)
+- The sea now renders its name ON the map (not just as the layer name), styled
+  like the water/park feature labels with the same halo and collision grid. The
+  anchor is a robust interior point of the sea water (largest piece), so a
+  coastal frame no longer risks placing it on land. A new "Sea name" field next
+  to the v2 toggle (and a `--sea-name=<name>` flag in the export test) overrides
+  the coastline-derived name; a nameless sea keeps the layer named "Sea" and
+  draws no label. Sea naming is now judged on stitched coastline chains, not
+  raw ways: an island ring split into individually-open ways no longer names
+  the whole sea (Oulu's islet "Elba" did, until now).
+- Landcover (farmland/meadow/forest/wood tint) that is fully hidden under the
+  city blocks is now dropped from the drawing — countryside texture that only
+  ever sat invisibly beneath urban cream no longer bloats the file. Paint-only
+  and conservative: coverage is unchanged (nothing that shows is removed), and
+  any doubt keeps the element (Bremerhaven 60→55, Oulu 240→220 landcover paths).
+
+### 2026-07-11 — Engine v2 beach layer, grouped Uncategorized, scaled waterways, named road/rail groups (experimental)
+- Beaches and sand (`natural=beach|sand`) now paint as their own "Beaches"
+  layer (pale sand fill), above parks — previously label-only, so they only
+  ever surfaced as an "Uncategorized" patch label underneath.
+- The Uncategorized layer now groups its patches into named sub-groups (one
+  per category — "Railway", "Parking", etc., plus "Uncategorized" for
+  untagged land and "Slivers" for junction micro-patches below the block
+  floor), so a designer can select a whole category at once instead of
+  scrolling a flat list.
+- Waterway stroke width now scales with export size instead of a fixed 12px,
+  matching the width the face cutter already subtracts at every export size
+  (previously the two only agreed by coincidence at the A3@300dpi baseline).
+- Road and rail groups in the layer panel now carry human-readable names
+  ("Main roads (outline)", "Residential streets (surface)", "Railway
+  sleepers", …) instead of anonymous ids or v1's raw per-tag labels.
+
 ### 2026-07-11 — Engine v2 design contract + named corridor-bed paths (experimental)
 - New `ENGINE-V2.md`: the binding design contract for engine v2 (coverage
   promise, complement rule, paint order, named-green rule, sea semantics,

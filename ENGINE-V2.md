@@ -128,7 +128,14 @@ anything that reads cream is neither painted nor rowed.
   forests, cemeteries…). There is deliberately no nameless-green row: one
   existed for sports pitches and it broke the rule inside cities.
 - **Landcover** (farmland/meadow/forest/wood) is nameless by design — it is
-  countryside texture, kept invisible in cities by paint order (§4).
+  countryside texture, kept invisible in cities by paint order (§4). As a
+  paint-only optimization the face worker culls landcover elements that lie
+  fully under the painted city blocks (urban + hamlet): a Clipper difference on
+  a finer grid (SCALE=100) of the element minus the block union, empty →
+  dropped from the render. It is conservative (city blocks only as the covering
+  set; any remainder keeps the element) and never touches a subtraction void,
+  so it removes only ink another opaque layer already covers — the coverage
+  promise (§1) is unaffected by construction.
 - **Label-only sweep**: a broad landuse/natural/parking/aeroway/military/
   leisure fetch that never paints. The table rows are tag-specific, so
   widening the fetch cannot widen what paints. Its only job is naming
@@ -147,13 +154,26 @@ rings are island holes; CW rings are lagoon outers. Output is a single
 synthetic `natural=water` relation that flows through the ordinary water
 path.
 
-Naming: the sea takes a name only when the OPEN coastline ways agree on
-exactly one; island rings never name the sea; otherwise the layer stays
-"Sea". The synthetic relation never feeds the label engine.
+Naming: the sea takes a name only when the coastline chains that stay OPEN
+after stitching agree on exactly one; island rings never name the sea — and
+"island" is judged on the stitched chain, not the raw ways, because a split
+island ring is open way-by-way (Oulu's islet "Elba" named the whole sea
+before this was chain-aware); otherwise the layer stays "Sea". A manual
+override — the "Sea name" field next to the v2 toggle, or
+`--sea-name=<name>` in the export test — wins over the coastline-derived name.
+
+Map label: the sea renders its name ON the map through v1's feature-label
+engine (a synthetic `natural=water` node, so it inherits the exact water
+styling, halo and shared collision grid). It renders only when the sea has a
+real name (override or unique open-coastline name); the generic "Sea" fallback
+names the layer group but paints no label. The anchor is a robust interior
+point of the sea water — the point farthest from every boundary (outer edge and
+island holes) in the largest sea piece, never the bounds centre, which for a
+coastal frame usually lands on land.
 
 Deliberate punts (documented, not bugs): a frame entirely at sea with no
 coastline in view (assumes land, no-op) and lakes-in-islands-in-lakes.
-Guarded offline by `tests/sea-sign.mjs` (24 checks, no network).
+Guarded offline by `tests/sea-sign.mjs` (no network).
 
 ## 7. Editor-facing contract
 
@@ -169,9 +189,13 @@ not tag at all.
 
 ## 8. v1 parity quirks, kept deliberately
 
-- Waterways stroke at fixed 12 px (not ×sf) — v1's quirk, kept until a
-  deliberate joint change; the cutter subtracts at the same 12, so the
-  complement rule holds.
+- Waterways stroke at fixed 12 px (not ×sf) — **v1-only**, kept as v1's own
+  quirk. **v2 scales** (`12 * getScaleFactor(W)`, since 2026-07-11): v2's
+  cutter already buffered `waterwayLines` at a scaled half-width, so a fixed
+  12px paint against a scaled void only agreed by coincidence at the
+  A3@300dpi baseline (scaleFactor 1) — the complement rule (§3) needs paint
+  and void to share the same number at every export size, so v2's paint was
+  the one that had to move.
 - Rail cuts at 20 px·sf clearance (the visual breathing room around tracks).
 - `CREAM` is v1's `#FEF6ED @ 0.8 over white` flattened to solid `#FEF8F1`.
 - Overpass fetch cost is never a design input; robustness and simplicity

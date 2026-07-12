@@ -62,6 +62,11 @@ const EngineV2 = (() => {
   const parksLayer = findLayer('parks');
   const landcoverLayer = findLayer('landcover');
 
+  // Beach/sand is v2-only — v1 has no such layer, so there is nothing to look
+  // up in LAYER_REGISTRY; v2 owns id/label itself. Rendered by renderBeach
+  // (paint-only overlay, no subtraction void — see AREA_FEATURES below).
+  const beachLayer = { id: 'beach', label: 'Beaches' };
+
   // One combined fetch that brings back everything the AREA_FEATURES table can
   // paint (water surfaces, named green, sports/recreation green, countryside
   // land cover), plus the two coded exceptions (natural=coastline for the sea,
@@ -139,6 +144,7 @@ const EngineV2 = (() => {
     'water_bodies',
     'waterways',
     'parks',
+    'beach',
     'roads',
     'rail',
     'tram',
@@ -154,6 +160,11 @@ const EngineV2 = (() => {
   // deliberately: the opacity carried no meaning, so folding it out keeps the
   // block a single opaque paint that later layers can sit cleanly above.
   const CREAM = '#FEF8F1';
+
+  // Beach/sand fill. Pale warm sand — more saturated than block cream
+  // (#FEF8F1) so it reads as material, far from park green (#b8d89a) and
+  // water blue, light enough not to compete with roads.
+  const SAND = '#F5E6B8';
 
   // Sort a result list into v2 paint order. Unknown ids sort last (same
   // convention as v1's sortedResults).
@@ -180,6 +191,7 @@ const EngineV2 = (() => {
   //    green     → parks        (park green)
   //    landcover → landcover    (farmland=field tint, wood/forest=park green,
   //                              coloured by tag inside v1's landcover renderer)
+  //    beach     → beach        (sand — natural=beach|sand, v2-only layer)
   //
   //  Two deliberate coded exceptions live OUTSIDE this table, not as rows:
   //  natural=coastline (the sea, closed against the bbox) and linear waterways
@@ -206,6 +218,11 @@ const EngineV2 = (() => {
     // green. v1's landcover renderer picks the colour from the tag.
     { match: (t) => /^(farmland|meadow)$/.test(t.landuse || ''), category: 'landcover' },
     { match: (t) => t.landuse === 'forest' || t.natural === 'wood', category: 'landcover' },
+    // Beach/sand: its own paint-only overlay layer, placed after landcover and
+    // before the label-only fallthrough so it wins the patch instead of just
+    // naming an Uncategorized one. Paints above blocks (like parks) but is
+    // NOT part of any subtraction void — cream stays underneath.
+    { match: (t) => /^(beach|sand)$/.test(t.natural || ''), category: 'beach' },
   ];
 
   // Category for a tag set, or null. First matching row wins.
@@ -229,7 +246,7 @@ const EngineV2 = (() => {
   // linear waterways are pulled out by their own coded paths BEFORE the table;
   // everything else passes the closed-way/multipolygon gate, then the table.
   function classifyAreaFeatures(elements) {
-    const water = [], green = [], landcover = [], waterways = [], coastline = [], labelOnly = [];
+    const water = [], green = [], landcover = [], beach = [], waterways = [], coastline = [], labelOnly = [];
     for (const el of (elements || [])) {
       if (el.type === 'node') continue;
       const tags = el.tags || {};
@@ -240,11 +257,14 @@ const EngineV2 = (() => {
       if (category === 'water') water.push(el);
       else if (category === 'green') green.push(el);
       else if (category === 'landcover') landcover.push(el);
+      else if (category === 'beach') beach.push(el);
       // No row claims it → label-only: never painted, but its tags name the
-      // land under an Uncategorized patch (see renderFallbackBlocks).
+      // land under an Uncategorized patch (see renderFallbackBlocks). Beach
+      // elements are matched by the row above, so they never reach here and
+      // never surface as an "Uncategorized"/labelled patch underneath.
       else if (el.tags) labelOnly.push(el);
     }
-    return { water, green, landcover, waterways, coastline, labelOnly };
+    return { water, green, landcover, beach, waterways, coastline, labelOnly };
   }
 
   // ── Coastline → sea ────────────────────────────────────────────────
@@ -265,9 +285,15 @@ const EngineV2 = (() => {
 
   const samePt = (a, b) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lon - b.lon) < 1e-9;
 
-  // Stitch coastline ways end-to-end into maximal open chains.
+  // Stitch coastline ways end-to-end into maximal chains. Each chain is
+  // { pts, names }: names collects the name= of every contributing way, so
+  // the sea naming in buildSeaElements can tell island names from open
+  // coast's — an island ring split into several individually-open ways
+  // (Oulu's islet "Elba") only reveals itself as an island AFTER stitching,
+  // when the chain closes.
   function stitchCoastlineChains(ways) {
-    const remaining = ways.filter(w => w.geometry && w.geometry.length >= 2).map(w => w.geometry.slice());
+    const remaining = ways.filter(w => w.geometry && w.geometry.length >= 2)
+      .map(w => ({ pts: w.geometry.slice(), names: w.tags?.name ? [w.tags.name] : [] }));
     const chains = [];
     while (remaining.length) {
       let chain = remaining.shift();
@@ -276,11 +302,13 @@ const EngineV2 = (() => {
         grew = false;
         for (let i = 0; i < remaining.length; i++) {
           const seg = remaining[i];
-          if (samePt(chain[chain.length - 1], seg[0])) chain = chain.concat(seg.slice(1));
-          else if (samePt(chain[chain.length - 1], seg[seg.length - 1])) chain = chain.concat(seg.slice(0, -1).reverse());
-          else if (samePt(chain[0], seg[seg.length - 1])) chain = seg.slice(0, -1).concat(chain);
-          else if (samePt(chain[0], seg[0])) chain = seg.slice(1).reverse().concat(chain);
+          const cp = chain.pts, sp = seg.pts;
+          if (samePt(cp[cp.length - 1], sp[0])) chain.pts = cp.concat(sp.slice(1));
+          else if (samePt(cp[cp.length - 1], sp[sp.length - 1])) chain.pts = cp.concat(sp.slice(0, -1).reverse());
+          else if (samePt(cp[0], sp[sp.length - 1])) chain.pts = sp.slice(0, -1).concat(cp);
+          else if (samePt(cp[0], sp[0])) chain.pts = sp.slice(1).reverse().concat(cp);
           else continue;
+          chain.names = chain.names.concat(seg.names);
           remaining.splice(i, 1);
           grew = true;
           break;
@@ -448,11 +476,15 @@ const EngineV2 = (() => {
   // inside, per OSM's land-on-the-left convention) and become inner rings, so
   // the renderer's evenodd fill and the worker's oriented union both treat
   // them as holes. Empty (inland frame, no coastline) → a strict no-op.
-  function buildSeaElements(coastlineWays, bbox) {
+  function buildSeaElements(coastlineWays, bbox, overrideName) {
     if (!coastlineWays || !coastlineWays.length) return [];
-    const outerRings = [], innerRings = [], boundaryRuns = [];
+    const outerRings = [], innerRings = [], boundaryRuns = [], openChainNames = [];
     for (const chain of stitchCoastlineChains(coastlineWays)) {
-      for (const run of clipChainToBbox(rotateSeamOutsideBbox(chain, bbox), bbox)) {
+      // Only chains that stay OPEN after stitching may name the sea: a chain
+      // that closes is an island (or lagoon) ring carrying the island's name,
+      // even when its constituent ways were individually open (Oulu's "Elba").
+      if (!samePt(chain.pts[0], chain.pts[chain.pts.length - 1])) openChainNames.push(...chain.names);
+      for (const run of clipChainToBbox(rotateSeamOutsideBbox(chain.pts, bbox), bbox)) {
         if (run.length >= 4 && samePt(run[0], run[run.length - 1])) {
           (ringIsCCWLatLon(run) ? innerRings : outerRings).push(run);
         } else if (onBboxEdge(run[0], bbox) && onBboxEdge(run[run.length - 1], bbox)) {
@@ -472,16 +504,23 @@ const EngineV2 = (() => {
       if (innerRings.length) console.warn('engine-v2: coastline islands without a sea polygon — dropped');
       return [];
     }
-    // Name the sea when OSM does: if every named OPEN coastline way in the
-    // frame agrees on one name, use it. Closed ways are islands and carry the
-    // island's name (Oulu), never the sea's; most open coastline is unnamed
-    // (Bremerhaven's Außenweser) — those keep the generic 'Sea', which only
-    // surfaces as the layer path id/label; the synthetic relation never feeds
-    // the label engine.
-    const coastNames = new Set(coastlineWays
-      .filter(w => w.tags?.name && w.geometry?.length >= 2 && !samePt(w.geometry[0], w.geometry[w.geometry.length - 1]))
-      .map(w => w.tags.name));
-    const seaName = coastNames.size === 1 ? coastNames.values().next().value : 'Sea';
+    // Name the sea. A manual override (the "Sea name" field / the
+    // --sea-name CLI flag) wins over anything OSM says. Otherwise: if every
+    // named coastline chain that stays OPEN after stitching agrees on one
+    // name, use it. Closed chains are islands and carry the island's name,
+    // never the sea's — tested on stitched chains, not raw ways, because a
+    // split island ring is open way-by-way (openChainNames above); most open
+    // coastline is unnamed (Bremerhaven's Außenweser) — with no override
+    // those keep the generic 'Sea', which only names the layer group and
+    // paints no map label (see buildAreaResults / ENGINE-V2.md §6).
+    const override = typeof overrideName === 'string' ? overrideName.trim() : '';
+    let seaName;
+    if (override) {
+      seaName = override;
+    } else {
+      const coastNames = new Set(openChainNames);
+      seaName = coastNames.size === 1 ? coastNames.values().next().value : 'Sea';
+    }
     return [{
       type: 'relation', id: 'sea', tags: { natural: 'water', name: seaName },
       members: [
@@ -491,22 +530,104 @@ const EngineV2 = (() => {
     }];
   }
 
+  // A robust interior point of the sea, for anchoring the sea's map label. The
+  // bounds centre is useless here — for a coastal frame it usually lands on
+  // land — so this walks the largest sea outer ring and returns the point
+  // farthest from every boundary (outer edge AND island holes), a cheap
+  // pole-of-inaccessibility grid probe. Returns { lat, lon } inside the water,
+  // or null if the sea has no outer ring. Lat/lon space; longitude is scaled by
+  // cos(lat) in the distance metric so the "most interior" pick stays roughly
+  // isotropic. The point-in-ring / hole tests guarantee containment regardless
+  // of the metric.
+  function ringAreaLatLon(ring) {
+    let a = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      a += ring[j].lon * ring[i].lat - ring[i].lon * ring[j].lat;
+    }
+    return Math.abs(a / 2);
+  }
+  function pointInRingLatLon(lat, lon, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const yi = ring[i].lat, xi = ring[i].lon, yj = ring[j].lat, xj = ring[j].lon;
+      if (((yi > lat) !== (yj > lat)) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function distToRingLatLon(lat, lon, ring, kx) {
+    let min = Infinity;
+    const px = lon * kx, py = lat;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const ax = ring[j].lon * kx, ay = ring[j].lat, bx = ring[i].lon * kx, by = ring[i].lat;
+      const dx = bx - ax, dy = by - ay;
+      const t = (dx || dy) ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))) : 0;
+      const cx = ax + t * dx, cy = ay + t * dy;
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < min) min = d;
+    }
+    return min;
+  }
+  function seaInteriorPoint(seaRelation) {
+    const outers = (seaRelation.members || []).filter(m => m.role === 'outer' && m.geometry?.length >= 3).map(m => m.geometry);
+    const inners = (seaRelation.members || []).filter(m => m.role === 'inner' && m.geometry?.length >= 3).map(m => m.geometry);
+    if (!outers.length) return null;
+    let outer = outers[0], bestArea = ringAreaLatLon(outers[0]);
+    for (const r of outers) { const a = ringAreaLatLon(r); if (a > bestArea) { bestArea = a; outer = r; } }
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const p of outer) {
+      if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+    }
+    const kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180) || 1;
+    let best = null, bestDist = -1;
+    const N = 32;
+    for (let i = 1; i < N; i++) for (let j = 1; j < N; j++) {
+      const lat = minLat + (maxLat - minLat) * j / N;
+      const lon = minLon + (maxLon - minLon) * i / N;
+      if (!pointInRingLatLon(lat, lon, outer)) continue;
+      let inHole = false;
+      for (const h of inners) if (pointInRingLatLon(lat, lon, h)) { inHole = true; break; }
+      if (inHole) continue;
+      let d = distToRingLatLon(lat, lon, outer, kx);
+      for (const h of inners) d = Math.min(d, distToRingLatLon(lat, lon, h, kx));
+      if (d > bestDist) { bestDist = d; best = { lat, lon }; }
+    }
+    return best;
+  }
+
   // Build the classified render results (water/waterways/parks/landcover) from
   // one area-features fetch, with the closed sea folded into the water bucket.
   // Each result reuses a v1 registry layer object, so renderLayerSVG paints it
-  // exactly as v1 would. Returns { renderResults, classified } — classified
-  // (with sea merged) also seeds the worker's subtraction geometry.
-  function buildAreaResults(areaFeatureElements, bbox) {
+  // exactly as v1 would. options.seaName is the manual sea-name override.
+  // Returns { renderResults, classified, seaLabel } — classified (with sea
+  // merged) also seeds the worker's subtraction geometry; seaLabel is a
+  // synthetic water-label node (or null) for the label engine.
+  function buildAreaResults(areaFeatureElements, bbox, options = {}) {
     const classified = classifyAreaFeatures(areaFeatureElements);
-    const seaElements = buildSeaElements(classified.coastline, bbox);
+    const seaElements = buildSeaElements(classified.coastline, bbox, options.seaName);
     classified.water = classified.water.concat(seaElements);
+    // The sea gets a RENDERED map label only when it has a real name — a manual
+    // override, or a unique open-coastline name. The generic 'Sea' fallback
+    // names the layer group but paints no label (ENGINE-V2.md §6). The anchor
+    // is a robust interior point of the sea water, fed to v1's feature-label
+    // engine as a natural=water node so it inherits the exact water styling,
+    // halo and shared collision grid.
+    let seaLabel = null;
+    if (seaElements.length) {
+      const name = seaElements[0].tags.name;
+      if (name && name !== 'Sea') {
+        const anchor = seaInteriorPoint(seaElements[0]);
+        if (anchor) seaLabel = { type: 'node', id: 'sea_label', lat: anchor.lat, lon: anchor.lon, tags: { natural: 'water', name } };
+      }
+    }
     const renderResults = [
       { layer: landcoverLayer, data: { elements: classified.landcover } },
       { layer: waterBodiesLayer, data: { elements: classified.water } },
       { layer: waterwaysLayer, data: { elements: classified.waterways } },
       { layer: parksLayer, data: { elements: classified.green } },
+      { layer: beachLayer, data: { elements: classified.beach } },
     ];
-    return { renderResults, classified };
+    return { renderResults, classified, seaLabel };
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -677,6 +798,19 @@ self.onmessage = function(event) {
     let d = 'M' + simplified[0][0].toFixed(1) + ',' + simplified[0][1].toFixed(1);
     for (let i = 1; i < simplified.length; i++) d += 'L' + simplified[i][0].toFixed(1) + ',' + simplified[i][1].toFixed(1);
     return d + 'Z';
+  }
+
+  // Parse an emitted "Mx,y Lx,y … Z" path back into a Clipper ring at the given
+  // scale. Used only by the occlusion cull below, on the SAME path strings the
+  // renderer paints, so the cull tests the exact painted block shapes.
+  function pathDToRing(d, scale) {
+    const nums = (d || '').match(/-?[\\d.]+/g);
+    if (!nums || nums.length < 6) return null;
+    const ring = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      ring.push({ X: Math.round(parseFloat(nums[i]) * scale), Y: Math.round(parseFloat(nums[i + 1]) * scale) });
+    }
+    return ring.length >= 3 ? ring : null;
   }
 
   // ── Mechanical water/green/landcover subtraction (NO heuristics) ──────
@@ -914,7 +1048,63 @@ self.onmessage = function(event) {
     }
   }
 
-  self.postMessage({ type: 'done', blocks: blocks });
+  // ── Occlusion cull: landcover fully hidden under painted city blocks ──
+  // Landcover sits at the BOTTOM of the paint order (§4); urban + hamlet city
+  // blocks paint opaque cream directly above it. A landcover polygon whose
+  // whole area lies under that block union is invisible, so it is dropped from
+  // PAINT only. This never touches any subtraction void (blockVoid/fallbackVoid
+  // are already built), so coverage — the geometric lint and the render check —
+  // is unaffected: the cull only removes ink that another opaque layer already
+  // covers. Conservative by construction: the covering set is city blocks ONLY
+  // (not fallback/water/parks), and any remainder above ~1px² keeps the element.
+  // A finer grid than the cutter's SCALE (100 vs 10) so the "is it empty?" test
+  // does not cull on coarse rounding.
+  const CULL_SCALE = 100;
+  const culledLandcover = [];
+  const landcoverElements = data.landcoverElements || [];
+  if (landcoverElements.length) {
+    const blockOuters = [], blockHoles = [];
+    for (const blk of blocks) {
+      if (blk.kind !== 'urban' && blk.kind !== 'hamlet') continue;
+      const o = pathDToRing(blk.outer, CULL_SCALE); if (o) blockOuters.push(o);
+      for (const hd of (blk.holes || [])) { const h = pathDToRing(hd, CULL_SCALE); if (h) blockHoles.push(h); }
+    }
+    if (blockOuters.length) {
+      // Painted block union = union(outers) minus union(holes) — a pond hole in
+      // a block does not cover the landcover under it.
+      const uc = new Clipper.Clipper();
+      for (const o of blockOuters) uc.AddPath(o, ptSubject, true);
+      const outerUnion = new Clipper.Paths();
+      uc.Execute(ctUnion, outerUnion, NZ, NZ);
+      let blockUnion = outerUnion;
+      if (blockHoles.length) {
+        const hc = new Clipper.Clipper();
+        hc.AddPaths(outerUnion, ptSubject, true);
+        for (const h of blockHoles) hc.AddPath(h, ptClip, true);
+        blockUnion = new Clipper.Paths();
+        hc.Execute(ctDifference, blockUnion, NZ, NZ);
+      }
+      const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
+      for (const lc of landcoverElements) {
+        const subj = [];
+        for (const ring of (lc.rings || [])) {
+          const sp = ring.map(p => ({ X: Math.round(p[0] * CULL_SCALE), Y: Math.round(p[1] * CULL_SCALE) }));
+          if (sp.length >= 3) subj.push(sp);
+        }
+        if (!subj.length) continue;
+        const dc = new Clipper.Clipper();
+        for (const s of subj) dc.AddPath(s, ptSubject, true);
+        for (const b of blockUnion) dc.AddPath(b, ptClip, true);
+        const remainder = new Clipper.Paths();
+        dc.Execute(ctDifference, remainder, NZ, NZ);
+        let remArea = 0;
+        for (const p of remainder) remArea += Math.abs(Clipper.Clipper.Area(p));
+        if (remArea < EMPTY) culledLandcover.push(lc.index);
+      }
+    }
+  }
+
+  self.postMessage({ type: 'done', blocks: blocks, culledLandcover: culledLandcover });
 };
 `;
 
@@ -1058,6 +1248,12 @@ self.onmessage = function(event) {
     const waterPolys = collectAreaPolys(area.water, pr);
     const greenPolys = collectAreaPolys(area.green, pr);
     const landcoverPolys = collectAreaPolys(area.landcover, pr);
+    // Same landcover geometry, but kept per-element (with its index in
+    // classified.landcover) so the worker's occlusion cull can report exactly
+    // which elements are hidden under the city blocks. Paint-only: this feeds
+    // the render filter, never a subtraction void, so landcoverPolys above is
+    // untouched and coverage is unaffected.
+    const landcoverElements = (area.landcover || []).map((el, index) => ({ index, rings: collectAreaPolys([el], pr) }));
 
     // Building centres for classification, building rings for hamlet blobs.
     const buildingCenters = [];
@@ -1075,7 +1271,7 @@ self.onmessage = function(event) {
     const bigFacePx2 = COUNTRYSIDE_MIN_KM2 * 1e6 / (mPerPx * mPerPx);
 
     return {
-      cutterLines, waterwayLines, waterPolys, greenPolys, landcoverPolys,
+      cutterLines, waterwayLines, waterPolys, greenPolys, landcoverPolys, landcoverElements,
       buildingCenters, clusterRings, W, H, bigFacePx2, mPerPx,
       // Roads/rail cutters plus waterway strokes, in the {pts,halfW} shape the
       // coverage lint's markLine expects (it treats these as painted corridors).
@@ -1096,7 +1292,7 @@ self.onmessage = function(event) {
         if (e.data.type === 'progress' && onProgress) onProgress(e.data.msg, e.data.pct);
         if (e.data.type === 'done') {
           worker.terminate();
-          resolve({ blocks: e.data.blocks });
+          resolve({ blocks: e.data.blocks, culledLandcover: e.data.culledLandcover || [] });
         }
       };
       worker.onerror = function(err) {
@@ -1134,18 +1330,26 @@ self.onmessage = function(event) {
   // (buildingless small faces, dry river islands, OSM data gaps). Visually
   // identical to a city block, but its own group so gaps stay auditable and
   // countable. Sits below water in layerOrder, same as city_blocks.
-  // Designer-facing category for an Uncategorized patch, from the tags of a
-  // label-only element found under it: the tag VALUE only ("railway",
-  // "parking"), capitalized, underscores as spaces, OSM name appended. First
-  // key wins.
-  function fallbackCategoryLabel(tags) {
+  // Designer-facing category VALUE for an Uncategorized patch, from the tags
+  // of a label-only element found under it: the tag value only ("Railway",
+  // "Parking"), capitalized, underscores as spaces. First key wins. This is
+  // also the sub-group key renderFallbackBlocks groups patches by — the part
+  // of the label before any OSM name.
+  function fallbackCategoryValue(tags) {
     for (const k of ['landuse', 'natural', 'railway', 'aeroway', 'military', 'leisure', 'amenity', 'man_made']) {
       if (tags[k]) {
         const v = tags[k].replace(/_/g, ' ');
-        return v.charAt(0).toUpperCase() + v.slice(1) + (tags.name ? ` “${tags.name}”` : '');
+        return v.charAt(0).toUpperCase() + v.slice(1);
       }
     }
     return null;
+  }
+
+  // Full per-path label: the category value plus the OSM name, if any
+  // ("Parking “Autoranta”").
+  function fallbackCategoryLabel(tags) {
+    const value = fallbackCategoryValue(tags);
+    return value ? value + (tags.name ? ` “${tags.name}”` : '') : null;
   }
 
   // Representative interior point of a patch outer ring: the vertex mean when
@@ -1207,32 +1411,61 @@ self.onmessage = function(event) {
       }
       return inside;
     };
+    // Sub-group patches so a designer can grab a whole category (or all the
+    // junction micro-slivers) at once, instead of scrolling one flat list.
+    // Slivers (below the block-styling floor, same 400px² BLOCK_WORKER_SRC
+    // uses — see blk.areaPx) win over category, regardless of what's under
+    // them: they're grouped by SIZE, not content.
+    const sliverFloor = 400 * getScaleFactor(ctx.W) * getScaleFactor(ctx.W);
+    const groups = new Map(); // subgroup id -> { label, paths: [] }
     let n = 0;
-    const paths = (blocks || []).filter(blk => blk.kind === 'fallback').map(blk => {
+    for (const blk of (blocks || [])) {
+      if (blk.kind !== 'fallback') continue;
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
       const outerRing = [...blk.outer.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
       let label = 'Uncategorized';
+      let category = 'Uncategorized'; // the sub-group key: label minus any OSM name
       if (outerRing.length >= 3) {
         const [x, y] = patchLabelPoint(outerRing);
         const cats = [];
+        let firstValue = null;
         for (const a of areas) {
           if (x < a.minX || x > a.maxX || y < a.minY || y > a.maxY) continue;
           if (!inPts(a.pts, x, y)) continue;
           const cat = fallbackCategoryLabel(a.tags);
-          if (cat && !cats.includes(cat)) cats.push(cat);
+          if (cat && !cats.includes(cat)) {
+            cats.push(cat);
+            if (firstValue === null) firstValue = fallbackCategoryValue(a.tags);
+          }
         }
         // Categorized patches read as their category ("Railway", "Parking
         // “Autoranta”"); "Uncategorized" is reserved for truly untagged land.
-        if (cats.length) label = cats.slice(0, 2).join(' + ');
+        if (cats.length) { label = cats.slice(0, 2).join(' + '); category = firstValue || 'Uncategorized'; }
       }
       // Self-coloured seam stroke (as on water bodies and squares): fallback
       // patches often abut hamlet blobs and each other edge-to-edge, and the
       // sub-pixel gap between two unstroked fills renders as a hairline of
       // page background.
-      return `<path id="fallback_${++n}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
-    }).join('\n    ');
-    if (!paths) return '';
-    return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+      const path = `<path id="fallback_${++n}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
+      const isSliver = (blk.areaPx || 0) < sliverFloor;
+      const subId = isSliver ? 'uncat_slivers' : `uncat_${safeName(category).toLowerCase()}`;
+      const subLabel = isSliver ? 'Slivers' : category;
+      if (!groups.has(subId)) groups.set(subId, { label: subLabel, paths: [] });
+      groups.get(subId).paths.push(path);
+    }
+    if (!groups.size) return '';
+    // Category sub-groups first (alphabetical), then the two catch-alls —
+    // Uncategorized (untagged land), Slivers (junction micro-slivers) last —
+    // so the specific buckets surface before the generic ones in the panel.
+    const ids = [...groups.keys()].filter(id => id !== 'uncat_uncategorized' && id !== 'uncat_slivers')
+      .sort((a, b) => groups.get(a).label.localeCompare(groups.get(b).label));
+    if (groups.has('uncat_uncategorized')) ids.push('uncat_uncategorized');
+    if (groups.has('uncat_slivers')) ids.push('uncat_slivers');
+    const subgroups = ids.map(id => {
+      const g = groups.get(id);
+      return `    <g id="${id}" inkscape:label="${escXml(g.label)}">\n      ${g.paths.join('\n      ')}\n    </g>`;
+    }).join('\n');
+    return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
   }
 
   // Rail/tram/metro corridors are carved out of the blocks at 20px·sf, but the
@@ -1315,12 +1548,19 @@ self.onmessage = function(event) {
   // segments becomes one "Geeste"), nameless ways carry their waterway tag as
   // the label. v1 merges the whole layer into a single anonymous path, which
   // editors display as "path124" — useless to a designer. Stroke attributes
-  // are identical to v1's line emission (fixed 12px width — v1's known quirk,
-  // kept for parity — round caps, 0.92 opacity).
+  // otherwise match v1's line emission (round caps, 0.92 opacity) but the
+  // width is v2-only: it scales with export size (12 * getScaleFactor) to
+  // MATCH the cutter's waterwayLines half-width in prepareFaceData (also
+  // `12 * scaleFactor / 2`) — per the contract's complement rule (§3), the
+  // painted stroke and the subtracted void must be the same width, and a
+  // fixed 12px paint against a scaled void only agreed by coincidence at the
+  // A3@300dpi baseline (scaleFactor 1). v1 keeps the fixed-12px quirk (see
+  // ENGINE-V2.md §8) — this only touches v2's own renderer.
   function renderWaterways(result, ctx) {
     const elements = (result.data?.elements || []).filter(el => el.type === 'way' && el.geometry?.length >= 2);
     if (!elements.length) return '';
     const water = ctx.preset.water;
+    const strokeWidth = (12 * getScaleFactor(ctx.W)).toFixed(2);
     const uid = makeUidGen();
     const groups = new Map();
     for (const el of elements) {
@@ -1338,10 +1578,94 @@ self.onmessage = function(event) {
       const kind = els[0].tags?.waterway || 'waterway';
       const id = name ? uid(`waterway_${safeName(name)}`) : uid(`waterway_${kind}_${els[0].id}`);
       const label = name || kind.replace(/^\w/, c => c.toUpperCase());
-      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="none" stroke="${water}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>`;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="none" stroke="${water}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>`;
     }
     if (!content) return '';
     return `  <g id="waterways" inkscape:label="Waterways" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
+  // Beach/sand as its own painted layer, above blocks and parks (layerOrder
+  // puts it right after 'parks'). Paint-only overlay like parks: NOT part of
+  // any subtraction void (blockVoid/fallbackVoid in the worker are unchanged),
+  // so cream stays underneath and coverage is unaffected either way. Emission
+  // mirrors renderWaterways above / the parks branch in script.js's
+  // renderLayerSVG: one named path per element, self-coloured seam stroke so
+  // abutting fills don't show a page-background hairline.
+  function renderBeach(result, ctx) {
+    const elements = result.data?.elements || [];
+    if (!elements.length) return '';
+    const uid = makeUidGen();
+    let content = '';
+    for (const el of elements) {
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area_large, true);
+      else if (el.type === 'relation' && el.members) {
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        for (const ring of [...outer, ...inner]) d += geomToPathD(ring, ctx.pr, ctx.EPS.area_large, true) + ' ';
+        d = d.trim();
+      }
+      if (!d) continue;
+      const name = el.tags?.name;
+      const kind = el.tags?.natural === 'sand' ? 'Sand' : 'Beach';
+      const id = name ? uid(`beach_${safeName(name)}`) : uid(`beach_${el.id ?? 'x'}`);
+      const label = name || kind;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${SAND}" fill-rule="evenodd" stroke="${SAND}" stroke-width="1" stroke-linejoin="round"/>`;
+    }
+    if (!content) return '';
+    return `  <g id="beach" inkscape:label="Beaches" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
+  // ── Human-readable group labels for merged road/rail paths ────────
+  // v1's roads_casings_<hw>/roads_fills_<hw> groups already carry an
+  // inkscape:label (v1's own TYPE_LABELS), and rail_casing/rail_sleepers/
+  // rail_tracks carry none at all. Rewriting the former in script.js would
+  // change an existing attribute's VALUE, not just add one — that fails the
+  // "diff shows only added label attributes" bar for touching v1 (per the
+  // contract's change discipline: v1 is not modified for v2 features). So
+  // this display-name scheme is applied entirely here, as a v2-only
+  // string-transform of the markup v1's buildRoadsLayer/buildRailLayer
+  // already returned — script.js itself is untouched.
+  const ROAD_CLASS_LABELS = {
+    motorway: 'Motorways', trunk: 'Motorways',
+    primary: 'Main roads',
+    secondary: 'Secondary roads',
+    tertiary: 'Tertiary roads',
+    residential: 'Residential streets', unclassified: 'Residential streets', living_street: 'Residential streets',
+    service: 'Service roads',
+    pedestrian: 'Pedestrian',
+    footway: 'Footpaths & cycleways', cycleway: 'Footpaths & cycleways', path: 'Footpaths & cycleways', steps: 'Footpaths & cycleways',
+    track: 'Tracks',
+  };
+  // Anything not in the table above (motorway_link, primary_link, an
+  // unexpected future highway= value…) falls back to its capitalized tag
+  // value, underscores read as spaces — same idiom as fallbackCategoryLabel.
+  function roadClassLabel(hw) {
+    if (ROAD_CLASS_LABELS[hw]) return ROAD_CLASS_LABELS[hw];
+    const v = (hw || 'unclassified').replace(/_/g, ' ');
+    return v.charAt(0).toUpperCase() + v.slice(1);
+  }
+
+  // Rewrite the roads_casings_<hw>/roads_fills_<hw> group inkscape:labels to
+  // the display-name scheme above, with " (outline)"/" (surface)" appended
+  // per pass — the SVG the browser's layer panel shows should read as human
+  // names, not v1's per-tag TYPE_LABELS. Regex string-transform, not a
+  // rebuild: the markup is v1's own, only the label attribute value changes.
+  function relabelRoadGroups(svg) {
+    return svg
+      .replace(/(<g id="roads_casings_)([a-z_]+)("\s+inkscape:label=")[^"]*(")/g,
+        (m, pre, hw, mid, post) => `${pre}${hw}${mid}${escXml(roadClassLabel(hw))} (outline)${post}`)
+      .replace(/(<g id="roads_fills_)([a-z_]+)("\s+inkscape:label=")[^"]*(")/g,
+        (m, pre, hw, mid, post) => `${pre}${hw}${mid}${escXml(roadClassLabel(hw))} (surface)${post}`);
+  }
+
+  // Add inkscape:label to v1's anonymous rail_casing/rail_sleepers/rail_tracks
+  // groups (pure attribute addition, but kept alongside relabelRoadGroups so
+  // both road and rail group labels live in one v2-only place).
+  function relabelRailGroups(svg) {
+    return svg
+      .replace('<g id="rail_casing" ', '<g id="rail_casing" inkscape:label="Railway (outline)" ')
+      .replace('<g id="rail_sleepers" ', '<g id="rail_sleepers" inkscape:label="Railway sleepers" ')
+      .replace('<g id="rail_tracks" ', '<g id="rail_tracks" inkscape:label="Railway tracks" ');
   }
 
   // v2's per-layer dispatcher. Derived block layers render from precomputed
@@ -1354,17 +1678,25 @@ self.onmessage = function(event) {
     if (result.layer.id === 'city_blocks') return renderCityBlocks(result.data?.blocks || [], ctx);
     if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || [], result.data?.labelElements, ctx);
     if (result.layer.id === 'waterways') return renderWaterways(result, ctx);
+    if (result.layer.id === 'beach') return renderBeach(result, ctx);
     if (result.layer.id === 'roads') {
       const elements = result.data?.elements || [];
       const squares = elements.filter(isSquareElement);
       const streets = elements.filter(el => !isSquareElement(el) && !isTunnelElement(el));
       // Squares paint first, so street strokes crossing a plaza stay on top.
+      // relabelRoadGroups is a v2-only post-processing pass (see its comment):
+      // v1's roads_casings_<hw>/roads_fills_<hw> groups already carry an
+      // inkscape:label, so rewriting it in script.js would change an existing
+      // attribute value, not just add one.
       return renderSquares(squares, ctx)
-        + renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx);
+        + relabelRoadGroups(renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx));
     }
     if (result.layer.type === 'rail' || result.layer.type === 'tram' || result.layer.id === streetLabelsLayer.id) {
       const surfaceElements = (result.data?.elements || []).filter(el => !isTunnelElement(el));
-      return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
+      const svg = renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
+      // v1's rail_casing/rail_sleepers/rail_tracks groups carry no
+      // inkscape:label at all — relabelRailGroups adds one (v2-only).
+      return result.layer.type === 'rail' ? relabelRailGroups(svg) : svg;
     }
     return renderLayerSVG(result, ctx);
   }
@@ -1475,7 +1807,18 @@ self.onmessage = function(event) {
     // worker's subtraction geometry. The sea is closed against the bbox here and
     // folded into the water bucket. area_features itself is fetch-only.
     const areaFeatureElements = results.find(r => r.layer.id === areaFeaturesLayer.id)?.data.elements || [];
-    const { renderResults: areaRenderResults, classified } = buildAreaResults(areaFeatureElements, bbox);
+    // Manual sea-name override from the field next to the v2 toggle; blank falls
+    // back to the coastline-derived name (or the nameless 'Sea', no label).
+    const seaNameOverride = (document.getElementById('v2-sea-name')?.value || '').trim();
+    const { renderResults: areaRenderResults, classified, seaLabel } = buildAreaResults(areaFeatureElements, bbox, { seaName: seaNameOverride });
+    // Feed the sea's map label through v1's feature-label engine: append it to
+    // the water_labels elements so it shares that layer's styling, halo and
+    // collision grid. Null when the sea is nameless (no override, no unique
+    // open-coastline name) — the layer stays 'Sea' with no map label.
+    if (seaLabel) {
+      const waterLabelsResult = results.find(r => r.layer.id === waterLabelsLayer.id);
+      if (waterLabelsResult) waterLabelsResult.data.elements = [...(waterLabelsResult.data.elements || []), seaLabel];
+    }
 
     // Faces stage. The cutter reads roads + rail/tram/metro; buildings classify
     // faces and seed hamlet blobs; water/green/landcover/waterways feed the
@@ -1490,7 +1833,17 @@ self.onmessage = function(event) {
       progress.setStage('faces', 'active', { detail: msg });
       progress.bar(55 + Math.round(pct * 0.25));
     };
-    const { blocks } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox });
+    const { blocks, culledLandcover } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox });
+    // Occlusion cull (paint-only): drop landcover elements the worker found
+    // fully hidden under the city blocks. Indices are into classified.landcover,
+    // which is the SAME array the landcover render result holds — filter it in
+    // place so the cull touches paint alone (voids/coverage stay as computed).
+    if (culledLandcover && culledLandcover.length) {
+      const cull = new Set(culledLandcover);
+      const landcoverResult = areaRenderResults.find(r => r.layer.id === landcoverLayer.id);
+      if (landcoverResult) landcoverResult.data.elements = landcoverResult.data.elements.filter((_, i) => !cull.has(i));
+      progress.log(`landcover: ${cull.size} element${cull.size === 1 ? '' : 's'} culled (fully hidden under city blocks)`);
+    }
     const urbanBlocks = blocks.filter(b => (b.kind || 'urban') === 'urban').length;
     const hamletBlocks = blocks.filter(b => b.kind === 'hamlet').length;
     const fallbackBlocks = blocks.filter(b => b.kind === 'fallback').length;
@@ -1536,6 +1889,6 @@ self.onmessage = function(event) {
     layers, layerOrder, buildSVG, doExport,
     // Exposed for the headless test harness (tests/real-export.mjs).
     FACE_WORKER_SRC, prepareFaceData, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
-    areaFeaturesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements,
+    areaFeaturesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
   };
 })();

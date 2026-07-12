@@ -80,6 +80,13 @@ const alsoIllustrator = flags.includes('--illustrator');
 // --engine=v2 routes assembly through the experimental engine-v2.js instead
 // of v1's buildSVG. v1 path is byte-for-byte unaffected when the flag is absent.
 const engineV2 = flags.includes('--engine=v2');
+// --sea-name=<name> overrides the coastline-derived sea name (v2 only); it wins
+// over whatever OSM says and makes the sea render a map label.
+const seaNameFlag = flags.find(f => f.startsWith('--sea-name='));
+const seaNameOverride = seaNameFlag ? seaNameFlag.slice('--sea-name='.length) : '';
+// Failures raised during the v2 build stage (before the main `failures` array
+// exists), merged into it at assertion time.
+const failuresEarly = [];
 const citySlug = !areaArg ? 'tilburg' : (CITIES[areaArg.toLowerCase()] ? areaArg.toLowerCase() : 'custom');
 const [south, west, north, east] = (citySlug === 'custom' ? areaArg : CITIES[citySlug]).split(',').map(Number);
 const bbox = { south, west, north, east };
@@ -162,7 +169,7 @@ function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings }; };
+  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [] }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
   vm.runInContext(workerSrc, w); // defines self.onmessage, loads ClipperLib
@@ -232,12 +239,45 @@ if (engineV2) {
   // Classify the combined area-features fetch into render layers + subtraction
   // geometry (the sea is closed against the bbox inside buildAreaResults).
   const areaFeatureElements = results.find(r => r.layer.id === X2.areaFeaturesLayer.id)?.data.elements || [];
-  const { renderResults: areaRenderResults, classified } = X2.buildAreaResults(areaFeatureElements, bbox);
+  const { renderResults: areaRenderResults, classified, seaLabel } = X2.buildAreaResults(areaFeatureElements, bbox, { seaName: seaNameOverride });
+  // Sea map label: append it to the water_labels elements so it flows through
+  // v1's feature-label engine with the exact water styling + shared grid.
+  if (seaLabel) {
+    const wl = results.find(r => r.layer.id === 'water_labels');
+    if (wl) wl.data.elements = [...(wl.data.elements || []), seaLabel];
+    // Verify the anchor is geometrically inside the sea water (evenodd over all
+    // sea rings), not eyeballed — the whole point of a robust interior point.
+    const seaRel = classified.water.find(e => e.id === 'sea');
+    const rings = seaRel ? seaRel.members.map(m => m.geometry) : [];
+    const inRing = (ring, lat, lon) => {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const yi = ring[i].lat, xi = ring[i].lon, yj = ring[j].lat, xj = ring[j].lon;
+        if (((yi > lat) !== (yj > lat)) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    const insideSea = rings.filter(r => inRing(r, seaLabel.lat, seaLabel.lon)).length % 2 === 1;
+    console.log(`sea label: "${seaLabel.tags.name}" at ${seaLabel.lat.toFixed(5)},${seaLabel.lon.toFixed(5)} — anchor inside sea water: ${insideSea ? 'YES' : 'NO'}`);
+    if (!insideSea) failuresEarly.push('sea label anchor is NOT inside the sea polygon');
+  }
   // Cutter input = roads + rail/tram/metro (buildings + area_features do not
   // bound faces; area geometry subtracts instead).
   const cutterResults = results.filter(r => ['roads', 'rail', 'tram', 'metro'].includes(r.layer.type));
   const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox);
-  v2Blocks = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC).blocks;
+  const faceResult = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC);
+  v2Blocks = faceResult.blocks;
+  // Occlusion cull (paint-only): drop landcover elements fully hidden under the
+  // city blocks. Report before/after counts. Filter the landcover render result
+  // in place; voids/coverage are unaffected (see engine-v2 worker cull).
+  const landcoverBefore = classified.landcover.length;
+  if (faceResult.culledLandcover && faceResult.culledLandcover.length) {
+    const cull = new Set(faceResult.culledLandcover);
+    const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
+    if (lcResult) lcResult.data.elements = lcResult.data.elements.filter((_, i) => !cull.has(i));
+  }
+  const landcoverAfter = (areaRenderResults.find(r => r.layer.id === 'landcover')?.data.elements || []).length;
+  console.log(`landcover cull: ${landcoverBefore} -> ${landcoverAfter} elements (${landcoverBefore - landcoverAfter} fully hidden under city blocks)`);
   const n = k => v2Blocks.filter(b => (b.kind || 'urban') === k).length;
   v2Fallback = n('fallback');
   const bboxAreaPx = W * H;
@@ -309,7 +349,7 @@ console.log(`SVG ${(svg.length / 1048576).toFixed(2)} MB -> exports/${filename}`
 
 // ── assertions: this run must be self-evidently sane before anyone looks
 //    at a screenshot ──────────────────────────────────────────────────
-const failures = [...illustratorFailures];
+const failures = [...illustratorFailures, ...failuresEarly];
 
 // 1. svg-lint: NaN/undefined in attributes, empty/mirrored/upside-down
 //    labels, dangling textPath refs, label-on-label overlap.
