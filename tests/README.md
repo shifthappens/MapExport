@@ -2,7 +2,7 @@
 
 Plain Node.js (18+) scripts. No framework, no deps.
 
-Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3 km E/W, multi-tile). Single fixed area for every test so numbers are comparable across runs.
+Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3 km E/W, multi-tile) — one fixed area so numbers are comparable across runs. `real-export.mjs` uses its own, smaller named areas (see §8/§9).
 
 ## Workflow
 
@@ -49,11 +49,13 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 
 8. **Live real-world export + faithful visual check** (standard verification of actual SVG output — and a real test: it exits non-zero on failure):
    ```
-   node tests/real-export.mjs [city|s,w,n,e] [--record]
+   node tests/real-export.mjs [city|s,w,n,e] [--record] [--engine=v2] [--sea-name=<name>] [--illustrator]
    ```
-   Runs `script.js` itself headlessly (vm + browser stubs) — no build/minify step, same source the browser loads — against a webserver on **:8080** serving this repo at `/mapexport/` with PHP support for `cache.php` (Coen's local `lamp start`, or plain `php -S` anywhere else): fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<city>-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Works without the server running too (every tile then goes straight to Overpass — slower).
+   Runs `script.js` itself headlessly (vm + browser stubs) — no build/minify step, same source the browser loads — against a webserver on **:8080** serving this repo at `/mapexport/` with PHP support for `cache.php` (Coen's local `lamp start`, or plain `php -S` anywhere else): fetches every default-on layer through `cache.php` (misses hit Overpass with a descriptive User-Agent and write the tile back), computes city blocks via `BLOCK_WORKER_SRC` + ClipperLib, and writes `exports/map-<preset>-<city>[-v2]-<YYYY-MM-DD-HHMMSS>.svg` (committed as a progress trail). Works without the server running too (every tile then goes straight to Overpass — slower).
 
-   The run **fails** (exit 1, SVG still written for inspection) on: any svg-lint error, zero roads or labels, or a default-on layer below its per-city floor in `tests/expectations.json`. Floors are recorded from an **approved** run with `--record` (counts ×0.5, so OSM churn never trips them but a broken query/filter does).
+   `--engine=v2` routes construction through the experimental `engine-v2.js` instead (see `ENGINE-V2.md`); v2 runs additionally enforce the coverage promise via `coverage-lint.mjs` (model-side) and `render-coverage.mjs` (rendered ink in headless Chrome — the authority). `--sea-name=<name>` overrides the coastline-derived sea name (v2 only).
+
+   The run **fails** (exit 1, SVG still written for inspection) on: any svg-lint error, zero roads or labels, a default-on layer below its per-city floor in `tests/expectations.json`, or (v2) coverage gaps/bare pixels beyond the recorded allowances. Floors and allowances are recorded from an **approved** run with `--record` (counts ×0.5, so OSM churn never trips them but a broken query/filter does).
 
    Then **always** verify in a real browser — never trust `qlmanage`/QuickLook (Apple's SVG rasterizer mishandles `dominant-baseline`, `paint-order` and `fill-rule`). Use the preview MCP on **:8889** (it can't share :8080 with Apache):
    - `preview_start "MapExport (PHP)"`
@@ -68,18 +70,20 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
    ```
    bash tests/visual-cities.sh [size]     # ghent, paris, bremerhaven, oulu
    ```
-   Named test areas in `real-export.mjs` (`CITIES`), each a Tilburg-sized city chunk with mixed cartographic content, chosen to surface bugs Tilburg can't:
+   Named test areas in `real-export.mjs` (`CITIES`), each a Tilburg-sized chunk with mixed cartographic content, chosen to surface bugs Tilburg can't (the script runs the four cities; nievre and erfurt are invoked individually):
    - **ghent** `51.03438,3.70857,51.06093,3.74599` — medieval street pattern, canals, dense irregular blocks
    - **paris** `48.81896,2.33906,48.84935,2.39433` — grand boulevards, Seine, very high street-label density
    - **bremerhaven** `53.51265,8.56247,53.56336,8.61380` — harbour/docks, large water bodies, sparse grid
    - **oulu** `64.99163,25.43747,65.02165,25.51197` — high latitude (65°N, strong projection distortion), waterfront, Finnish names
+   - **nievre** `46.92190,3.85448,46.94663,3.90324` — rural Burgundy: countryside faces, hamlet blocks, landcover (not run by `visual-cities.sh`)
+   - **erfurt** `50.97313,11.01929,50.9821,11.03748` — river islands in the Gera, the island-rendering acceptance case (not run by `visual-cities.sh`)
 
    **Gate:** run these only after (1) the standard Tilburg export passed your own visual inspection in the browser, and (2) Coen explicitly approved that Tilburg result. Never run them as a first check. Each city export then gets the same §8 browser inspection via `viewer.html`.
 
 ## Files
 
 - `lib.mjs` — shared helpers: Tilburg bbox, Overpass POST, the JS scanner that parses LAYER_REGISTRY/SUPERSESSIONS out of script.js (hard-fails on extraction drift), `loadAppSandbox` for calling real app functions in unit tests.
-- `capture-fixtures.mjs` — writes baseline fixtures.
+- `capture-fixtures.mjs` / `capture-one.mjs` — write/refresh baseline fixtures.
 - `query-equivalence.mjs` — post-change regression check (hits Overpass, rate-limited); warns on >1.5× over-fetch.
 - `pipeline-equivalence.mjs` — offline check against frozen fixtures.
 - `supersession.mjs` — offline check for `SUPERSESSIONS` rules + tagFilter coverage.
@@ -87,9 +91,14 @@ Reference area: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3
 - `label-fit.mjs` — offline unit test for the straight-label baseline fit (`fitStraightBaseline`): centroid/angle anchoring and the length-aware deviation criterion.
 - `svg-lint.mjs` — deterministic defect checks on an exported SVG (importable + CLI).
 - `svg-lint-selftest.mjs` — mutation tests guarding svg-lint itself.
-- `expectations.json` — per-city layer/label floors for real-export (write with `--record`).
+- `road-merge.mjs` / `abbreviate.mjs` — offline unit tests for way stitching and label abbreviation.
+- `sea-sign.mjs` — offline check of engine v2's coastline→sea geometry (stitching, perimeter walk, island holes).
+- `hamlet-grounding.mjs` — offline check of engine v2's hamlet place-node grounding predicate (tier radii, point-to-polygon distance, nearest-name).
+- `coverage-lint.mjs` / `render-coverage.mjs` — engine v2 coverage promise: geometric lint on the worker model, and rendered-ink check on the finished SVG (headless Chrome over magenta; the authority).
+- `time-queries.mjs` — per-layer and combined Overpass timing (optional endpoint arg).
+- `expectations.json` — per-area layer/label floors + coverage allowances for real-export (write with `--record`, a human-approval act).
 - `smoke.sh` — all offline suites + query-equivalence (`OFFLINE_ONLY=1` to skip network).
-- `real-export.mjs` — live headless export against the :8080 stack → `exports/*.svg`, with pass/fail checks. Takes a named city (`tilburg`/`ghent`/`paris`/`bremerhaven`/`oulu`) or a raw bbox.
+- `real-export.mjs` — live headless export against the :8080 stack → `exports/*.svg`, with pass/fail checks. Takes a named area (`tilburg`/`ghent`/`paris`/`bremerhaven`/`oulu`/`nievre`/`erfurt`) or a raw bbox; `--engine=v2` for the v2 engine.
 - `visual-cities.sh` — the four extra cities in one go (gated on Tilburg approval, see §9).
 - `viewer.html` — renders an export inline for the faithful browser visual check (preview MCP on :8889); `?crop=x,y,w,h` for 1:1 details.
 

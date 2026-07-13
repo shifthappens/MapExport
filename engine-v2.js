@@ -18,8 +18,9 @@
 // paints any small buildingless face that no layer covered as cream in a
 // separate counted fallback_blocks group (this is also how river islands
 // render — no island machinery). Transit and labels run v1's own builders on
-// the shared context; squares fill as open plazas; tunnels neither draw nor
-// bound blocks. See plans/2026-07-10_export-engine-v2.md — the milestone
+// the shared context; squares neither cut nor paint (they read cream as land,
+// named ones get a feature label); tunnels neither draw nor bound blocks. See
+// plans/2026-07-10_export-engine-v2.md — the milestone
 // checkboxes there are the single source of truth for progress.
 
 const EngineV2 = (() => {
@@ -33,11 +34,13 @@ const EngineV2 = (() => {
   // style) and render, through v1's own builders (sleepers, tram/metro
   // palettes) via renderLayerSVG. Underground segments drop out of the CUTTER
   // via the tunnel filter, so a metro line only cuts where it surfaces; what
-  // the builders draw is v1 semantics, unchanged. Transit stops render only.
+  // the builders draw is v1 semantics, unchanged. Transit stops (dot symbols)
+  // are deliberately OFF in v2 (removed 2026-07-12): they cluttered the clean
+  // USE-IT plate without carrying wayfinding value at this scale, so v2's fixed
+  // layer set simply omits them. v1's registry keeps the layer untouched.
   const railLayer = findLayer('rail');
   const tramLayer = findLayer('tram');
   const metroLayer = findLayer('metro');
-  const transitStopsLayer = findLayer('transit_stops');
 
   // Labels reuse the full v1 engine (placement, collision grid, abbreviations,
   // both emission pipelines) via renderLayerSVG. Feature labels render before
@@ -49,9 +52,28 @@ const EngineV2 = (() => {
 
   // Buildings are fetched for every v2 export (bounding boxes) and serve two
   // purposes: classifying faces (does a small face contain a building?) and
-  // forming hamlet blobs inside rural faces. Reuse v1's BLOCK_BUILDINGS_LAYER
-  // object directly so its cache entry is shared. Fetch-only, never rendered.
-  const buildingsLayer = BLOCK_BUILDINGS_LAYER;
+  // forming hamlet blobs inside rural faces — and, in v2, draws standalone
+  // buildings on green-open land, which needs REAL footprints rather than the
+  // bounds rectangles v1's hamlet merge is happy with (a relation's bounds box
+  // spans its whole campus — Ghent stamped one across the Coupure). Same query
+  // as v1, geometry output; the cache key hashes overpassOut, so v1's
+  // bounds-only entries and these coexist. Fetch-only, never rendered as a
+  // layer of its own.
+  const buildingsLayer = { ...BLOCK_BUILDINGS_LAYER, overpassOut: 'body geom' };
+
+  // The buildings fetch (and ONLY that fetch) is padded past the frame by this
+  // many ground metres. A clipped edge face keeps its buildings even when they
+  // all sit just outside the frame, so it classifies urban instead of falling to
+  // Uncategorized (cause A of the misclassification study). Buildings never paint
+  // or cut, so the geometry is unaffected; the padded bbox just gets its own
+  // cache entry (Overpass cost is not a design input, §8).
+  const BUILDING_FETCH_PAD_M = 100;
+  function padBboxMeters(b, meters) {
+    const dLat = meters / 111320;
+    const midLat = (b.north + b.south) / 2;
+    const dLon = meters / (111320 * Math.cos(midLat * Math.PI / 180));
+    return { south: b.south - dLat, north: b.north + dLat, west: b.west - dLon, east: b.east + dLon };
+  }
 
   // The area-features layers v2 renders into. These are v1's own registry
   // objects, so their per-feature renderers (mechanical stitch + evenodd fill,
@@ -103,6 +125,14 @@ const EngineV2 = (() => {
       // nameless remainder is the countryside land the block cutter shows through).
       `wr["landuse"~"^(farmland|meadow|forest)$"](${b});`,
       `wr["natural"="wood"](${b});`,
+      // Grass display tint (v2-only): unnamed parks/gardens paint as green under
+      // fallback holes and in countryside — v1's ISLAND_GREEN look, never ported.
+      // landuse=grass/village_green already arrive via the label-only landuse
+      // sweep below; unnamed leisure=park/garden are matched by neither the named
+      // parksNamedGate fetch above nor that sweep, so they need their own line.
+      // This is a PAINT signal only — the grass rows are excluded from the
+      // open-land classification signal (see AREA_FEATURES / the face worker).
+      `wr["leisure"~"^(park|garden)$"](${b});`,
       // Label-only sweep. Never painted: anything here that no AREA_FEATURES
       // row claims lands in the labelOnly bucket, used solely to give
       // Uncategorized patches a designer-facing name (what OSM says the land
@@ -118,6 +148,16 @@ const EngineV2 = (() => {
     ].join(''),
   };
 
+  // Rural place nodes (v2-only) ground hamlet blobs: a morphological cluster
+  // blob paints as a hamlet only when one of these attests a nearby settlement
+  // (see the grounding helpers). Nodes ONLY — a place=* on a way/relation is a
+  // boundary label, not a settlement point. Fetch-only: classified into
+  // {x,y,tier,name} on the main thread and passed to the face worker.
+  const placeNodesLayer = {
+    id: 'place_nodes', label: 'Place nodes', type: 'fetch',
+    overpassQuery: (b) => `node["place"~"^(hamlet|isolated_dwelling|farm|village|locality)$"](${b});`,
+  };
+
   // v2 owns its own derived layer entries (no overpassQuery). Their geometry is
   // computed by the face worker and pushed in as results whose data carries
   // { blocks }, not { elements }. city_blocks holds the primary cream faces and
@@ -126,12 +166,12 @@ const EngineV2 = (() => {
   const cityBlocksLayer = { id: 'city_blocks', label: 'City blocks', type: 'derived' };
   const fallbackBlocksLayer = { id: 'fallback_blocks', label: 'Fallback blocks', type: 'derived' };
 
-  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, cityBlocksLayer];
+  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, placeNodesLayer, cityBlocksLayer];
 
   // Fetched to feed the face cutter / classifier, but never rendered as their
   // own layer. area_features is the fetch vehicle for water/green/landcover —
   // those render under their own ids after classification, not as area_features.
-  const fetchOnlyIds = new Set([buildingsLayer.id, areaFeaturesLayer.id]);
+  const fetchOnlyIds = new Set([buildingsLayer.id, areaFeaturesLayer.id, placeNodesLayer.id]);
 
   // The full v2 paint order from the plan. fallback_blocks sits directly after
   // city_blocks — its own group (structurally distinguishable, counted per
@@ -149,7 +189,6 @@ const EngineV2 = (() => {
     'rail',
     'tram',
     'metro',
-    'transit_stops',
     'water_labels',
     'street_labels',
   ];
@@ -218,6 +257,17 @@ const EngineV2 = (() => {
     // green. v1's landcover renderer picks the colour from the tag.
     { match: (t) => /^(farmland|meadow)$/.test(t.landuse || ''), category: 'landcover' },
     { match: (t) => t.landuse === 'forest' || t.natural === 'wood', category: 'landcover' },
+    // Grass display rows (v2-only, category 'grass'): landuse=grass/village_green
+    // and UNNAMED leisure=park/garden. They paint through the landcover layer
+    // (green tint) exactly like the rows above, and subtract from the fallback
+    // void so they show through fallback holes — but they are deliberately a
+    // SEPARATE category so they can be kept OUT of the open-land classification
+    // signal (the ≥0.35 share test). Grass in the signal would flip genuinely
+    // urban faces en masse: Tilburg tags 39% of its Uncategorized patches
+    // landuse=grass. Named parks/gardens matched the green row above already; the
+    // !name guard here keeps this to the nameless remainder.
+    { match: (t) => /^(grass|village_green)$/.test(t.landuse || ''), category: 'grass' },
+    { match: (t) => /^(park|garden)$/.test(t.leisure || '') && !t.name, category: 'grass' },
     // Beach/sand: its own paint-only overlay layer, placed after landcover and
     // before the label-only fallthrough so it wins the patch instead of just
     // naming an Uncategorized one. Paints above blocks (like parks) but is
@@ -246,7 +296,7 @@ const EngineV2 = (() => {
   // linear waterways are pulled out by their own coded paths BEFORE the table;
   // everything else passes the closed-way/multipolygon gate, then the table.
   function classifyAreaFeatures(elements) {
-    const water = [], green = [], landcover = [], beach = [], waterways = [], coastline = [], labelOnly = [];
+    const water = [], green = [], landcover = [], grass = [], beach = [], waterways = [], coastline = [], labelOnly = [];
     for (const el of (elements || [])) {
       if (el.type === 'node') continue;
       const tags = el.tags || {};
@@ -257,6 +307,7 @@ const EngineV2 = (() => {
       if (category === 'water') water.push(el);
       else if (category === 'green') green.push(el);
       else if (category === 'landcover') landcover.push(el);
+      else if (category === 'grass') grass.push(el);
       else if (category === 'beach') beach.push(el);
       // No row claims it → label-only: never painted, but its tags name the
       // land under an Uncategorized patch (see renderFallbackBlocks). Beach
@@ -264,7 +315,7 @@ const EngineV2 = (() => {
       // never surface as an "Uncategorized"/labelled patch underneath.
       else if (el.tags) labelOnly.push(el);
     }
-    return { water, green, landcover, beach, waterways, coastline, labelOnly };
+    return { water, green, landcover, grass, beach, waterways, coastline, labelOnly };
   }
 
   // ── Coastline → sea ────────────────────────────────────────────────
@@ -621,7 +672,13 @@ const EngineV2 = (() => {
       }
     }
     const renderResults = [
-      { layer: landcoverLayer, data: { elements: classified.landcover } },
+      // Landcover PAINT set = the open-land signal cover (farmland/meadow/
+      // wood/forest) plus the grass display rows (grass/village_green, unnamed
+      // park/garden). The two are one painted layer but split for classification:
+      // only the former feeds the open-land share test (see prepareFaceData /
+      // the face worker). Order is landcover-then-grass, matched exactly by the
+      // worker's landcoverElements so the occlusion-cull indices line up.
+      { layer: landcoverLayer, data: { elements: [...classified.landcover, ...classified.grass] } },
       { layer: waterBodiesLayer, data: { elements: classified.water } },
       { layer: waterwaysLayer, data: { elements: classified.waterways } },
       { layer: parksLayer, data: { elements: classified.green } },
@@ -646,6 +703,64 @@ const EngineV2 = (() => {
   //  Subtraction is plain Clipper difference with the void's inner rings kept
   //  as holes — there are NO water heuristics anywhere in here by design.
   // ════════════════════════════════════════════════════════════════
+
+  // ── Hamlet grounding ────────────────────────────────────────────────
+  // A morphological cluster blob only becomes a hamlet when OSM attests a
+  // nearby rural settlement via a place node, so urban forest/harbour/park
+  // faces that read as "countryside" stop growing invented cream hamlets. Two
+  // tiers, radii in ground metres (the worker converts to px via mPerPx): a
+  // settlement-tier node (place=hamlet/isolated_dwelling/farm/village) grounds
+  // a blob within HAMLET_GROUND_SETTLEMENT_M; a locality-tier node
+  // (place=locality — named but formally unpopulated, e.g. French lieux-dits)
+  // only within the tighter HAMLET_GROUND_LOCALITY_M.
+  //
+  // Radii measured on the three-city diagnosis (2026-07-12): Nievre's 59 real
+  // hamlets are all ≤928 m from a hamlet/isolated_dwelling node (≤442 m from
+  // any rural node); Bremerhaven's 36 false blobs have zero rural place nodes
+  // in the bbox; Oulu's 71 false blobs are ≥588 m from the only rural node (a
+  // locality). 1000 m / 300 m keeps all 59 real and rejects all 107 false.
+  const HAMLET_GROUND_SETTLEMENT_M = 1000;
+  const HAMLET_GROUND_LOCALITY_M = 300;
+
+  // Pure, unit-agnostic (all lengths in export px). Both are stringified into
+  // the face worker below AND exercised offline by tests/hamlet-grounding.mjs.
+
+  // Distance from a point to a polygon ring: 0 when the point is inside the
+  // ring, else the smallest distance to any ring segment. Simple O(vertices)
+  // pass — blob and node counts are tiny, so nothing cleverer is warranted.
+  function pointToPolygonDistancePx(px, py, ringPx) {
+    let inside = false;
+    for (let i = 0, j = ringPx.length - 1; i < ringPx.length; j = i++) {
+      const xi = ringPx[i][0], yi = ringPx[i][1], xj = ringPx[j][0], yj = ringPx[j][1];
+      if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    if (inside) return 0;
+    let min = Infinity;
+    for (let i = 0, j = ringPx.length - 1; i < ringPx.length; j = i++) {
+      const ax = ringPx[j][0], ay = ringPx[j][1], bx = ringPx[i][0], by = ringPx[i][1];
+      const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+      if (d < min) min = d;
+    }
+    return min;
+  }
+
+  // The nearest place node that grounds this contour, or null when none is in
+  // range: a settlement-tier node within settlementRadiusPx, a locality-tier
+  // node within localityRadiusPx (distance 0 when the node sits inside the
+  // contour). "Nearest" is by boundary distance among the in-range nodes, so
+  // an emitted hamlet takes its closest attesting name.
+  function groundHamletContour(ringPx, placeNodesPx, settlementRadiusPx, localityRadiusPx) {
+    let best = null, bestDist = Infinity;
+    for (const node of placeNodesPx) {
+      const radius = node.tier === 'locality' ? localityRadiusPx : settlementRadiusPx;
+      const d = pointToPolygonDistancePx(node.x, node.y, ringPx);
+      if (d <= radius && d < bestDist) { bestDist = d; best = node; }
+    }
+    return best;
+  }
 
   // Worker source as a string — turned into a blob URL below. Written for the
   // worker context (no access to the page's functions), so the few helpers it
@@ -690,12 +805,21 @@ self.onmessage = function(event) {
   const cutterLines = data.cutterLines;
   const buildingCenters = data.buildingCenters;
   const clusterRings = data.clusterRings;
+  // Rural place nodes ({x,y,tier,name}, in export px), for grounding hamlet
+  // blobs against attested settlements (see the hamlet face loop below).
+  const placeNodes = data.placeNodes || [];
   // Area-feature geometry for the mechanical subtraction. Each *Polys entry is
   // an unscaled ring [[x,y], ...], already oriented on the main thread (outer
   // positive, inner negative) so lake islands / park courtyards union as holes.
   const waterPolys = data.waterPolys || [];
   const greenPolys = data.greenPolys || [];
+  // landcoverPolys is the PAINT set (landcover + grass display rows) — it feeds
+  // the fallback void so grass shows through fallback holes. openLandPolys is the
+  // narrower open-land SIGNAL set (landcover only, no grass) for the ≥0.35 share
+  // test. urbanPolys is the residential/commercial/retail classification signal.
   const landcoverPolys = data.landcoverPolys || [];
+  const openLandPolys = data.openLandPolys || [];
+  const urbanPolys = data.urbanPolys || [];
   const waterwayLines = data.waterwayLines || [];
   const W = data.W, H = data.H, bigFacePx2 = data.bigFacePx2, mPerPx = data.mPerPx;
   const Clipper = ClipperLib;
@@ -874,7 +998,7 @@ self.onmessage = function(event) {
   // Emit one block per solid contour of a difference tree, holes as evenodd
   // subpaths. Net area (outer minus holes) gates the confetti guard; a nested
   // solid (an island inside a lake inside a face) recurses into its own block.
-  function emitTree(tree, kind, out) {
+  function emitTree(tree, kind, out, name) {
     (function recurse(nodes) {
       for (const node of nodes) {
         if (!node.IsHole()) {
@@ -888,17 +1012,33 @@ self.onmessage = function(event) {
             }
             const netArea = Math.abs(Clipper.Clipper.Area(contour)) - holesArea;
             // Below the block floor it can't be a styled block, but it must
-            // still paint: downgrade to fallback cream instead of dropping.
+            // still paint. A sub-floor crumb is a junction pocket wherever it
+            // occurs (urban, fallback or hamlet tree), so downgrade to kind
+            // 'sliver' — road-space that paints as junction infill in the roads
+            // layer, not land. (tinyGuard confetti is still dropped.)
             if (netArea >= tinyGuard) {
               const outerD = toPathD(contour);
-              const pieceKind = netArea >= minArea ? kind : 'fallback';
-              if (outerD) out.push({ kind: pieceKind, outer: outerD, holes: holeDs, areaPx: netArea / (SCALE * SCALE) });
+              const pieceKind = netArea >= minArea ? kind : 'sliver';
+              if (outerD) {
+                const rec = { kind: pieceKind, outer: outerD, holes: holeDs, areaPx: netArea / (SCALE * SCALE) };
+                if (name) rec.name = name; // attesting place name, for the hamlet label
+                out.push(rec);
+              }
             }
           }
           for (let i = 0; i < node.ChildCount(); i++) recurse(node.Childs()[i].Childs());
         }
       }
     })(tree.Childs());
+  }
+
+  // Every ring of a PolyTree node's subtree (outer + holes + nested solids),
+  // matching PolyTreeToPaths for that single node. Used to build the exact
+  // complement of the kept hamlet blobs (ENGINE-V2.md §3).
+  function collectContourPaths(node, out) {
+    const c = node.Contour();
+    if (c && c.length) out.push(c);
+    for (let i = 0; i < node.ChildCount(); i++) collectContourPaths(node.Childs()[i], out);
   }
 
   const waterwayStrokePaths = bufferLinesToPolys(waterwayLines);
@@ -947,9 +1087,31 @@ self.onmessage = function(event) {
   // coarsely-roaded urban face (dock peninsulas, industrial estates) and gets
   // the ordinary curb-to-curb treatment — hamlet blobs there invent hamlets
   // inside the city (Bremerhaven M7 review).
-  const openLandVoid = buildVoid([greenPolys, landcoverPolys], null);
+  const openLandVoid = buildVoid([greenPolys, openLandPolys], null);
   const waterVoid = buildVoid([waterPolys], waterwayStrokePaths);
+  // Urban-landuse signal (residential/commercial/retail cover). A buildingless
+  // face this covers ≥ URBAN_LANDUSE_MIN_SHARE of (over its land area) is city,
+  // not open land — much of OSM maps a district by its landuse polygon and never
+  // its individual buildings. Classification only: never subtracted, never painted.
+  const urbanVoid = buildVoid([urbanPolys], null);
+  // Hidden-green cover: the landcover paint rows ALONE (grass + landcover,
+  // parks/water/waterways excluded). Named green needs no equivalent — it is
+  // subtracted from every block and shows through the holes — but landcover
+  // paints UNDER blocks, so cream over it erases ground OSM shows green. This
+  // void measures exactly that erasure risk (see the green-dominance rule in
+  // isUrbanPiece).
+  const landcoverVoid = buildVoid([landcoverPolys], null);
+  // Per-element landcover rings ({ index, rings }): the paint cull and the
+  // green-remainder merge both address individual painted elements, not the
+  // unioned void.
+  const landcoverElements = data.landcoverElements || [];
   const COUNTRYSIDE_MIN_OPEN_SHARE = 0.35;
+  const URBAN_LANDUSE_MIN_SHARE = 0.5;
+  // A piece whose ground OSM paints this much landcover (grass included) is open
+  // land whose green cream would erase, so it is demoted no matter how built it
+  // is. Grass is common in cities, so the bar sits well above the 0.35 non-grass
+  // open-land gate.
+  const GREEN_OPEN_MIN_SHARE = 0.6;
   function intersectArea(faceSubject, clipPaths) {
     const clipper = new Clipper.Clipper();
     for (const p of faceSubject) clipper.AddPath(p, ptSubject, true);
@@ -961,7 +1123,264 @@ self.onmessage = function(event) {
     return Math.abs(area);
   }
 
+  // Net land area (net polygon area minus water) of a subject, floored at 1 so it
+  // never divides to zero. The shared denominator for every share test.
+  function landAreaOf(subjectPaths, netScaled) {
+    return Math.max(1, netScaled - intersectArea(subjectPaths, waterVoid));
+  }
+
+  // Total building footprint (bbox px²) whose centre falls inside this subject
+  // (outer ring, respecting holes). bbox-prefiltered so 20k+ buildings × N
+  // pieces stays fast. Unscaled rings ([[x,y], ...]). This is the built-up
+  // COVERAGE signal — what share of a face buildings actually cover — not the
+  // old "≥1 building" switch. Shared by the small-face test and the countryside
+  // remainder re-test.
+  function subjectBuildingArea(outerRing, holeRings) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of outerRing) {
+      if (p[0] < minX) minX = p[0];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] < minY) minY = p[1];
+      if (p[1] > maxY) maxY = p[1];
+    }
+    let total = 0;
+    for (const center of buildingCenters) {
+      const cx = center[0], cy = center[1];
+      if (cx < minX || cx > maxX || cy < minY || cy > maxY) continue;
+      if (!pointInRing(cx, cy, outerRing)) continue;
+      let inHole = false;
+      for (const holeRing of holeRings) { if (pointInRing(cx, cy, holeRing)) { inHole = true; break; } }
+      if (inHole) continue;
+      total += center[2] || 0;
+    }
+    return total;
+  }
+
+  // Built-up threshold: a face is a city block only when buildings actually
+  // COVER a real share of its land, not merely when one exists. A lone house on
+  // a big green island covers ~1–2 % of it and is not built-up, so the face
+  // falls through to the open-land / urban-landuse test and reads green (its
+  // grass/wood/garden shows through the fallback holes); a genuine block — even
+  // a small one with a single house — sits well above this. Footprint is the
+  // building bbox (overestimates a rotated roof, but consistently, so the
+  // threshold holds; the fetch is unchanged). This REPLACES the old
+  // "≥1 building ⇒ urban" switch, which painted a mostly-green face with one
+  // stray building solid cream (Erfurt's Gera river islands). It is NOT the
+  // rejected green-share gate (≥35 % green flipped 10 % of Oulu): that asked
+  // "is it green", this asks "are the buildings sparse", so a leafy-but-built
+  // neighbourhood keeps real coverage and stays cream.
+  const BUILT_MIN_SHARE = 0.05;
+  function isUrbanPiece(subjectPaths, netScaled, buildingArea, gateBuildings) {
+    const landArea = landAreaOf(subjectPaths, netScaled);
+    const builtUp = (buildingArea * SCALE * SCALE) / landArea >= BUILT_MIN_SHARE;
+    // Green dominance overrides built-up: when the landcover paint rows —
+    // which only show through fallback holes, so a cream block HIDES them —
+    // cover most of the piece's land, the piece is open land no matter how
+    // much of it buildings cover. The caller re-draws its buildings as
+    // standalone blocks (emitPieceBuildings) so no built fabric is lost:
+    // green ground with cream buildings on it, the way OSM depicts it
+    // (Erfurt's Gera island: 82% landcover, the mills held it cream). This is
+    // NOT the rejected all-sizes green gate (35% openland flipped 10% of
+    // Oulu): landcover-only at 60% asks "would cream erase what OSM paints
+    // here", and a demoted piece keeps its buildings visible.
+    if (intersectArea(subjectPaths, landcoverVoid) / landArea >= GREEN_OPEN_MIN_SHARE) return false;
+    // Built-up faces stay urban and are never demoted by the open-land gate
+    // (gateBuildings=false); the countryside remainder re-test passes
+    // gateBuildings=true, letting the gate apply to its pieces too (they were
+    // all fallback before, so it cannot regress). The gate always applies to the
+    // urban-landuse promotion, which only ADDS blocks.
+    if (builtUp && !gateBuildings) return true;
+    if (intersectArea(subjectPaths, openLandVoid) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return false;
+    if (builtUp) return true;
+    // A landuse=residential/commercial polygon promotes a buildingless-but-covered
+    // face to a city block (much of OSM maps a district by its landuse and never
+    // its buildings). Green that OSM would paint here is already protected above:
+    // named parks show through block holes, and landcover-dominant ground was
+    // demoted by the green-dominance rule; nothing green survives to this point.
+    return intersectArea(subjectPaths, urbanVoid) / landArea >= URBAN_LANDUSE_MIN_SHARE;
+  }
+
+  // Net (outer minus holes) area of a scaled contour + its hole contours.
+  function netAreaOfContour(outer, holes) {
+    return Math.abs(Clipper.Clipper.Area(outer)) - holes.reduce((s, h) => s + Math.abs(Clipper.Clipper.Area(h)), 0);
+  }
+
   const blocks = [];
+
+  // A piece the green rules read as open land: the landcover paint rows cover
+  // most of its land, so cream would hide what OSM shows. Its coverage
+  // remainder merges into its landcover (mergeGreenRemainder) and its
+  // buildings draw standalone. One shared predicate so classification,
+  // remainder handling and building emission can never disagree about which
+  // pieces are green ground.
+  function isGreenOpenPiece(subjectPaths, netScaled) {
+    return intersectArea(subjectPaths, landcoverVoid) / landAreaOf(subjectPaths, netScaled) >= GREEN_OPEN_MIN_SHARE;
+  }
+
+  // Merge a green-open piece's coverage remainder INTO its landcover instead
+  // of emitting a cream patch beside it. Root cause of those patches: OSM
+  // maps a green piece as several abutting park/garden/grass polygons and
+  // leaves the slivers between them (path verges, yard gaps) unmapped — only
+  // the district-wide landuse polygon covers them, so the coverage fallback
+  // painted them cream and labelled them "Residential". Here the remainder
+  // unions into the piece's largest-overlap landcover element, growing that
+  // one painted shape over the gaps: one merged polygon in the panel, no
+  // extra patch, no colour seam, and the complement rule still holds (the
+  // piece stays exactly covered by landcover ∪ water/green holes).
+  const mergedLandcover = new Set(); // element indices with a grown shape
+  function mergeGreenRemainder(pieceSubject) {
+    const remainder = Clipper.Clipper.PolyTreeToPaths(subtractVoid(pieceSubject, fallbackVoid));
+    if (!remainder.length) return;
+    // Largest-overlap landcover element in this piece takes the remainder.
+    let best = null, bestArea = 0;
+    for (const lc of landcoverElements) {
+      let area = 0;
+      for (const ring of (lc.rings || [])) {
+        const sp = scaleRing(ring);
+        if (sp.length >= 3) area += intersectArea(pieceSubject, [sp]);
+      }
+      if (area > bestArea) { bestArea = area; best = lc; }
+    }
+    if (!best) return; // unreachable for a green-open piece, but stay safe
+    const unionClipper = new Clipper.Clipper();
+    for (const p of remainder) if (p.length >= 3) unionClipper.AddPath(p, ptSubject, true);
+    for (const ring of best.rings) {
+      const sp = scaleRing(ring);
+      if (sp.length >= 3) unionClipper.AddPath(sp, ptSubject, true);
+    }
+    const merged = new Clipper.Paths();
+    unionClipper.Execute(ctUnion, merged, NZ, NZ);
+    if (!merged.length) return;
+    // Mutate the element's rings so a second piece merging into the same
+    // element builds on the grown shape, and the final rings ship once.
+    best.rings = merged.map(p => p.map(pt => [pt.X / SCALE, pt.Y / SCALE]));
+    mergedLandcover.add(best.index);
+  }
+
+  // Standalone buildings for green-dominant open land. A piece the
+  // green-dominance rule keeps out of the cream (see isUrbanPiece) still owes
+  // the map its built structures — OSM shows green ground WITH buildings on
+  // it, and hiding them would trade one erasure for another. Every building
+  // footprint is clipped to the piece and emitted as its own small cream
+  // block (rendered like hamlet blobs: cream fill, building outline).
+  // Callers gate on isGreenOpenPiece — ordinary fallback pieces draw nothing
+  // here, and the countryside remainder never calls this: buildings there are
+  // the hamlet machinery's, whose grounding rules must not be resurrected
+  // around.
+  let scaledBuildingRings = null;
+  function getScaledBuildingRings() {
+    if (scaledBuildingRings) return scaledBuildingRings;
+    scaledBuildingRings = [];
+    for (const ring of (clusterRings || [])) {
+      const sp = scaleRing(ring);
+      if (sp.length < 3) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of sp) {
+        if (p.X < x0) x0 = p.X; if (p.X > x1) x1 = p.X;
+        if (p.Y < y0) y0 = p.Y; if (p.Y > y1) y1 = p.Y;
+      }
+      scaledBuildingRings.push({ path: sp, x0, y0, x1, y1 });
+    }
+    return scaledBuildingRings;
+  }
+  function emitPieceBuildings(pieceSubject, pieceNet) {
+    const rings = getScaledBuildingRings();
+    if (!rings.length) return;
+    // bbox prefilter against the piece's outer ring, exact clip decides.
+    let px0 = Infinity, py0 = Infinity, px1 = -Infinity, py1 = -Infinity;
+    for (const p of pieceSubject[0]) {
+      if (p.X < px0) px0 = p.X; if (p.X > px1) px1 = p.X;
+      if (p.Y < py0) py0 = p.Y; if (p.Y > py1) py1 = p.Y;
+    }
+    const clipper = new Clipper.Clipper();
+    let any = false;
+    for (const b of rings) {
+      if (b.x1 < px0 || b.x0 > px1 || b.y1 < py0 || b.y0 > py1) continue;
+      clipper.AddPath(b.path, ptSubject, true);
+      any = true;
+    }
+    if (!any) return;
+    for (const p of pieceSubject) clipper.AddPath(p, ptClip, true);
+    const clipped = new Clipper.Paths();
+    clipper.Execute(ctIntersection, clipped, NZ, NZ);
+    if (!clipped.length) return;
+    // Buildings only ever stand on paintable land: subtract the block void so
+    // a houseboat doesn't stamp cream onto the water and a park pavilion
+    // doesn't punch a cream box into its named park (both render as their
+    // ground does everywhere else). Face-level pieces still CONTAIN water and
+    // named green — mass-level pieces already had this subtracted, where it
+    // is a no-op.
+    const tree = subtractVoid(clipped, blockVoid);
+    // Buildings are far below the block floor by design, so emitTree's sliver
+    // reclassification would swallow them — emit directly, confetti-guarded.
+    for (const node of tree.Childs()) {
+      if (node.IsHole()) continue;
+      const contour = node.Contour();
+      if (!contour || contour.length < 3) continue;
+      const holes = [];
+      let holesArea = 0;
+      for (let i = 0; i < node.ChildCount(); i++) {
+        const hc = node.Childs()[i].Contour();
+        if (hc && hc.length >= 3) { holesArea += Math.abs(Clipper.Clipper.Area(hc)); holes.push(hc); }
+      }
+      const netArea = Math.abs(Clipper.Clipper.Area(contour)) - holesArea;
+      if (netArea < tinyGuard) continue;
+      const outerD = toPathD(contour);
+      if (outerD) blocks.push({ kind: 'building', outer: outerD, holes: holes.map(h => toPathD(h)).filter(d => d), areaPx: netArea / (SCALE * SCALE) });
+    }
+  }
+
+  // Classify each solid contour of a difference tree on its own. A passing piece
+  // IS already the exact curb-to-curb block shape (its subject minus blockVoid),
+  // so it emits verbatim as an urban block (same floor guards as emitTree); a
+  // failing piece additionally subtracts fallbackVoid (the extra landcover
+  // subtraction lets landcover show through) and emits as fallback. Shared by:
+  //   • the countryside remainder re-test (gateBuildings=true — its pieces were
+  //     all fallback before, so the open-land gate there can only ADD blocks);
+  //   • the small/medium per-land-mass split (gateBuildings=false — building
+  //     presence alone still makes a mass urban, so no mass a building already
+  //     claimed is demoted; honours the measured 5% abort, ENGINE-V2.md §3).
+  // Either way the piece's whole area paints cream except holes another layer
+  // paints, so the complement rule (§3) holds and no seam or bare sliver opens.
+  function classifyPieces(nodes, gateBuildings) {
+    for (const node of nodes) {
+      if (node.IsHole()) continue;
+      const outer = node.Contour();
+      const holes = [], deeperSolids = [];
+      for (let i = 0; i < node.ChildCount(); i++) {
+        const child = node.Childs()[i];
+        const hc = child.Contour();
+        if (hc && hc.length >= 3) holes.push(hc);
+        for (let j = 0; j < child.ChildCount(); j++) deeperSolids.push(child.Childs()[j]);
+      }
+      if (outer && outer.length >= 3) {
+        const pieceSubject = [outer].concat(holes);
+        const pieceNet = netAreaOfContour(outer, holes);
+        const outerRing = outer.map(p => [p.X / SCALE, p.Y / SCALE]);
+        const holeRings = holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
+        if (isUrbanPiece(pieceSubject, pieceNet, subjectBuildingArea(outerRing, holeRings), gateBuildings)) {
+          // Already the exact block shape — emit verbatim, with the same floor
+          // guards emitTree applies (nested solids are classified by this walk).
+          if (pieceNet >= tinyGuard) {
+            const outerD = toPathD(outer);
+            if (outerD) blocks.push({ kind: pieceNet >= minArea ? 'urban' : 'sliver', outer: outerD, holes: holes.map(h => toPathD(h)).filter(d => d), areaPx: pieceNet / (SCALE * SCALE) });
+          }
+        } else {
+          // Urban-side mass split only: the countryside remainder
+          // (gateBuildings=true) owns its buildings via the hamlet machinery
+          // and keeps its deliberately-cream remainder (quays, floodplain).
+          if (!gateBuildings && isGreenOpenPiece(pieceSubject, pieceNet)) {
+            mergeGreenRemainder(pieceSubject);
+            emitPieceBuildings(pieceSubject, pieceNet);
+          } else {
+            emitTree(subtractVoid(pieceSubject, fallbackVoid), 'fallback', blocks);
+          }
+        }
+      }
+      classifyPieces(deeperSolids, gateBuildings);
+    }
+  }
+
   for (const face of rawFaces) {
     const netAreaScaled = Math.abs(Clipper.Clipper.Area(face.outer))
       - face.holes.reduce((sum, h) => sum + Math.abs(Clipper.Clipper.Area(h)), 0);
@@ -994,107 +1413,189 @@ self.onmessage = function(event) {
         const hamletPaths = new Clipper.Paths();
         intersectClipper.Execute(ctIntersection, hamletPaths, NZ, NZ);
         const hamletTree = subtractVoid(hamletPaths, blockVoid);
-        emitTree(hamletTree, 'hamlet', blocks);
-        hamletPaintedPaths = Clipper.Clipper.PolyTreeToPaths(hamletTree);
+        // Ground each blob against the rural place nodes: only a blob with a
+        // qualifying node in range paints as a hamlet (and takes its name);
+        // ungrounded blobs are dropped so their area falls back to the cream
+        // remainder — this is what stops urban faces inventing hamlets. Only
+        // the KEPT blobs feed hamletPaintedPaths, so the remainder repaints
+        // exactly the dropped areas (complement rule, ENGINE-V2.md §3).
+        const settlementRadiusPx = HAMLET_GROUND_SETTLEMENT_M / mPerPx;
+        const localityRadiusPx = HAMLET_GROUND_LOCALITY_M / mPerPx;
+        const keptPaths = [];
+        for (const node of hamletTree.Childs()) {
+          if (node.IsHole()) continue;
+          const contour = node.Contour();
+          if (!contour || contour.length < 3) continue;
+          const ringPx = contour.map(pt => [pt.X / SCALE, pt.Y / SCALE]);
+          const groundNode = groundHamletContour(ringPx, placeNodes, settlementRadiusPx, localityRadiusPx);
+          if (!groundNode) continue;
+          emitTree({ Childs: () => [node] }, 'hamlet', blocks, groundNode.name);
+          collectContourPaths(node, keptPaths);
+        }
+        if (keptPaths.length) hamletPaintedPaths = keptPaths;
       }
-      let remainderVoid = fallbackVoid;
+      // Re-test the non-hamlet remainder (cause C). After ungrounded blobs are
+      // dropped, a countryside face's dense pocket — a real city district inside
+      // a big forest/harbour/park face, or a dropped hamlet with no rural place
+      // node — must still get the building/urban-landuse test, or it paints as
+      // Uncategorized despite carrying 9–123 buildings (Bremerhaven Bürgerpark).
+      // Granularity matters: the test runs on each solid piece of face minus
+      // (block void ∪ kept hamlets) — the pieces water/green/waterways carve
+      // out — NOT on the remainder as a whole, whose open-land share is high by
+      // countryside construction and would veto every pocket. A piece that
+      // passes emits as an urban block DIRECTLY: it already is exactly the
+      // curb-to-curb block shape (face minus block void), so the complement
+      // rule (§3) holds by construction. A piece that fails additionally
+      // subtracts fallbackVoid (a superset of blockVoid; the extra landcover
+      // subtraction is the only difference) and emits as fallback — the same
+      // shape the wholesale remainder used to paint there. Either way the
+      // piece's whole area is painted cream except holes another layer paints,
+      // so no seam or bare sliver can open.
+      let remainderClip = blockVoid;
       if (hamletPaintedPaths && hamletPaintedPaths.length) {
-        const unionClipper = new Clipper.Clipper();
-        unionClipper.AddPaths(fallbackVoid, ptSubject, true);
-        unionClipper.AddPaths(hamletPaintedPaths, ptSubject, true);
-        remainderVoid = new Clipper.Paths();
-        unionClipper.Execute(ctUnion, remainderVoid, NZ, NZ);
+        const clipUnion = new Clipper.Clipper();
+        clipUnion.AddPaths(blockVoid, ptSubject, true);
+        clipUnion.AddPaths(hamletPaintedPaths, ptSubject, true);
+        remainderClip = new Clipper.Paths();
+        clipUnion.Execute(ctUnion, remainderClip, NZ, NZ);
       }
-      emitTree(subtractVoid(faceSubject, remainderVoid), 'fallback', blocks);
+      const remainderTree = subtractVoid(faceSubject, remainderClip);
+      classifyPieces(remainderTree.Childs(), true);
       continue;
     }
 
-    // Small face: a city block only if it contains at least one building. Test
-    // each building bbox centre against the face outer ring (respecting holes),
-    // with a face-bbox prefilter first so 20k+ buildings × N faces stays fast.
+    // Small/medium face (not countryside): a curb-to-curb cream city block when
+    // the shared urban test passes, else fallback cream. Building presence alone
+    // still makes a face urban (gateBuildings=false — see isUrbanPiece for the
+    // measured rejection of gating that); the urban-landuse signal additionally
+    // promotes buildingless-but-covered faces.
     const outerRing = face.outer.map(p => [p.X / SCALE, p.Y / SCALE]);
     const holeRings = face.holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of outerRing) {
-      if (p[0] < minX) minX = p[0];
-      if (p[0] > maxX) maxX = p[0];
-      if (p[1] < minY) minY = p[1];
-      if (p[1] > maxY) maxY = p[1];
-    }
-    let hasBuilding = false;
-    for (const center of buildingCenters) {
-      const cx = center[0], cy = center[1];
-      if (cx < minX || cx > maxX || cy < minY || cy > maxY) continue;
-      if (!pointInRing(cx, cy, outerRing)) continue;
-      let inHole = false;
-      for (const holeRing of holeRings) {
-        if (pointInRing(cx, cy, holeRing)) { inHole = true; break; }
-      }
-      if (inHole) continue;
-      hasBuilding = true;
-      break;
-    }
+    const buildingArea = subjectBuildingArea(outerRing, holeRings);
 
-    if (hasBuilding) {
+    if (isUrbanPiece(faceSubject, netAreaScaled, buildingArea, false)) {
       // Cream city block = face minus the block void, evenodd holes. A pond in
       // the block becomes a hole; a face split by a river yields two blocks.
-      emitTree(subtractVoid(faceSubject, blockVoid), 'urban', blocks);
+      // Per-land-mass classification: when the void (water + green + waterway
+      // strokes) splits the face's land into MORE than one disjoint mass — a
+      // river island, a park-severed parcel — classify each mass on its own
+      // rather than blanket-painting them all urban. A buildingless open-land
+      // mass (the Erfurt Gera wood island, whose parent road-bounded face spans
+      // the river so whole-face metrics read urban) then paints fallback and its
+      // landcover shows through — the universal, heuristic-free island fix. A
+      // single-mass face takes the identical emit as before (untouched by
+      // construction); gateBuildings=false keeps every building-bearing mass
+      // urban, so no urban land is demoted (§3, the measured 5% abort).
+      const blockTree = subtractVoid(faceSubject, blockVoid);
+      const solidMasses = blockTree.Childs().filter(n => !n.IsHole());
+      if (solidMasses.length <= 1) {
+        emitTree(blockTree, 'urban', blocks);
+      } else {
+        classifyPieces(blockTree.Childs(), false);
+      }
     } else {
-      // No building → no primary block. The coverage fallback paints whatever
-      // water/green/landcover/waterways did NOT cover — dry river islands and
-      // OSM data gaps — as cream, so land is never left bare. This is how river
-      // islands render in v2: no island machinery, just face minus the union.
-      emitTree(subtractVoid(faceSubject, fallbackVoid), 'fallback', blocks);
+      // No block → the coverage fallback paints whatever water/green/landcover/
+      // waterways did NOT cover (dry river islands, OSM data gaps, open-land
+      // faces), so land is never left bare — landcover shows through its
+      // holes. Green-open pieces merge that remainder into their landcover
+      // (one grown green shape, no cream wedge) and draw their buildings;
+      // everything else stays a cream patch. This is how river islands render
+      // in v2: no island machinery.
+      if (isGreenOpenPiece(faceSubject, netAreaScaled)) {
+        mergeGreenRemainder(faceSubject);
+        emitPieceBuildings(faceSubject, netAreaScaled);
+      } else {
+        emitTree(subtractVoid(faceSubject, fallbackVoid), 'fallback', blocks);
+      }
     }
   }
 
-  // ── Occlusion cull: landcover fully hidden under painted city blocks ──
-  // Landcover sits at the BOTTOM of the paint order (§4); urban + hamlet city
-  // blocks paint opaque cream directly above it. A landcover polygon whose
-  // whole area lies under that block union is invisible, so it is dropped from
-  // PAINT only. This never touches any subtraction void (blockVoid/fallbackVoid
-  // are already built), so coverage — the geometric lint and the render check —
-  // is unaffected: the cull only removes ink that another opaque layer already
-  // covers. Conservative by construction: the covering set is city blocks ONLY
-  // (not fallback/water/parks), and any remainder above ~1px² keeps the element.
-  // A finer grid than the cutter's SCALE (100 vs 10) so the "is it empty?" test
-  // does not cull on coarse rounding.
+  // ── Occlusion cull: landcover fully hidden under painted OPAQUE layers ──
+  // Landcover sits at the BOTTOM of the paint order (§4). A landcover polygon
+  // whose whole area lies under the union of the OPAQUE layers painted above it
+  // is invisible, so it is dropped from PAINT only. This never touches any
+  // subtraction void (blockVoid/fallbackVoid are already built), so coverage —
+  // the geometric lint and the render check — is unaffected: the cull only
+  // removes ink another opaque layer already covers. Covering set = the opaque
+  // painted layers above landcover: urban + hamlet city blocks (cream), named
+  // parks (green, fillOpacity 1) and water bodies (opaque since 2026-07-12 —
+  // preset.waterOp is 1). Deliberately EXCLUDED: fallback blocks (fallbackVoid
+  // already subtracts landcover, so a fallback patch is holed exactly where
+  // landcover paints — it can never cover it, by construction); waterway strokes
+  // and roads (opaque but thin — a river line or street rarely covers a whole
+  // landcover polygon, so omitting them only keeps ink, never adds a bare gap:
+  // conservative). Water is semi-consequential here mainly for woods that run
+  // into a lake/dock; the big new win is a wood fully inside a NAMED forest/park
+  // (Tilburg's "invisible forest" observation). Each covering layer contributes
+  // its region with HOLES already punched (a pond hole in a block, an island
+  // hole in a lake) BEFORE the regions are unioned, so a hole in one layer that
+  // another layer fills over stays counted as covered. A finer grid than the
+  // cutter's SCALE (100 vs 10) so the "is it empty?" test does not cull on
+  // coarse rounding, and any remainder above ~1px² keeps the element.
   const CULL_SCALE = 100;
   const culledLandcover = [];
-  const landcoverElements = data.landcoverElements || [];
   if (landcoverElements.length) {
+    const scaleRingCull = ring => {
+      const sp = [];
+      for (const p of ring) sp.push({ X: Math.round(p[0] * CULL_SCALE), Y: Math.round(p[1] * CULL_SCALE) });
+      return sp.length >= 3 ? sp : null;
+    };
+    // NonZero union of a set of pre-oriented ring groups (outer +, hole −), so
+    // each group's own holes self-punch — the same discipline as buildVoid.
+    const unionOrientedRings = groups => {
+      const c = new Clipper.Clipper();
+      let any = false;
+      for (const group of groups) for (const ring of group) {
+        const sp = scaleRingCull(ring); if (sp) { c.AddPath(sp, ptSubject, true); any = true; }
+      }
+      const out = new Clipper.Paths();
+      if (any) c.Execute(ctUnion, out, NZ, NZ);
+      return out;
+    };
+    // Block region (urban + hamlet + standalone buildings): union of outers
+    // minus their pond holes. Buildings are opaque cream above landcover too,
+    // so landcover fully under one is just as invisible.
     const blockOuters = [], blockHoles = [];
     for (const blk of blocks) {
-      if (blk.kind !== 'urban' && blk.kind !== 'hamlet') continue;
+      if (blk.kind !== 'urban' && blk.kind !== 'hamlet' && blk.kind !== 'building') continue;
       const o = pathDToRing(blk.outer, CULL_SCALE); if (o) blockOuters.push(o);
       for (const hd of (blk.holes || [])) { const h = pathDToRing(hd, CULL_SCALE); if (h) blockHoles.push(h); }
     }
+    let blockRegion = new Clipper.Paths();
     if (blockOuters.length) {
-      // Painted block union = union(outers) minus union(holes) — a pond hole in
-      // a block does not cover the landcover under it.
       const uc = new Clipper.Clipper();
       for (const o of blockOuters) uc.AddPath(o, ptSubject, true);
-      const outerUnion = new Clipper.Paths();
-      uc.Execute(ctUnion, outerUnion, NZ, NZ);
-      let blockUnion = outerUnion;
+      uc.Execute(ctUnion, blockRegion, NZ, NZ);
       if (blockHoles.length) {
         const hc = new Clipper.Clipper();
-        hc.AddPaths(outerUnion, ptSubject, true);
+        hc.AddPaths(blockRegion, ptSubject, true);
         for (const h of blockHoles) hc.AddPath(h, ptClip, true);
-        blockUnion = new Clipper.Paths();
-        hc.Execute(ctDifference, blockUnion, NZ, NZ);
+        const holed = new Clipper.Paths();
+        hc.Execute(ctDifference, holed, NZ, NZ);
+        blockRegion = holed;
       }
+    }
+    // Named parks + water bodies arrive as oriented rings (holes as negatives).
+    const greenRegion = unionOrientedRings([greenPolys]);
+    const waterRegion = unionOrientedRings([waterPolys]);
+    // Covering union of the three opaque regions.
+    const coverClipper = new Clipper.Clipper();
+    let hasCover = false;
+    for (const r of [blockRegion, greenRegion, waterRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
+    const covering = new Clipper.Paths();
+    if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
+    if (covering.length) {
       const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
       for (const lc of landcoverElements) {
+        // A merged element carries a green-open piece's coverage remainder —
+        // definitionally exposed ink, never cullable.
+        if (mergedLandcover.has(lc.index)) continue;
         const subj = [];
-        for (const ring of (lc.rings || [])) {
-          const sp = ring.map(p => ({ X: Math.round(p[0] * CULL_SCALE), Y: Math.round(p[1] * CULL_SCALE) }));
-          if (sp.length >= 3) subj.push(sp);
-        }
+        for (const ring of (lc.rings || [])) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
         if (!subj.length) continue;
         const dc = new Clipper.Clipper();
         for (const s of subj) dc.AddPath(s, ptSubject, true);
-        for (const b of blockUnion) dc.AddPath(b, ptClip, true);
+        for (const b of covering) dc.AddPath(b, ptClip, true);
         const remainder = new Clipper.Paths();
         dc.Execute(ctDifference, remainder, NZ, NZ);
         let remArea = 0;
@@ -1104,9 +1605,20 @@ self.onmessage = function(event) {
     }
   }
 
-  self.postMessage({ type: 'done', blocks: blocks, culledLandcover: culledLandcover });
+  self.postMessage({
+    type: 'done', blocks: blocks, culledLandcover: culledLandcover,
+    greenGroundMerges: [...mergedLandcover].map(index => ({ index, rings: landcoverElements[index].rings })),
+  });
 };
-`;
+`
+  // Hamlet-grounding constants + pure helpers, injected as worker-local copies
+  // of the main-thread source (single source of truth; see their definitions
+  // above). Function declarations hoist into the worker scope, so onmessage
+  // can call them.
+  + '\nconst HAMLET_GROUND_SETTLEMENT_M = ' + HAMLET_GROUND_SETTLEMENT_M + ';'
+  + '\nconst HAMLET_GROUND_LOCALITY_M = ' + HAMLET_GROUND_LOCALITY_M + ';'
+  + '\n' + pointToPolygonDistancePx.toString()
+  + '\n' + groundHamletContour.toString() + '\n';
 
   let faceWorkerUrl = null;
   function getFaceWorkerUrl() {
@@ -1140,22 +1652,30 @@ self.onmessage = function(event) {
   // Building bbox centre in projected px, for face classification. Buildings
   // are fetched as bounds ('tags bb'), so the centre is the bbox midpoint;
   // fall back to geometry-bbox midpoint for full-geometry cache entries.
+  // Returns [x, y, bboxAreaPx] — the projected bbox centre plus the projected
+  // bbox area (px²), the building's footprint proxy for the built-up-coverage
+  // test (a lone footprint in a big green face is not built-up; see
+  // subjectBuildingArea / isUrbanPiece). No extra fetch: the bounds are already
+  // in the 'tags bb' buildings response.
   function buildingCenterPx(el, pr) {
+    let minlat, minlon, maxlat, maxlon;
     if (el.bounds) {
-      const { minlat, minlon, maxlat, maxlon } = el.bounds;
-      return pr((minlat + maxlat) / 2, (minlon + maxlon) / 2);
-    }
-    if (el.geometry?.length) {
-      let sLat = Infinity, nLat = -Infinity, wLon = Infinity, eLon = -Infinity;
+      ({ minlat, minlon, maxlat, maxlon } = el.bounds);
+    } else if (el.geometry?.length) {
+      minlat = Infinity, maxlat = -Infinity, minlon = Infinity, maxlon = -Infinity;
       for (const g of el.geometry) {
-        if (g.lat < sLat) sLat = g.lat;
-        if (g.lat > nLat) nLat = g.lat;
-        if (g.lon < wLon) wLon = g.lon;
-        if (g.lon > eLon) eLon = g.lon;
+        if (g.lat < minlat) minlat = g.lat;
+        if (g.lat > maxlat) maxlat = g.lat;
+        if (g.lon < minlon) minlon = g.lon;
+        if (g.lon > maxlon) maxlon = g.lon;
       }
-      return pr((sLat + nLat) / 2, (wLon + eLon) / 2);
+    } else {
+      return null;
     }
-    return null;
+    const c = pr((minlat + maxlat) / 2, (minlon + maxlon) / 2);
+    const sw = pr(minlat, minlon), ne = pr(maxlat, maxlon);
+    const area = Math.abs((ne[0] - sw[0]) * (ne[1] - sw[1]));
+    return [c[0], c[1], area];
   }
 
   // Project a set of area-feature elements into oriented rings for the worker's
@@ -1194,42 +1714,37 @@ self.onmessage = function(event) {
   // exactly like v1's prepareBlockData (same merge, same epsilon, same widths)
   // so the face edge traces the same line the renderer strokes, and projects the
   // area features into the worker's subtraction/fallback voids.
-  function prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox) {
+  function prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox, placeNodeElements) {
     const scaleFactor = getScaleFactor(W);
     const roadEps = getEps();
     const lineEps = getLineEps();
-    const area = classified || { water: [], green: [], landcover: [], waterways: [] };
+    const area = classified || { water: [], green: [], landcover: [], grass: [], waterways: [], labelOnly: [] };
 
     const cutterLines = []; // { pts: [[x,y], ...], halfW }
     for (const { layer, data } of cutterResults) {
       if (!data?.elements?.length) continue;
 
+      // Rail/tram/metro deliberately do NOT cut (removed 2026-07-12): a rail
+      // carve at 20 px·sf plus a corridor_beds layer that repainted exactly
+      // that band cream was net-zero ink and pure designer-facing machinery.
+      // Blocks now simply paint under the drawn tracks, so no "Railway"
+      // between-track faces or rail-side slivers are ever constructed. The
+      // cutter network is roads only.
+      if (layer.type !== 'roads') continue;
+
       // Roads → lines with half-width. Merge named ways first (the renderer
       // strokes the stitched run, so simplifying the pieces would drift), and
       // drop tunnels before merging so a tunnel segment can't bound a face.
-      if (layer.type === 'roads') {
-        const surface = data.elements.filter(el => !isTunnel(el));
-        for (const el of mergeNamedWays(surface)) {
-          const highway = el.tags?.highway || '_default';
-          if (!BLOCK_ROADS.has(highway)) continue;
-          const width = ROAD_WIDTHS[highway] || ROAD_WIDTHS._default;
-          const halfW = (width.fillW + width.casingW) * scaleFactor / 2 - ROAD_TUCK;
-          const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), roadEps);
-          if (pts.length >= 2) cutterLines.push({ pts, halfW });
-        }
-      }
-
-      // Rail/tram/metro → lines, cut at v1's fixed rail half-width (no
-      // ROAD_TUCK — they carry no casing the block hides under). Tunnels
-      // dropped too, so underground lines never bound a face.
-      if (layer.type === 'rail' || layer.type === 'tram' || layer.type === 'metro') {
-        for (const el of data.elements) {
-          if (el.type !== 'way' || !el.geometry?.length || el.geometry.length < 2) continue;
-          if (isTunnel(el)) continue;
-          const halfW = 20 * scaleFactor / 2;
-          const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), roadEps);
-          if (pts.length >= 2) cutterLines.push({ pts, halfW });
-        }
+      // Squares are skipped (they no longer cut — see isSquareElement): a
+      // square is just land inside its face, painted cream by classification.
+      const surface = data.elements.filter(el => !isTunnel(el) && !isSquareElement(el));
+      for (const el of mergeNamedWays(surface)) {
+        const highway = el.tags?.highway || '_default';
+        if (!BLOCK_ROADS.has(highway)) continue;
+        const width = ROAD_WIDTHS[highway] || ROAD_WIDTHS._default;
+        const halfW = (width.fillW + width.casingW) * scaleFactor / 2 - ROAD_TUCK;
+        const pts = dpSimplify(el.geometry.map(g => pr(g.lat, g.lon)), roadEps);
+        if (pts.length >= 2) cutterLines.push({ pts, halfW });
       }
     }
 
@@ -1247,13 +1762,38 @@ self.onmessage = function(event) {
     // Area voids for subtraction (oriented rings, area_large eps — see above).
     const waterPolys = collectAreaPolys(area.water, pr);
     const greenPolys = collectAreaPolys(area.green, pr);
-    const landcoverPolys = collectAreaPolys(area.landcover, pr);
-    // Same landcover geometry, but kept per-element (with its index in
-    // classified.landcover) so the worker's occlusion cull can report exactly
-    // which elements are hidden under the city blocks. Paint-only: this feeds
-    // the render filter, never a subtraction void, so landcoverPolys above is
-    // untouched and coverage is unaffected.
-    const landcoverElements = (area.landcover || []).map((el, index) => ({ index, rings: collectAreaPolys([el], pr) }));
+    // Two landcover sets, deliberately split (see AREA_FEATURES grass rows):
+    //  - paint set (landcover + grass display rows) → landcoverPolys, which
+    //    feeds the FALLBACK void so every painted landcover (grass included)
+    //    shows through fallback holes;
+    //  - open-land SIGNAL set (landcover only, no grass) → openLandPolys, the
+    //    ≥0.35 share test in the worker. Grass must stay out of that signal or
+    //    it flips genuinely urban faces to countryside/fallback en masse.
+    const paintLandcover = [...(area.landcover || []), ...(area.grass || [])];
+    const landcoverPolys = collectAreaPolys(paintLandcover, pr);
+    const openLandPolys = collectAreaPolys(area.landcover, pr);
+    // Urban-landuse classification signal: landuse=residential/commercial/retail
+    // polygons carry no building footprints in much of OSM (dominant in Erfurt:
+    // 37/43 above-floor Uncategorized patches are residential/commercial), yet
+    // the land is plainly city. Projected exactly like the void polys above and
+    // unioned into the worker's urbanVoid, they let a buildingless-but-covered
+    // face still classify urban. INDUSTRIAL is excluded on purpose (Bremerhaven's
+    // industrial-tagged open quays would wrongly read as cream city blocks). Like
+    // buildingCenters, these only classify — they never paint or cut.
+    const urbanLanduse = new Set(['residential', 'commercial', 'retail']);
+    // amenity=parking counts as city fabric too (Coen, 2026-07-13): a parking
+    // lot is paved block-land and reads as cream on a USE-IT map, so a piece
+    // it covers promotes like residential/commercial instead of surfacing as
+    // an "Uncategorized/Parking" patch. Same discipline as the landuse set:
+    // classification only, never painted or cut.
+    const urbanElements = (area.labelOnly || []).filter(el =>
+      urbanLanduse.has(el.tags?.landuse) || el.tags?.amenity === 'parking');
+    const urbanPolys = collectAreaPolys(urbanElements, pr);
+    // The paint set kept per-element (index into the landcover render array =
+    // [...landcover, ...grass]) so the worker's occlusion cull reports exactly
+    // which painted elements are hidden under the city blocks. Paint-only: feeds
+    // the render filter, never a subtraction void, so coverage is unaffected.
+    const landcoverElements = paintLandcover.map((el, index) => ({ index, rings: collectAreaPolys([el], pr) }));
 
     // Building centres for classification, building rings for hamlet blobs.
     const buildingCenters = [];
@@ -1263,6 +1803,18 @@ self.onmessage = function(event) {
     }
     const clusterRings = prepareClusterData(buildingElements || [], pr);
 
+    // Rural place nodes → {x,y,tier,name} in export px, for grounding hamlet
+    // blobs in the worker. Nodes carry lat/lon directly; locality is the
+    // tighter-radius tier (see the grounding helpers), everything else is
+    // settlement tier.
+    const placeNodes = [];
+    for (const el of (placeNodeElements || [])) {
+      if (typeof el.lat !== 'number' || typeof el.lon !== 'number') continue;
+      const [x, y] = pr(el.lat, el.lon);
+      const tier = el.tags?.place === 'locality' ? 'locality' : 'settlement';
+      placeNodes.push({ x, y, tier, name: el.tags?.name || null });
+    }
+
     // Ground scale, for the countryside threshold and the hamlet buffers
     // (metres → px). Mercator stretch across a city-scale bbox is negligible
     // for either. COUNTRYSIDE_MIN_KM2 is v1's shared 0.35 km² constant.
@@ -1271,8 +1823,8 @@ self.onmessage = function(event) {
     const bigFacePx2 = COUNTRYSIDE_MIN_KM2 * 1e6 / (mPerPx * mPerPx);
 
     return {
-      cutterLines, waterwayLines, waterPolys, greenPolys, landcoverPolys, landcoverElements,
-      buildingCenters, clusterRings, W, H, bigFacePx2, mPerPx,
+      cutterLines, waterwayLines, waterPolys, greenPolys, landcoverPolys, openLandPolys, urbanPolys, landcoverElements,
+      buildingCenters, clusterRings, placeNodes, W, H, bigFacePx2, mPerPx,
       // Roads/rail cutters plus waterway strokes, in the {pts,halfW} shape the
       // coverage lint's markLine expects (it treats these as painted corridors).
       lines: cutterLines.concat(waterwayLines),
@@ -1284,7 +1836,7 @@ self.onmessage = function(event) {
   // with v1's ({type:'progress'} / {type:'done', ...}).
   function computeFacesAsync(cutterResults, buildingElements, classified, pr, W, H, onProgress, opts = {}) {
     return new Promise((resolve) => {
-      const data = prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, opts.bbox);
+      const data = prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, opts.bbox, opts.placeNodeElements);
       if (!data.cutterLines.length) { resolve({ blocks: [] }); return; }
 
       const worker = new Worker(getFaceWorkerUrl());
@@ -1292,7 +1844,7 @@ self.onmessage = function(event) {
         if (e.data.type === 'progress' && onProgress) onProgress(e.data.msg, e.data.pct);
         if (e.data.type === 'done') {
           worker.terminate();
-          resolve({ blocks: e.data.blocks, culledLandcover: e.data.culledLandcover || [] });
+          resolve({ blocks: e.data.blocks, culledLandcover: e.data.culledLandcover || [], greenGroundMerges: e.data.greenGroundMerges || [] });
         }
       };
       worker.onerror = function(err) {
@@ -1304,23 +1856,26 @@ self.onmessage = function(event) {
     });
   }
 
-  // Render the derived city_blocks result: the primary cream faces. Only urban
-  // and hamlet blocks paint; countryside placeholders (kept for the coverage
-  // lint) and fallback patches (their own group) are skipped here. Evenodd, so
-  // subtracted water/green become holes. One <path> per block.
+  // Render the derived city_blocks result: the primary cream faces. Only urban,
+  // hamlet and standalone-building blocks paint; countryside placeholders (kept
+  // for the coverage lint) and fallback patches (their own group) are skipped
+  // here. Evenodd, so subtracted water/green become holes. One <path> per block.
   function renderCityBlocks(blocks, ctx) {
-    let urbanCount = 0, hamletCount = 0;
-    // Hamlet blobs sit in open countryside with no road casing around them, so
-    // (as in v1) they carry a casing-toned outline of their own — without it
-    // the cream fill vanishes against the pale landcover painting beneath.
+    let urbanCount = 0, hamletCount = 0, buildingCount = 0;
+    // Hamlet blobs and standalone buildings sit on open ground with no road
+    // casing around them, so (as in v1) they carry a casing-toned outline of
+    // their own — without it the cream fill vanishes against the pale
+    // landcover painting beneath.
     const hamletStroke = ` stroke="${ctx.preset.buildingStroke}" stroke-width="${(2.5 * getScaleFactor(ctx.W)).toFixed(2)}" stroke-linejoin="round"`;
-    const paths = (blocks || []).filter(blk => blk.kind === 'urban' || blk.kind === 'hamlet').map(blk => {
-      const isHamlet = blk.kind === 'hamlet';
-      const [id, label] = isHamlet
-        ? [`hamlet_${++hamletCount}`, `Hamlet ${hamletCount}`]
-        : [`block_${++urbanCount}`, `Block ${urbanCount}`];
+    const paths = (blocks || []).filter(blk => blk.kind === 'urban' || blk.kind === 'hamlet' || blk.kind === 'building').map(blk => {
+      const outlined = blk.kind !== 'urban';
+      const [id, label] = blk.kind === 'hamlet'
+        ? [`hamlet_${++hamletCount}`, blk.name ? `Hamlet “${escXml(blk.name)}”` : `Hamlet ${hamletCount}`]
+        : blk.kind === 'building'
+          ? [`building_${++buildingCount}`, `Building ${buildingCount}`]
+          : [`block_${++urbanCount}`, `Block ${urbanCount}`];
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
-      return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${CREAM}" fill-rule="evenodd"${isHamlet ? hamletStroke : ' stroke="none"'}/>`;
+      return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${CREAM}" fill-rule="evenodd"${outlined ? hamletStroke : ' stroke="none"'}/>`;
     }).join('\n    ');
     if (!paths) return '';
     return `  <g id="city_blocks" inkscape:label="City blocks" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
@@ -1411,12 +1966,11 @@ self.onmessage = function(event) {
       }
       return inside;
     };
-    // Sub-group patches so a designer can grab a whole category (or all the
-    // junction micro-slivers) at once, instead of scrolling one flat list.
-    // Slivers (below the block-styling floor, same 400px² BLOCK_WORKER_SRC
-    // uses — see blk.areaPx) win over category, regardless of what's under
-    // them: they're grouped by SIZE, not content.
-    const sliverFloor = 400 * getScaleFactor(ctx.W) * getScaleFactor(ctx.W);
+    // Sub-group patches by category so a designer can grab a whole category at
+    // once, instead of scrolling one flat list. (Sub-floor slivers are no
+    // longer fallback blocks — they paint as junction infill in the roads
+    // layer, kind 'sliver' — so every fallback patch here is ≥ the block floor
+    // by construction and there is no Slivers subgroup.)
     const groups = new Map(); // subgroup id -> { label, paths: [] }
     let n = 0;
     for (const blk of (blocks || [])) {
@@ -1442,25 +1996,22 @@ self.onmessage = function(event) {
         // “Autoranta”"); "Uncategorized" is reserved for truly untagged land.
         if (cats.length) { label = cats.slice(0, 2).join(' + '); category = firstValue || 'Uncategorized'; }
       }
-      // Self-coloured seam stroke (as on water bodies and squares): fallback
-      // patches often abut hamlet blobs and each other edge-to-edge, and the
+      // Self-coloured seam stroke (as on water bodies): fallback patches
+      // often abut hamlet blobs and each other edge-to-edge, and the
       // sub-pixel gap between two unstroked fills renders as a hairline of
       // page background.
       const path = `<path id="fallback_${++n}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
-      const isSliver = (blk.areaPx || 0) < sliverFloor;
-      const subId = isSliver ? 'uncat_slivers' : `uncat_${safeName(category).toLowerCase()}`;
-      const subLabel = isSliver ? 'Slivers' : category;
-      if (!groups.has(subId)) groups.set(subId, { label: subLabel, paths: [] });
+      const subId = `uncat_${safeName(category).toLowerCase()}`;
+      if (!groups.has(subId)) groups.set(subId, { label: category, paths: [] });
       groups.get(subId).paths.push(path);
     }
     if (!groups.size) return '';
-    // Category sub-groups first (alphabetical), then the two catch-alls —
-    // Uncategorized (untagged land), Slivers (junction micro-slivers) last —
-    // so the specific buckets surface before the generic ones in the panel.
-    const ids = [...groups.keys()].filter(id => id !== 'uncat_uncategorized' && id !== 'uncat_slivers')
+    // Category sub-groups first (alphabetical), then the Uncategorized
+    // catch-all (truly untagged land) last, so the specific buckets surface
+    // before the generic one in the panel.
+    const ids = [...groups.keys()].filter(id => id !== 'uncat_uncategorized')
       .sort((a, b) => groups.get(a).label.localeCompare(groups.get(b).label));
     if (groups.has('uncat_uncategorized')) ids.push('uncat_uncategorized');
-    if (groups.has('uncat_slivers')) ids.push('uncat_slivers');
     const subgroups = ids.map(id => {
       const g = groups.get(id);
       return `    <g id="${id}" inkscape:label="${escXml(g.label)}">\n      ${g.paths.join('\n      ')}\n    </g>`;
@@ -1468,36 +2019,7 @@ self.onmessage = function(event) {
     return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
   }
 
-  // Rail/tram/metro corridors are carved out of the blocks at 20px·sf, but the
-  // drawn tracks are narrower (rail casing 12px·sf), so every line used to
-  // leave a bare page-background flank on each side, plus a bare round cap
-  // past each spur end — invisible on white, glaring on any test background.
-  // Paint the whole carved corridor cream, directly above the block layers and
-  // below water (so rivers still show under rail bridges). Same centerlines
-  // and eps as the cutter, so the bed edge parallels the block edge exactly;
-  // +1px absorbs Clipper's arc tolerance at joins.
-  function renderCorridorBeds(results, ctx) {
-    const bandW = (20 * getScaleFactor(ctx.W) + 1).toFixed(2);
-    const uid = makeUidGen();
-    let paths = '';
-    for (const result of results) {
-      const t = result.layer.type;
-      if (t !== 'rail' && t !== 'tram' && t !== 'metro') continue;
-      const kindLabel = t.charAt(0).toUpperCase() + t.slice(1) + ' bed';
-      for (const el of (result.data?.elements || [])) {
-        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) continue;
-        if (isTunnel(el)) continue;
-        const d = geomToPathD(el.geometry, ctx.pr, getEps(), false);
-        if (!d) continue;
-        const label = el.tags?.name ? `${el.tags.name} (bed)` : kindLabel;
-        paths += `<path id="${uid(`bed_${t}_${el.id}`)}" inkscape:label="${escXml(label)}" d="${d}"/>`;
-      }
-    }
-    if (!paths) return '';
-    return `  <g id="corridor_beds" inkscape:label="Rail corridor beds" inkscape:groupmode="layer" fill="none" stroke="${CREAM}" stroke-width="${bandW}" stroke-linecap="round" stroke-linejoin="round">${paths}</g>\n`;
-  }
-
-  // ── Squares + tunnels (milestone 6) ────────────────────────────────
+  // ── Tunnels (milestone 6) ──────────────────────────────────────────
   // Tunnels are not surface: tunnel=yes|culvert ways drop from the drawn
   // road/rail/tram network and from street labels (the block cutter already
   // drops them since M2, so a tunnel neither draws nor bounds a block).
@@ -1507,12 +2029,12 @@ self.onmessage = function(event) {
   // tunnel segments.
   const isTunnelElement = (el) => /^(yes|culvert)$/.test(el.tags?.tunnel || '');
 
-  // An open plaza: canonical square tagging (the shared isSquareTagged
-  // predicate, also used by the street-label builder) on a closed way that is
-  // not a roundabout. A square renders as one filled polygon in the pedestrian
-  // surface colour instead of having its ring stroked as a street. Its
-  // perimeter still feeds the block cutter, so neighbouring cream keeps
-  // ending at the plaza edge.
+  // Canonical square tagging (the shared isSquareTagged predicate, also used by
+  // the street-label builder) on a closed way that is not a roundabout. Squares
+  // no longer paint a plaza or cut faces (removed 2026-07-12): a square is land
+  // inside its face, painted cream like the block around it. This predicate now
+  // only excludes squares from the road cutter and the road stroke passes, and
+  // (when named) selects them for a feature label.
   function isSquareElement(el) {
     if (el.type !== 'way' || !el.geometry || el.geometry.length < 4) return false;
     if (!isSquareTagged(el.tags)) return false;
@@ -1520,27 +2042,24 @@ self.onmessage = function(event) {
     return samePt(el.geometry[0], el.geometry[el.geometry.length - 1]);
   }
 
-  function renderSquares(squareElements, ctx) {
-    if (!squareElements.length) return '';
-    const fill = ctx.preset.roads.pedestrian.fill;
-    const uid = makeUidGen();
-    let paths = '';
-    for (const el of squareElements) {
-      const d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area, true);
-      if (!d) continue;
-      const name = el.tags?.name;
-      const id = uid(name ? `square_${safeName(name)}` : `square${el.id ? '_' + el.id : ''}`);
-      // The perimeter still cuts blocks at its street width, so the plaza must
-      // absorb its former ring street: stroke the outline in plaza colour at
-      // the full stroked-road width. A hairline seam instead leaves a bare
-      // road-width band around every square (blocks stop at the cutter edge,
-      // and squares are excluded from road stroking) — Bremerhaven M7 review.
-      const width = ROAD_WIDTHS[el.tags?.highway] || ROAD_WIDTHS._default;
-      const bandW = ((width.fillW + width.casingW) * getScaleFactor(ctx.W)).toFixed(2);
-      paths += `<path id="${id}" inkscape:label="${escXml(name || 'Square')}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="${bandW}" stroke-linejoin="round"/>`;
+  // v1's roads layer group opening tag (script.js renderRoadsLayer). The
+  // junction-infill path is spliced in right after it, as the first child.
+  const ROADS_GROUP_OPEN = '<g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">';
+
+  // Sub-floor slivers (kind 'sliver' — junction pockets below the block-styling
+  // floor, fully surrounded by cutter bands) are road-space, not land. Paint
+  // them ONCE as a single multi-subpath path in the road fill colour (white),
+  // spliced in as the first child of the roads layer so casings and fills
+  // stroke over it. Designers never see a per-sliver list.
+  function renderJunctionInfill(blocks, ctx) {
+    const subpaths = [];
+    for (const blk of (blocks || [])) {
+      if (blk.kind !== 'sliver') continue;
+      subpaths.push(blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : ''));
     }
-    if (!paths) return '';
-    return `  <g id="squares" inkscape:label="Squares" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+    if (!subpaths.length) return '';
+    const fill = (ctx.preset.roads.residential || ctx.preset.roads.pedestrian || {}).fill || '#ffffff';
+    return `<path id="roads_junction_infill" inkscape:label="Junction infill" d="${subpaths.join(' ')}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="1"/>`;
   }
 
   // One named path per waterway, mirroring v1's per-feature water_bodies
@@ -1548,8 +2067,11 @@ self.onmessage = function(event) {
   // segments becomes one "Geeste"), nameless ways carry their waterway tag as
   // the label. v1 merges the whole layer into a single anonymous path, which
   // editors display as "path124" — useless to a designer. Stroke attributes
-  // otherwise match v1's line emission (round caps, 0.92 opacity) but the
-  // width is v2-only: it scales with export size (12 * getScaleFactor) to
+  // otherwise match v1's line emission (round caps) but paint OPAQUE: v1's
+  // 0.92 was a shine-through softening with no purpose here (no design reads
+  // through a river), and dropping it makes a waterway exactly the same blue
+  // as the water_bodies it flows into — one water colour, no faint body/way
+  // seam. The width is v2-only: it scales with export size (12 * getScaleFactor) to
   // MATCH the cutter's waterwayLines half-width in prepareFaceData (also
   // `12 * scaleFactor / 2`) — per the contract's complement rule (§3), the
   // painted stroke and the subtracted void must be the same width, and a
@@ -1578,10 +2100,76 @@ self.onmessage = function(event) {
       const kind = els[0].tags?.waterway || 'waterway';
       const id = name ? uid(`waterway_${safeName(name)}`) : uid(`waterway_${kind}_${els[0].id}`);
       const label = name || kind.replace(/^\w/, c => c.toUpperCase());
-      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="none" stroke="${water}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>`;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="none" stroke="${water}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
     }
     if (!content) return '';
     return `  <g id="waterways" inkscape:label="Waterways" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
+  // Landcover paint (v2-only renderer). v1's renderLayerSVG landcover branch
+  // only paints farmland/meadow/orchard/vineyard/forest/wood/scrub/heath — it
+  // has no case for the v2 grass display rows (grass/village_green, unnamed
+  // park/garden), so those would silently not paint if routed through it. Rather
+  // than edit v1 (the contract forbids changing script.js for a v2 feature),
+  // this mirrors v1's landcover emission verbatim for the shared covers and adds
+  // the grass rows on top, all as green tint (v1's ISLAND_GREEN colour). Big
+  // polygons paint first / small on top, same as v1, so a bbox-spanning meadow
+  // import never hides the woods inside it.
+  function renderLandcover(result, ctx) {
+    const elements = result.data?.elements || [];
+    if (!elements.length) return '';
+    const preset = ctx.preset;
+    const uid = makeUidGen();
+    const approxDeg2 = (el) => {
+      const b = el.bounds;
+      if (b) return (b.maxlat - b.minlat) * (b.maxlon - b.minlon);
+      const g = el.type === 'way' ? el.geometry : null;
+      if (!g?.length) return 0;
+      let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity;
+      for (const p of g) { if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat; if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon; }
+      return (n - s) * (e - w);
+    };
+    // The land-cover value + fill for a tag set, or null when nothing paints.
+    // farmland/meadow/orchard/vineyard/scrub/heath → quiet field tint; forest/
+    // wood and the grass display rows → park green.
+    const coverFill = (t) => {
+      const lu = t?.landuse || '', nat = t?.natural || '', le = t?.leisure || '';
+      if (/^(farmland|meadow|orchard|vineyard)$/.test(lu)) return { cover: lu, fill: preset.field };
+      if (lu === 'forest') return { cover: 'forest', fill: preset.park };
+      if (nat === 'wood') return { cover: 'wood', fill: preset.park };
+      if (/^(scrub|heath)$/.test(nat)) return { cover: nat, fill: preset.field };
+      if (/^(grass|village_green)$/.test(lu)) return { cover: lu, fill: preset.park };
+      if (/^(park|garden)$/.test(le)) return { cover: le, fill: preset.park };
+      return null;
+    };
+    let content = '';
+    [...elements].sort((a, z) => approxDeg2(z) - approxDeg2(a)).forEach((el) => {
+      const cf = coverFill(el.tags || {});
+      if (!cf) return;
+      let d = '';
+      if (el._mergedRings) {
+        // Grown shape from the worker: the element's own rings unioned with
+        // the coverage remainder of the green-open piece(s) it lies in.
+        // Already projected px at the void's simplification tolerance.
+        d = el._mergedRings.map(ring => 'M' + ring.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z').join(' ');
+      } else if (el.type === 'way') d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area_large, true);
+      else if (el.type === 'relation' && el.members) {
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        for (const ring of [...outer, ...inner]) d += geomToPathD(ring, ctx.pr, ctx.EPS.area_large, true) + ' ';
+        d = d.trim();
+      }
+      if (!d) return;
+      const name = el.tags?.name;
+      const id = name ? uid(`landcover_${safeName(name)}`) : uid(`landcover_${cf.cover}${el.id ? '_' + el.id : ''}`);
+      const label = name || cf.cover.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+      // Merged shapes now carry the ground others abut edge-to-edge, with
+      // nothing painted beneath — a self-coloured seam stroke closes the
+      // sub-pixel joint (same discipline as water/beach/fallback seams).
+      const seam = el._mergedRings ? ` stroke="${cf.fill}" stroke-width="1" stroke-linejoin="round"` : ' stroke="none"';
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${cf.fill}" fill-rule="evenodd"${seam}/>`;
+    });
+    if (!content) return '';
+    return `  <g id="landcover" inkscape:label="Countryside" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
 
   // Beach/sand as its own painted layer, above blocks and parks (layerOrder
@@ -1678,18 +2266,20 @@ self.onmessage = function(event) {
     if (result.layer.id === 'city_blocks') return renderCityBlocks(result.data?.blocks || [], ctx);
     if (result.layer.id === 'fallback_blocks') return renderFallbackBlocks(result.data?.blocks || [], result.data?.labelElements, ctx);
     if (result.layer.id === 'waterways') return renderWaterways(result, ctx);
+    if (result.layer.id === 'landcover') return renderLandcover(result, ctx);
     if (result.layer.id === 'beach') return renderBeach(result, ctx);
     if (result.layer.id === 'roads') {
       const elements = result.data?.elements || [];
-      const squares = elements.filter(isSquareElement);
+      // Squares are excluded from the road stroke passes (they are neither
+      // stroked as streets nor filled as plazas — they paint cream as land via
+      // the block classification). Tunnels drop too. The junction-infill path
+      // is spliced into this group's head in buildSVG.
       const streets = elements.filter(el => !isSquareElement(el) && !isTunnelElement(el));
-      // Squares paint first, so street strokes crossing a plaza stay on top.
       // relabelRoadGroups is a v2-only post-processing pass (see its comment):
       // v1's roads_casings_<hw>/roads_fills_<hw> groups already carry an
       // inkscape:label, so rewriting it in script.js would change an existing
       // attribute value, not just add one.
-      return renderSquares(squares, ctx)
-        + relabelRoadGroups(renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx));
+      return relabelRoadGroups(renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx));
     }
     if (result.layer.type === 'rail' || result.layer.type === 'tram' || result.layer.id === streetLabelsLayer.id) {
       const surfaceElements = (result.data?.elements || []).filter(el => !isTunnelElement(el));
@@ -1708,13 +2298,66 @@ self.onmessage = function(event) {
   // = null — v2's blocks ride in a result's data.blocks, not ctx.
   function buildSVG(results, exportBbox, widthPx, physicalWidthMm = null, options = {}) {
     const ctx = buildSVGContext(exportBbox, widthPx, null, options);
-    let layersSVG = '';
-    for (const result of sortResults(results)) {
-      layersSVG += renderLayer(result, ctx);
-      // Corridor beds ride directly above the coverage patches (and below
-      // water) — see renderCorridorBeds.
-      if (result.layer.id === 'fallback_blocks') layersSVG += renderCorridorBeds(results, ctx);
+    // Sub-floor slivers (junction pockets, below the block-styling floor) are
+    // road-space, not land: they paint once as a single road-fill path at the
+    // very start of the roads layer, so casings/fills stroke over them (see
+    // renderJunctionInfill / ENGINE-V2.md §2).
+    const infillBlocks = results.find(r => r.layer.id === cityBlocksLayer.id)?.data?.blocks || [];
+    const junctionInfill = renderJunctionInfill(infillBlocks, ctx);
+    // Named squares get a map label through the same feature-label path parks
+    // use: a synthetic leisure=park node anchored at the square's interior
+    // point, appended to the water_labels elements so it inherits that layer's
+    // styling, halo and shared collision grid. Built here (not in doExport) so
+    // every buildSVG caller — browser and test harness alike — gets the same
+    // labels; appended non-mutatingly, so a second buildSVG call (e.g. the
+    // Illustrator variant) cannot duplicate them. The interior point reuses
+    // seaInteriorPoint's pole-of-inaccessibility walk (fed the square's single
+    // outer ring), which stays inside concave plazas where a centroid would
+    // not. Styling matches park labels for now — provisional; squares may earn
+    // their own colour.
+    const squareLabelNodes = [];
+    for (const el of (results.find(r => r.layer.type === 'roads')?.data?.elements || [])) {
+      if (!isSquareElement(el) || !el.tags?.name) continue;
+      const anchor = seaInteriorPoint({ members: [{ role: 'outer', geometry: el.geometry }] });
+      if (!anchor) continue;
+      squareLabelNodes.push({ type: 'node', id: `square_label_${el.id}`, lat: anchor.lat, lon: anchor.lon, tags: { leisure: 'park', name: el.tags.name } });
     }
+    let layersSVG = '';
+    // Water bodies + Waterways are adjacent in the paint order, so they can
+    // share one "Water" parent layer without moving a single paint — purely
+    // tree organization for the designer's layers panel. Buffered here and
+    // flushed in place (either child may be absent on inland/dry areas).
+    //
+    // The green layers are deliberately NOT grouped the same way. "Countryside"
+    // (landcover) sits at the bottom band so it hides under city blocks and
+    // shows only through rural faces; "Parks & green" sits near the top so
+    // named parks stay visible over blocks and water. Four layers separate
+    // them, and an SVG parent group needs contiguous children, so nesting the
+    // two would have to reorder paint. Coen's call (2026-07-14): leave them as
+    // separate top-level layers rather than change the render for panel tidiness.
+    let pendingWater = null;
+    const flushWater = () => {
+      if (pendingWater === null) return;
+      if (pendingWater) layersSVG += `  <g id="water" inkscape:label="Water" inkscape:groupmode="layer">\n${pendingWater}  </g>\n`;
+      pendingWater = null;
+    };
+    for (const result of sortResults(results)) {
+      let renderResult = result;
+      if (result.layer.id === waterLabelsLayer.id && squareLabelNodes.length) {
+        renderResult = { layer: result.layer, data: { ...result.data, elements: [...(result.data?.elements || []), ...squareLabelNodes] } };
+      }
+      let layerSVG = renderLayer(renderResult, ctx);
+      if (result.layer.id === 'roads' && junctionInfill) {
+        layerSVG = layerSVG.replace(ROADS_GROUP_OPEN, ROADS_GROUP_OPEN + junctionInfill);
+      }
+      if (result.layer.id === waterBodiesLayer.id || result.layer.id === 'waterways') {
+        pendingWater = (pendingWater || '') + layerSVG;
+        continue;
+      }
+      flushWater();
+      layersSVG += layerSVG;
+    }
+    flushWater();
     return ctx.illustratorCompatible
       ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
       : wrapSVG(layersSVG, ctx, physicalWidthMm);
@@ -1748,7 +2391,6 @@ self.onmessage = function(event) {
     const physicalWidthMm = getPhysicalSizeMm(bbox).mmW;
     const widthPx = Math.round(physicalWidthMm / 25.4 * PRINT_DPI);
     const illustratorCompatible = document.getElementById('format-select')?.value !== 'svg-standard';
-    const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
 
     // YYYY-MM-DD-HHMMSS local time, same as v1, with a `-v2` marker before
     // the timestamp so v1 and v2 exports of the same area never collide and
@@ -1782,7 +2424,11 @@ self.onmessage = function(event) {
         meta: `${fetched}/${fetchableLayers.length}`,
         detail: layer.label,
       });
-      const { elements, failedTiles } = await fetchLayer(layer, bboxStr, bbox);
+      // Only the buildings layer fetches a padded bbox (see BUILDING_FETCH_PAD_M):
+      // edge faces whose buildings sit just off-frame must still classify urban.
+      const fetchBbox = layer.id === buildingsLayer.id ? padBboxMeters(bbox, BUILDING_FETCH_PAD_M) : bbox;
+      const fetchBboxStr = `${fetchBbox.south},${fetchBbox.west},${fetchBbox.north},${fetchBbox.east}`;
+      const { elements, failedTiles } = await fetchLayer(layer, fetchBboxStr, fetchBbox);
       totalFailedTiles += failedTiles.length;
       // fetchLayer returns raw tile elements; the per-layer tagFilter narrows
       // them to this layer's slice (v1 applies it in its combined fetch loop).
@@ -1819,6 +2465,8 @@ self.onmessage = function(event) {
       const waterLabelsResult = results.find(r => r.layer.id === waterLabelsLayer.id);
       if (waterLabelsResult) waterLabelsResult.data.elements = [...(waterLabelsResult.data.elements || []), seaLabel];
     }
+    // (Named-square feature labels are injected in buildSVG, so the test
+    // harness path gets them too.)
 
     // Faces stage. The cutter reads roads + rail/tram/metro; buildings classify
     // faces and seed hamlet blobs; water/green/landcover/waterways feed the
@@ -1826,14 +2474,33 @@ self.onmessage = function(event) {
     progress.setStage('faces', 'active', { detail: 'Starting worker…' });
     const { pr, H } = makeProjector(bbox, widthPx);
     const buildingElements = results.find(r => r.layer.id === buildingsLayer.id)?.data.elements || [];
-    // Cutter input = roads + rail/tram/metro only (buildings + area_features are
-    // not cutters; area geometry subtracts, it does not bound faces).
-    const cutterResults = results.filter(r => r.layer.type === 'roads' || r.layer.type === 'rail' || r.layer.type === 'tram' || r.layer.type === 'metro');
+    // Rural place nodes ground hamlet blobs (fetch-only, projected in the worker
+    // payload — see prepareFaceData / the hamlet face loop).
+    const placeNodeElements = results.find(r => r.layer.id === placeNodesLayer.id)?.data.elements || [];
+    // Cutter input = roads only (rail/tram/metro stopped cutting 2026-07-12 —
+    // see prepareFaceData; buildings + area_features are not cutters either;
+    // area geometry subtracts, it does not bound faces).
+    const cutterResults = results.filter(r => r.layer.type === 'roads');
     const onFaceProgress = (msg, pct) => {
       progress.setStage('faces', 'active', { detail: msg });
       progress.bar(55 + Math.round(pct * 0.25));
     };
-    const { blocks, culledLandcover } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox });
+    const { blocks, culledLandcover, greenGroundMerges } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements });
+    // Green-remainder merges (paint-only, before the cull filter reindexes):
+    // a merged element paints the worker's grown rings — its own shape unioned
+    // with the coverage remainder of the green-open piece(s) it lies in — so
+    // the unmapped gaps inside a green piece belong to the green polygon
+    // itself instead of becoming cream "Residential" patches beside it.
+    if (greenGroundMerges && greenGroundMerges.length) {
+      const landcoverResult = areaRenderResults.find(r => r.layer.id === landcoverLayer.id);
+      if (landcoverResult) {
+        for (const { index, rings } of greenGroundMerges) {
+          const el = landcoverResult.data.elements[index];
+          if (el) landcoverResult.data.elements[index] = { ...el, _mergedRings: rings };
+        }
+      }
+      progress.log(`landcover: ${greenGroundMerges.length} element${greenGroundMerges.length === 1 ? '' : 's'} grown over green-open coverage remainders`);
+    }
     // Occlusion cull (paint-only): drop landcover elements the worker found
     // fully hidden under the city blocks. Indices are into classified.landcover,
     // which is the SAME array the landcover render result holds — filter it in
@@ -1846,9 +2513,10 @@ self.onmessage = function(event) {
     }
     const urbanBlocks = blocks.filter(b => (b.kind || 'urban') === 'urban').length;
     const hamletBlocks = blocks.filter(b => b.kind === 'hamlet').length;
+    const buildingBlocks = blocks.filter(b => b.kind === 'building').length;
     const fallbackBlocks = blocks.filter(b => b.kind === 'fallback').length;
     progress.setStage('faces', 'done', { meta: `${urbanBlocks + hamletBlocks} blocks` });
-    progress.log(`city_blocks: ${urbanBlocks} urban, ${hamletBlocks} hamlet; fallback_blocks: ${fallbackBlocks} patches`);
+    progress.log(`city_blocks: ${urbanBlocks} urban, ${hamletBlocks} hamlet, ${buildingBlocks} standalone buildings; fallback_blocks: ${fallbackBlocks} patches`);
 
     // Renderable results = everything except the fetch-only inputs, plus the
     // classified area layers and the two derived block layers. Both block
@@ -1889,6 +2557,10 @@ self.onmessage = function(event) {
     layers, layerOrder, buildSVG, doExport,
     // Exposed for the headless test harness (tests/real-export.mjs).
     FACE_WORKER_SRC, prepareFaceData, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
-    areaFeaturesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
+    areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
+    // Building-fetch padding (cause A) — shared with the headless harness.
+    padBboxMeters, BUILDING_FETCH_PAD_M,
+    // Hamlet grounding (pure; exercised by tests/hamlet-grounding.mjs).
+    pointToPolygonDistancePx, groundHamletContour, HAMLET_GROUND_SETTLEMENT_M, HAMLET_GROUND_LOCALITY_M,
   };
 })();

@@ -25,15 +25,16 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 ├── style.css              # UI styles
 ├── cache.php              # Server-side Overpass response cache (PHP)
 ├── fonts/                 # Mayonnaise Black + Apfel Grotezk (WOFF2)
-├── tests/                 # Node.js regression harness (no deps)
+├── tests/                 # Node.js regression harness (no deps) — see tests/README.md
 │   ├── lib.mjs            # Shared helpers (bbox, Overpass POST, registry parser)
-│   ├── smoke.sh           # Runs query-equivalence + pipeline-equivalence + more
-│   ├── capture-fixtures.mjs / capture-one.mjs
-│   ├── query-equivalence.mjs
-│   ├── pipeline-equivalence.mjs
-│   ├── supersession.mjs
-│   ├── road-merge.mjs
-│   ├── abbreviate.mjs
+│   ├── smoke.sh           # Runs the offline suites + query-equivalence
+│   ├── real-export.mjs    # End-to-end headless export (v1 and --engine=v2), pass/fail checks
+│   ├── coverage-lint.mjs / render-coverage.mjs   # v2 coverage promise (model + rendered ink)
+│   ├── svg-lint.mjs / label-placement.mjs / label-fit.mjs
+│   ├── sea-sign.mjs / hamlet-grounding.mjs       # v2 offline geometry checks
+│   ├── query-equivalence.mjs / pipeline-equivalence.mjs / supersession.mjs
+│   ├── road-merge.mjs / abbreviate.mjs
+│   ├── expectations.json  # Recorded per-area floors/allowances (--record, human-approved)
 │   └── fixtures/tilburg/  # Baseline Overpass responses for regression
 ├── references/            # Design reference files (tutorial PDF, Ghent .ai sample)
 ├── memory/                # Architecture docs and session notes
@@ -109,7 +110,7 @@ All map features are defined in `LAYER_REGISTRY` — an array of layer objects w
 - `type` — `'area'`, `'line'`, `'roads'`, `'rail'`, `'labels'`, `'point'`, `'derived'`
 - Rendering hints: `fillOpacity`, `strokeWidth`, `strokeColor`, `color`
 
-Current layers: `water_bodies`, `waterways`, `parks`, `city_blocks` (derived), `roads`, `street_labels`, `rail`, `metro`, `tram`, `transit_stops`, `water_labels`, `poi_amenity`, `poi_tourism`, `poi_shops`, `landuse_residential`, `landuse_industrial`.
+Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks` (derived), `roads`, `street_labels`, `rail`, `metro`, `tram`, `transit_stops`, `water_labels`. (`block_buildings` is fetched on demand for hamlet detection, outside the registry; engine v2 adds its own fetch-only and derived layers in `engine-v2.js`.)
 
 ### Render pipeline (`doExport`)
 
@@ -131,6 +132,8 @@ The `city_blocks` layer produces the signature USE-IT look: solid cream shapes f
 3. `blocks = canvas - voidClean` (difference operation)
 4. Douglas-Peucker simplify each block
 5. Each block → `<path id="block_N" inkscape:label="Block N">`
+
+Engine v2 (`engine-v2.js`, behind a UI toggle, experimental) replaces this whole construction stage — faces, countryside/hamlet classification, the synthetic sea, and a full-coverage guarantee — while sharing v1's fetch, label and road/area rendering code. Its invariants live in `ENGINE-V2.md`; v1 stays the production engine until cutover.
 
 ### Street label engine
 
@@ -181,7 +184,7 @@ All widths and sizes are tuned for A3 @ 300dpi. `getScaleFactor(W)` returns `W /
 
 ## Testing
 
-The test harness is plain Node.js with zero dependencies. All tests use **Tilburg** (`51.530,5.040,51.590,5.130`) as the reference area.
+The test harness is plain Node.js with zero dependencies. Fixture-based tests use **Tilburg** (`51.530,5.040,51.590,5.130`) as the reference area; the end-to-end export test has seven named validation areas (Tilburg, Ghent, Paris, Bremerhaven, Oulu, Nièvre, Erfurt). See `tests/README.md` for the full workflow.
 
 ```bash
 # Run the full smoke suite
@@ -193,6 +196,11 @@ node tests/pipeline-equivalence.mjs # Offline tagFilter partition check
 node tests/supersession.mjs         # SUPERSESSIONS rule + coverage check
 node tests/road-merge.mjs           # Road segment stitching (10 cases)
 node tests/abbreviate.mjs           # Multilingual abbreviation (26 cases)
+node tests/sea-sign.mjs             # Engine v2 coastline→sea geometry (offline)
+node tests/hamlet-grounding.mjs     # Engine v2 hamlet place-node grounding (offline)
+
+# End-to-end: real headless export against a local webserver on :8080
+node tests/real-export.mjs <city> [--engine=v2]
 ```
 
 ### Fixture workflow
@@ -254,7 +262,7 @@ meant to linger in a local checkout. Any personal root-level `minify.sh` /
 
 ## Key design decisions
 
-- **No framework**: the entire app is ~2500 lines of vanilla JS. This keeps the dependency footprint at zero and avoids build complexity.
+- **No framework**: the entire app is vanilla JS (~3900 lines in `script.js` plus ~2000 in `engine-v2.js`). This keeps the dependency footprint at zero and avoids build complexity.
 - **City blocks over building footprints**: earlier versions fetched individual building polygons from OSM. This was rejected — too realistic/cluttered for the USE-IT style. The current approach computes road-bounded faces as solid blocks, matching the hand-drawn look of existing USE-IT maps.
 - **Server-side cache**: Overpass API has rate limits and can be slow. The PHP cache with 7-day TTL and query-hash invalidation makes re-exports near-instant and avoids hammering public endpoints.
 - **Web Worker for blocks**: ClipperLib boolean operations on large areas can take seconds. Running in a Web Worker keeps the UI responsive.

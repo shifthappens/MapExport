@@ -326,8 +326,8 @@ const LAYER_REGISTRY = [
   ]},
   { group: 'Labels', layers: [
     { id:'water_labels', label:'Water & park names', hint:'Rivers, lakes, parks',       color:'#1a3a6a', defaultOn:true,  type:'feature_labels',
-      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});wr["natural"="water"]["name"](${b});wr["leisure"~"park|garden"]["name"](${b});node["place"~"suburb|neighbourhood|quarter"]["name"](${b});`,
-      tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(el.type!=='node'&&/park|garden/.test(el.tags?.leisure||'')&&el.tags?.name)||(el.type==='node'&&/suburb|neighbourhood|quarter/.test(el.tags?.place||'')&&el.tags?.name) },
+      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});wr["natural"="water"]["name"](${b});wr["leisure"~"park|garden"]["name"](${b});`,
+      tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(el.type!=='node'&&/park|garden/.test(el.tags?.leisure||'')&&el.tags?.name) },
   ]},
 ];
 
@@ -355,7 +355,7 @@ const SUPERSESSIONS = {
   // natural=water slices are covered by waterways and water_bodies
   // respectively. leisure park|garden stays un-stripped: parks now fetches
   // both but name-gates them through a junk-name filter, so its slice isn't a
-  // reliable superset. place=suburb|neighbourhood nodes have no superseder.
+  // reliable superset.
   water_labels: [
     { strip:(b)=>`way["waterway"~"river|canal"]["name"](${b});`,
       requires:['waterways'] },
@@ -2075,12 +2075,9 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
   elements.forEach(el=>{
     const name=el.tags?.name; if (!name) return;
     let cx,cy,sz,weight,color;
-    const place=el.tags?.place, natural=el.tags?.natural, leisure=el.tags?.leisure, waterway=el.tags?.waterway;
+    const natural=el.tags?.natural, leisure=el.tags?.leisure, waterway=el.tags?.waterway;
 
-    if (place==='suburb'||place==='neighbourhood'||place==='quarter') {
-      if (el.type!=='node') return;
-      [cx,cy]=pr(el.lat,el.lon); sz=24*sf; weight=500; color='#2a2a20';
-    } else if (waterway==='river'||waterway==='canal') {
+    if (waterway==='river'||waterway==='canal') {
       if (el.type!=='way'||!el.geometry?.length) return;
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const mid=pts[Math.floor(pts.length/2)]; [cx,cy]=mid;

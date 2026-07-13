@@ -1,6 +1,6 @@
 # Plan: export engine v2 — paint-order blocks, declarative area features
 
-**Status: READY TO IMPLEMENT (2026-07-10)** — full re-architecture of the map
+**Status: IN PROGRESS (2026-07-12 — milestones 0–7 done; cutover M8 not yet, a separate human decision; binding invariants now live in ENGINE-V2.md)** — full re-architecture of the map
 *construction* stage as a second engine next to v1, behind a UI toggle. v1
 (`script.js` pipeline) stays untouched and remains the production engine until
 v2 is validated city-by-city. Decisions below were agreed with Coen on

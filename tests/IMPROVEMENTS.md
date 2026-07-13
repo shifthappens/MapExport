@@ -14,8 +14,9 @@ status bijgewerkt dezelfde dag nadat het merendeel is geïmplementeerd.
    NaN/undefined, lege labels, kapotte/gespiegelde `textPath`s, rotaties
    buiten ±90°, label-overlap (errors) en labels buiten/half buiten het
    canvas (warnings). Zelf bewaakt door `svg-lint-selftest.mjs`.
-3. ~~**Staleness `script.min.js` vs `script.js`**~~ — DONE. `real-export.mjs`
-   weigert te draaien (exit 3) als de bron >2s nieuwer is dan de min-file.
+3. ~~**Staleness `script.min.js` vs `script.js`**~~ — DONE, later vervallen:
+   sinds 2026-07-06 test `real-export.mjs` `script.js` rechtstreeks (geen
+   min-stap meer, zie CLAUDE.md), dus de check bestaat niet meer.
 4. ~~**Labelplaatsing heeft geen unit tests**~~ — DONE. `label-placement.mjs`
    (31 checks) draait de echte `buildLabelsLayer` uit `script.js` via
    `lib.mjs loadAppSandbox` op synthetische straten.

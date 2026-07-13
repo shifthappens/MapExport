@@ -11,6 +11,109 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-13 — Engine v2: green-dominant ground beats cream; standalone buildings (experimental)
+- Parking areas (`amenity=parking`) now count as city fabric in the block
+  classification, so parking-covered land paints as ordinary cream blocks
+  instead of surfacing as "Uncategorized/Parking" patches. Classification
+  only — nothing new is painted or cut.
+- Green-open land no longer gets cream "Residential" coverage patches for its
+  unmapped slivers (path verges, yard gaps OSM leaves without a polygon).
+  The coverage remainder merges into the piece's largest landcover polygon —
+  one grown green shape in the panel instead of a green area plus cream
+  wedges beside it.
+- The SVG layer tree groups "Water bodies" and "Waterways" under one "Water"
+  parent layer. Pure panel organization: both children keep their exact paint
+  position.
+- A land piece whose ground OSM paints mostly green (≥ 60% landcover) now
+  renders as open land even when it carries buildings — the buildings are
+  drawn individually as small outlined cream blocks instead of the whole piece
+  painting cream. The Gera island in Erfurt shows its meadows with the mills
+  standing on them; the same rule greens OSM-attested grass grounds (barracks
+  yards, campus lawns) in the other areas.
+- A residential/commercial landuse polygon alone no longer turns sparsely
+  built green open space into a cream city block (buildingless-green veto,
+  now measured against sparse building coverage rather than zero buildings).
+- Engine v2 fetches real building footprints (geometry) for drawing; v1 keeps
+  its bounds-only fetch and is unchanged. Bounds rectangles drew a
+  campus-sized "building" across Ghent's Coupure — caught in the screenshot
+  sweep, fixed, re-verified.
+
+### 2026-07-12 — Engine v2: river islands classified per land-mass, opaque paint, wider landcover cull (experimental)
+- River islands and other water-severed parcels are now classified on their own.
+  When water (or a park) splits a road-bounded face into separate land masses,
+  each mass gets the city/open-land test individually instead of the whole face
+  taking one verdict — so the wooded island in the Gera at Erfurt paints as
+  countryside with its greenery showing through, not as a solid city block.
+  Built-up masses are never affected. No island heuristics: the same
+  classify-and-subtract machinery, applied per mass.
+- Everything paints fully opaque — no more see-through. The only softened ink
+  left in engine-v2's own output, the waterway lines (92% opacity), now paint
+  the same solid blue as the water bodies they join, removing a faint seam where
+  a river meets a lake. (Rail lines keep their look for now; they render through
+  the shared v1 code and flatten when that layer is reworked.)
+- More invisible countryside shapes are dropped from the file. Woodland fully
+  hidden under a named park or under water (not just under city blocks) is now
+  culled from the render, so the SVG carries far fewer paths a designer can
+  never see (Tilburg: ~900 fewer landcover/grass paths). Purely a file-size and
+  tidiness win — nothing that was visible changes.
+
+### 2026-07-12 — Engine v2 classification fixes: fewer Uncategorized patches, greener land, no transit dots (experimental)
+- Faces covered by `landuse=residential/commercial/retail` but without building
+  footprints now paint as ordinary city blocks instead of Uncategorized patches
+  — much of OSM maps a district by its landuse polygon and never its buildings
+  (dominant in Erfurt). Industrial land is deliberately not included, so open
+  quays stay open. The signal classifies only; it never paints or cuts.
+- The landuse promotion is vetoed on open land (green/woodland ≥ 35% of a
+  face): a green face never turns cream just because a landuse polygon overlaps
+  it. Extending that veto to faces with buildings was measured on the five
+  validation cities and rejected — it would wrongly flip about 10% of Oulu's
+  genuinely urban faces to Uncategorized.
+- Dense city pockets inside a large forest, harbour or park face now paint as
+  city blocks rather than Uncategorized (Bremerhaven's Bürgerpark-area blocks,
+  some with over a hundred buildings, were mislabelled).
+- Grass now reads as green: `landuse=grass`/`village_green` and unnamed
+  parks/gardens paint as a green tint (visible through Uncategorized holes and
+  in the countryside) instead of surfacing as "Uncategorized › Grass" clutter.
+  Grass is deliberately kept out of the countryside/open-land classification —
+  it only paints.
+- Edge blocks classify correctly: the buildings query now reaches ~100 m past
+  the frame, so a clipped block whose buildings sit just off-map is no longer
+  mistaken for empty land.
+- Engine v2 exports no longer include the transit-stops dot layer.
+
+### 2026-07-12 — Engine v2 declutter: no rail carve/corridor beds, no plaza paths, slivers become road infill (experimental)
+- Rail, tram and metro lines no longer carve a corridor out of the city
+  blocks, and the "Rail corridor beds" layer is gone. The carve and the bed
+  that repainted it cream were net-zero ink: blocks now simply paint under
+  the drawn tracks — same image, and the designer-facing clutter (no-name
+  "Railway" patches between tracks, rail-side slivers, a whole beds layer)
+  disappears with it.
+- Squares stop being special: a square-tagged plaza no longer cuts the
+  blocks or paints its own white polygon — the area reads cream like the
+  block it sits in, and the "Squares" layer is gone. Named squares keep a
+  map label (styled like park names for now).
+- Junction pockets (sub-3×3 mm crumbs fully surrounded by roads) no longer
+  clutter the Uncategorized layer as a "Slivers" list. They paint once, as a
+  single "Junction infill" path in road white at the bottom of the roads
+  layer — one selectable path instead of hundreds of micro-patches.
+
+### 2026-07-12 — "Water & park names" no longer labels neighbourhoods
+- The water/park feature-label layer stops fetching and rendering
+  `place=suburb|neighbourhood|quarter` nodes (Tilburg showed "Korvel",
+  "Trouwlaan", "Oud-Zuid" among park names; Ghent, Bremerhaven and Erfurt had
+  the same leak). The layer now does exactly what its name says, on both v1
+  and v2 — the clause had been there since the layer's origin.
+
+### 2026-07-12 — Engine v2 hamlet blobs require a rural place node (experimental)
+- Fake hamlets in city exports are gone. A cream hamlet pad now paints only
+  where OSM attests a nearby rural settlement via a `place` node — a
+  hamlet/isolated_dwelling/farm/village within 1000 m, or a `locality`
+  (unpopulated named spot) within 300 m — instead of anywhere a large green,
+  harbour or park face read as "countryside". Ungrounded blobs fall back to
+  cream (Bremerhaven's 36 and Oulu's 71 invented hamlets drop to zero; Nievre's
+  59 real ones stay). Each surviving hamlet is now named after its nearest
+  attesting place node ("Hamlet “Montgaudon”").
+
 ### 2026-07-11 — Engine v2 sea map label + landcover occlusion cull (experimental)
 - The sea now renders its name ON the map (not just as the layer name), styled
   like the water/park feature labels with the same halo and collision grid. The

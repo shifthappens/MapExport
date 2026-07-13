@@ -1,8 +1,20 @@
 ---
 name: Self-hosted Overpass (Europe-only)
-description: Hardware, cost and difficulty of running a private Europe-only Overpass API server — future option, not currently planned
+description: Hardware, cost and difficulty of running a private Europe-only Overpass API server — production-primary idea parked; a dev/test-only variant is now planned
 type: reference
 ---
+
+**Update (2026-07-13):** the production-primary idea below (prioritized
+endpoint + public fallback, Europe-wide, always-on) is still parked, not
+happening near-term. What's now actually planned is a smaller,
+different-purpose variant: a **dev/test-only local instance** covering a
+curated, expandable set of cities (not all of Europe), run on Coen's own
+machine, no uptime requirement. See
+[[plans/2026-07-13_local-overpass-dev-instance|the implementation plan]] for
+that. Everything below is background for the original production-primary
+idea and still applies if that's ever revisited — the Docker image,
+Geofabrik-extract, and hardware-sizing material all carries over, the
+dev/test plan just needs far less of each.
 
 Investigation (June 2026) into running a **private, Europe-only Overpass server**
 instead of relying on public endpoints. Parked as a future option for when the

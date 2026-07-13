@@ -82,12 +82,12 @@
       "endpoint": "https://overpass-api.de/api/interpreter"
     },
     "water_labels": {
-      "query_template": "way[\"waterway\"~\"river|canal\"][\"name\"](${b});relation[\"natural\"=\"water\"][\"name\"](${b});way[\"natural\"=\"water\"][\"name\"](${b});way[\"leisure\"~\"park|garden\"][\"name\"](${b});relation[\"leisure\"~\"park|garden\"][\"name\"](${b});node[\"place\"~\"suburb|neighbourhood|quarter\"][\"name\"](${b});",
-      "element_count": 98,
-      "response_bytes": 165531,
-      "fixture_bytes": 10134,
-      "elapsed_ms": 8270,
-      "endpoint": "https://overpass-api.de/api/interpreter"
+      "query_template": "way[\"waterway\"~\"river|canal\"][\"name\"](${b});wr[\"natural\"=\"water\"][\"name\"](${b});wr[\"leisure\"~\"park|garden\"][\"name\"](${b});",
+      "element_count": 62,
+      "response_bytes": 161324,
+      "fixture_bytes": 7106,
+      "elapsed_ms": 58576,
+      "endpoint": "https://overpass.private.coffee/api/interpreter"
     }
   }
 }

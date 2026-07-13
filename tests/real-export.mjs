@@ -169,7 +169,7 @@ function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [] }; };
+  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [], greenGroundMerges: msg.greenGroundMerges || [] }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
   vm.runInContext(workerSrc, w); // defines self.onmessage, loads ClipperLib
@@ -194,7 +194,11 @@ const results = [];
 const layerCounts = {};
 for (const layer of fetchable) {
   const t0 = Date.now();
-  const { elements } = await X.fetchLayer(layer, bboxStr, bbox);
+  // v2 pads ONLY the buildings fetch past the frame so clipped edge faces keep
+  // their (off-frame) buildings for classification — mirror doExport here.
+  const fb = (engineV2 && layer.id === X2.buildingsLayer.id) ? X2.padBboxMeters(bbox, X2.BUILDING_FETCH_PAD_M) : bbox;
+  const fbStr = `${fb.south},${fb.west},${fb.north},${fb.east}`;
+  const { elements } = await X.fetchLayer(layer, fbStr, fb);
   const kept = layer.tagFilter ? elements.filter(layer.tagFilter) : elements;
   results.push({ layer, data: { elements: kept } });
   layerCounts[layer.id] = kept.length;
@@ -264,13 +268,32 @@ if (engineV2) {
   // Cutter input = roads + rail/tram/metro (buildings + area_features do not
   // bound faces; area geometry subtracts instead).
   const cutterResults = results.filter(r => ['roads', 'rail', 'tram', 'metro'].includes(r.layer.type));
-  const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox);
+  // Rural place nodes ground hamlet blobs (fetch-only; same up-front fetch as
+  // buildings, projected into the worker payload inside prepareFaceData).
+  const placeNodeElements = results.find(r => r.layer.id === X2.placeNodesLayer.id)?.data.elements || [];
+  const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox, placeNodeElements);
   const faceResult = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC);
   v2Blocks = faceResult.blocks;
   // Occlusion cull (paint-only): drop landcover elements fully hidden under the
   // city blocks. Report before/after counts. Filter the landcover render result
   // in place; voids/coverage are unaffected (see engine-v2 worker cull).
-  const landcoverBefore = classified.landcover.length;
+  // Paint set = [...landcover, ...grass]; count it (not the signal subset) so
+  // before/after are comparable.
+  const landcoverBefore = (areaRenderResults.find(r => r.layer.id === 'landcover')?.data.elements || []).length;
+  // Green-remainder merges (before the cull filter reindexes): a merged
+  // element paints the worker's grown rings — its shape unioned with the
+  // coverage remainder of the green-open piece(s) it lies in. Mirrors
+  // doExportV2 in engine-v2.js.
+  if (faceResult.greenGroundMerges && faceResult.greenGroundMerges.length) {
+    const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
+    if (lcResult) {
+      for (const { index, rings } of faceResult.greenGroundMerges) {
+        const el = lcResult.data.elements[index];
+        if (el) lcResult.data.elements[index] = { ...el, _mergedRings: rings };
+      }
+    }
+    console.log(`landcover merge: ${faceResult.greenGroundMerges.length} element(s) grown over green-open coverage remainders`);
+  }
   if (faceResult.culledLandcover && faceResult.culledLandcover.length) {
     const cull = new Set(faceResult.culledLandcover);
     const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');

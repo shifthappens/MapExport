@@ -21,8 +21,9 @@ type: project
 - **Deployment**: GitHub Actions workflow (`.github/workflows/deploy.yml`), manual-only — rsyncs to the coen.at server (see `reference_deploy.md`)
 
 ## Key files
-- `script.js` — All application logic (~2500 lines). **This is the source of truth**, loaded directly by `index.html` in dev AND tested directly by `tests/real-export.mjs` — no build step anywhere except deploy.
-- `index.html` — Loads `script.js`, `style.css`, ClipperLib CDN, Leaflet directly. The deploy workflow rewrites a separate, deployed copy to point at the minified files; the repo's own `index.html` never changes.
+- `script.js` — v1 engine + shared UI/fetch/label/render logic (~3900 lines). **This is the source of truth**, loaded directly by `index.html` in dev AND tested directly by `tests/real-export.mjs` — no build step anywhere except deploy.
+- `engine-v2.js` — experimental v2 map-construction engine (~2000 lines) behind a UI toggle; shares v1's fetch/labels/renderers. Binding design contract in `ENGINE-V2.md` — read it before touching this file. v1 stays production until cutover.
+- `index.html` — Loads `script.js`, `style.css`, `engine-v2.js`, Leaflet directly (ClipperLib loads inside the workers via CDN `importScripts`). The deploy workflow rewrites a separate, deployed copy to point at the minified files and strips the `engine-v2:start/end` marker blocks (v2 is dev/test only); the repo's own `index.html` never changes.
 - `style.css` — UI styles
 - `cache.php` — Server-side Overpass response cache
 
@@ -36,7 +37,9 @@ type: project
 - Road casing: `#F4AFA7` (uniform width: 12 — bumped from 6 Jun 2026 so streets "pop" like the USE-IT Ghent reference)
 
 ## Layer render order (bottom to top)
-`landuse_residential → landuse_industrial → water_bodies → waterways → city_blocks → parks → roads → rail → tram → metro → transit_stops → poi_amenity → poi_tourism → poi_shops → street_labels → water_labels`
+v1 (`LAYER_ORDER` in script.js):
+`landcover → water_bodies → waterways → city_blocks → parks → roads → rail → tram → metro → transit_stops → water_labels → street_labels`
+(the old `poi_*` and `landuse_residential/industrial` layers were removed from the registry). v2 has its own paint order — see `ENGINE-V2.md` §4.
 
 Key rendering decisions:
 - Buildings (blocks) render BEFORE roads — so road strokes cover block edges
@@ -128,12 +131,7 @@ app source must also stage a `CHANGELOG.md` entry). It does not run
 production, and should never exist in a local checkout.
 
 ### Test harness
-See `tests/README.md`. Five scripts under `tests/`:
-- `capture-fixtures.mjs` / `capture-one.mjs` — fetch/refresh Tilburg fixtures from live Overpass
-- `query-equivalence.mjs` — live Overpass superset check
-- `pipeline-equivalence.mjs` — offline tagFilter partition check
-- `supersession.mjs` — offline SUPERSESSIONS literal + fixture coverage check
-- `time-queries.mjs` — per-layer and combined Overpass timing; accepts optional endpoint arg: `node tests/time-queries.mjs http://localhost/api/interpreter`
+See `tests/README.md` — the authoritative, current list (the harness has grown well past the original five scripts: label-engine unit tests, svg-lint, the end-to-end `real-export.mjs` with seven named areas and `--engine=v2`, and the v2 coverage/geometry checks `coverage-lint.mjs`, `render-coverage.mjs`, `sea-sign.mjs`, `hamlet-grounding.mjs`).
 
 Tilburg baseline fixtures committed at `tests/fixtures/tilburg/`. Run `capture-one.mjs <layer-id>` after any query change to refresh just that layer.
 
