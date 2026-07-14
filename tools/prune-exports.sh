@@ -22,15 +22,16 @@ if [ ${#files[@]} -eq 0 ]; then
   exit 0
 fi
 
-# Map every file to a city key: strip the trailing -YYYY-MM-DD-HHMMSS (and any
-# suffix like -illustrator after it), the map-useit- prefix, and an engine -v2
-# marker, so v1 and v2 of one city collapse to the same key and only the newest
-# survives. A cityless legacy file yields an empty key and is dropped below.
+# Map every file to a city key: strip the trailing -YYYY-MM-DD (with the
+# optional -HHMMSS of the legacy/web-app format, and any suffix like
+# -illustrator after it), the map-useit- prefix, and an engine -v2 marker, so
+# v1 and v2 of one city collapse to the same key and only the newest survives.
+# A cityless legacy file yields an empty key and is dropped below.
 map=$(mktemp)
 for f in "${files[@]}"; do
   base=${f##*/}
   key=$(printf '%s' "$base" \
-    | sed -E -e 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}.*$//' \
+    | sed -E -e 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]{6})?.*$//' \
              -e 's/^map-useit-?//' \
              -e 's/-v2$//')
   printf '%s\t%s\n' "$key" "$f" >> "$map"

@@ -4,8 +4,11 @@
 // no minification) outside a browser: fetches each layer through the running
 // cache.php, hitting Overpass on a miss and writing the result back to cache/.
 // City blocks (normally a Web Worker) are computed here in a vm sandbox with
-// ClipperLib. The assembled SVG is saved to exports/ using the app's own
-// filename format, as a committable trail. Minification only ever happens in
+// ClipperLib. The assembled SVG is saved to exports/ as a committable trail,
+// named by date only (map-<preset>-<city>[-v2]-YYYY-MM-DD.svg) so same-day
+// re-exports overwrite one snapshot per city; the app's own downloads keep the
+// full HH:MM:SS timestamp. tools/prune-exports.sh keeps the newest per city
+// within a 7-day window. Minification only ever happens in
 // the GitHub Actions deploy workflow (`.github/workflows/deploy.yml`) — it is
 // not part of dev or test.
 //
@@ -326,9 +329,13 @@ if (engineV2) {
 const svg = engineV2
   ? X2.buildSVG(results, bbox, W, physicalWidthMm, { illustratorCompatible: false })
   : X.buildSVG(results, bbox, W, physicalWidthMm, blocks);
-// YYYY-MM-DD-HHMMSS (local time), matching the web app, so same-day exports don't collide.
+// Date only (YYYY-MM-DD, local): the committed trail keeps one snapshot per
+// city, so a same-day re-export overwrites rather than piling up. The web app
+// (script.js) still stamps user downloads with the full HH:MM:SS — only this
+// repo trail drops the time. tools/prune-exports.sh trims to newest-per-city
+// within 7 days off this same date.
 const d = new Date(), p2 = n => String(n).padStart(2, '0');
-const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 const filename = `map-${X.activePreset}-${citySlug}${engineV2 ? '-v2' : ''}-${stamp}.svg`;
 const dir = path.join(REPO, 'exports');
 fs.mkdirSync(dir, { recursive: true });

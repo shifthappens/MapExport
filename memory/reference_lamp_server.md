@@ -48,11 +48,13 @@ minify step — same source the browser loads) in a vm with browser stubs, runs
 the app's own `fetchLayer` + `buildSVG` against the live `cache.php` (so misses
 fetch Overpass and write the tile back), computes city blocks headlessly by
 running `BLOCK_WORKER_SRC` in a vm with ClipperLib (cached in the OS temp
-dir), and writes the result to `exports/map-<preset>-<YYYY-MM-DD-HHMMSS>.svg` (local
-time; same format the web app's download uses, so same-day exports don't collide).
-`exports/` is committed as a trail of progress files; the bbox is in each SVG's
-`<metadata>`. Always save the SVG there when doing a live real-world test. Ready-made
-fully-cached test bbox: `51.545,5.07,51.562,5.1`.
+dir), and writes the result to `exports/map-<preset>-<city>[-v2]-<YYYY-MM-DD>.svg`
+(local date only, so a same-day re-export overwrites one snapshot per city; the
+web app's own download keeps the full HH-MM-SS timestamp). `exports/` is committed
+as a thin trail: `tools/prune-exports.sh` (daily via
+`.github/workflows/prune-exports.yml`) keeps the newest per city within 7 days.
+The bbox is in each SVG's `<metadata>`. Always save the SVG there when doing a live
+real-world test. Ready-made fully-cached test bbox: `51.545,5.07,51.562,5.1`.
 
 Requires a webserver at `:8080` serving this repo at `/mapexport/` with PHP
 support for `cache.php` — `lamp start` on Coen's machine, or plain `php -S`
