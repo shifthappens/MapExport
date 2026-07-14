@@ -184,6 +184,8 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
   `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),
   `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise),
+  `tests/overpass-fetch.mjs` (shared Overpass timeout/failover/abort contract,
+  mocked fetch),
   `tests/cache-php.mjs` (cache.php limits/validation/atomic writes — needs a
   `php` CLI; spins up its own `php -S` on localhost, no network beyond that).
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build

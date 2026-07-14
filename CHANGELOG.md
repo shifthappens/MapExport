@@ -11,6 +11,18 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Overpass failover, timeouts and cancellation unified
+- Every Overpass request in both engines now goes through one shared fetch
+  contract: a hung endpoint hits a hard per-attempt timeout, goes on a short
+  backoff, and a healthy endpoint takes over instead of the export stalling
+  or the same dead host being retried. When an export fails, all of its
+  still-running requests (including losing race requests) are cancelled at
+  once. Error messages now name the actual kind of outage — timeout, rate
+  limit, HTTP error, unreadable response or network drop — and which tile
+  failed, and a failing cache read is reported as such instead of silently
+  looking like an empty cache. An empty-but-valid Overpass answer is still
+  treated as a legitimate empty map layer, never as an error.
+
 ### 2026-07-14 — Cache endpoint rate-limits writes and bounds its disk use
 - Each IP may now store at most 300 cache entries per 10 minutes; anything
   more gets HTTP 429 and the app simply proceeds as if the cache missed, so

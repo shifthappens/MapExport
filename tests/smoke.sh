@@ -32,6 +32,10 @@ echo "== preview-state (offline, preview/download separation + races) =="
 node tests/preview-state.mjs
 
 echo
+echo "== overpass-fetch (offline, shared timeout/failover/abort fetch contract) =="
+node tests/overpass-fetch.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

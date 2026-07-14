@@ -471,6 +471,8 @@ let exportInProgress=false;
 let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
 const endpointBackoff={};      // { endpoint -> { until: timestamp, delay: ms } }
 let adaptiveTileDelay=350;     // ms between tile fetches; increases when 429s occur
+let activeExportAbort=null;    // AbortController for the running export (ME-05); set by runExportLifecycle
+let cacheErrorLogged=false;    // one cache-read diagnostic per export, reset by runExportLifecycle
 
 // ════════════════════════════════════════════════════════════════
 //  INIT MAP
@@ -709,13 +711,23 @@ function tileCacheKey(layer, tile) {
   return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_${tile.s}_${tile.w}`;
 }
 
+// ME-05: a cache failure is not a miss — the export continues either way,
+// but the first failure per export is surfaced so "slow because the cache is
+// down" is distinguishable from "slow because nothing was cached".
+function noteCacheError(detail) {
+  if (cacheErrorLogged) return;
+  cacheErrorLogged = true;
+  console.warn('cache.php read failed:', detail);
+  try { progress.log(`Cache read failed (${detail}) — continuing as cache miss`, { warn: true }); } catch {}
+}
+
 async function cacheGet(key) {
   try {
     const res = await fetch(`cache.php?key=${encodeURIComponent(key)}`);
-    if (!res.ok) return null;
+    if (!res.ok) { noteCacheError(`HTTP ${res.status}`); return null; }
     const data = await res.json();
     return data || null; // cache.php returns null JSON for misses
-  } catch { return null; }
+  } catch (e) { noteCacheError(e?.message || 'network error'); return null; }
 }
 
 // §2.2: batch existence probe. Replaces N per-key GETs during the
@@ -731,12 +743,12 @@ async function cacheExistsBatch(keys) {
     const hits = new Set();
     await Promise.all(chunks.map(async ch => {
       const res = await fetch(`cache.php?exists=${ch.map(encodeURIComponent).join(',')}`);
-      if (!res.ok) return;
+      if (!res.ok) { noteCacheError(`HTTP ${res.status}`); return; }
       const data = await res.json();
       for (const [k, v] of Object.entries(data)) if (v) hits.add(k);
     }));
     return hits;
-  } catch { return new Set(); }
+  } catch (e) { noteCacheError(e?.message || 'network error'); return new Set(); }
 }
 
 async function cacheSet(key, data) {
@@ -781,18 +793,245 @@ function mergeElements(arrays) {
 // ════════════════════════════════════════════════════════════════
 const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
 const MAX_TILE_RETRIES=3;
+// Hard per-attempt timeouts (ME-05). Single-layer queries carry [timeout:60],
+// combined queries [timeout:120] server-side; the client-side cap sits just
+// above so a healthy-but-slow query finishes while a hung connection cannot
+// hold an attempt (and with it the whole export) open indefinitely.
+const OVERPASS_ATTEMPT_TIMEOUT_MS=62000;
+const OVERPASS_COMBINED_TIMEOUT_MS=125000;
+// Ceiling on any single rate-limit/backoff wait: an endpoint advertising a
+// huge Retry-After gets skipped in favour of rotation, not obeyed literally.
+const MAX_BACKOFF_WAIT_MS=15000;
 
-function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+// Sleep that ends early when the signal aborts — the caller re-checks the
+// signal after waking, so an aborted export stops waiting out a backoff.
+function sleep(ms, signal){
+  return new Promise(r=>{
+    if (signal?.aborted) return r();
+    const t=setTimeout(()=>{ signal?.removeEventListener('abort', onAbort); r(); }, ms);
+    const onAbort=()=>{ clearTimeout(t); r(); };
+    signal?.addEventListener('abort', onAbort, { once:true });
+  });
+}
 
 function getAvailableEndpoint(){
   const now=Date.now();
   return OVERPASS_ENDPOINTS.find(ep=>{ const b=endpointBackoff[ep]; return !b||now>=b.until; })||null;
 }
 
-function recordEndpoint429(ep){
+// Bounded exponential backoff per endpoint (500ms → 4s). Applied on 429 and
+// on any failed attempt (timeout/network/http/parse), so the next attempt
+// rotates to a different host instead of re-hitting the one that just failed.
+function recordEndpointBackoff(ep){
   const prev=endpointBackoff[ep];
   const nextDelay=Math.min((prev?prev.delay:500)*2,4000);
   endpointBackoff[ep]={ until:Date.now()+nextDelay, delay:nextDelay };
+}
+
+// ── ME-05: one shared Overpass fetch contract ─────────────────────
+// Every Overpass request in either engine goes through overpassFetch (or its
+// race variant), so timeout, abort, rotation, backoff and error semantics
+// exist exactly once. Failures are typed, not stringly:
+//   'timeout'      — the per-attempt deadline fired
+//   'rate-limited' — HTTP 429 (endpoint put on backoff)
+//   'http'         — any other non-2xx status
+//   'network'      — fetch itself rejected (DNS, connection reset, CORS…)
+//   'parse'        — 2xx body that isn't an Overpass JSON envelope
+//   'aborted'      — the export-level signal fired (user/lifecycle cancel)
+// An HTTP 200 with `elements: []` is a VALID empty response, never a failure.
+class OverpassAttemptError extends Error {
+  constructor(kind, endpoint, { status=null, retryAfterMs=null, cause=null } = {}) {
+    super(`${kind}${status?` (HTTP ${status})`:''} on ${endpoint}`);
+    this.name='OverpassAttemptError';
+    this.kind=kind; this.endpoint=endpoint; this.status=status;
+    this.retryAfterMs=retryAfterMs; this.cause=cause;
+  }
+}
+
+class OverpassFetchError extends Error {
+  constructor(failures, { aborted=false } = {}) {
+    super(aborted ? 'Overpass fetch aborted' : 'All Overpass attempts failed');
+    this.name='OverpassFetchError';
+    this.failures=failures;   // [{ kind, endpoint, status }] in attempt order
+    this.aborted=aborted;
+  }
+  // Compact per-kind diagnostic, e.g. "2× timeout (overpass-api.de), 1× HTTP 504 (kumi.systems)"
+  summary(){
+    if (!this.failures.length) return this.aborted ? 'aborted' : 'no attempt could start';
+    const byKind={};
+    for (const f of this.failures) {
+      const label=f.kind==='http'&&f.status?`HTTP ${f.status}`:f.kind;
+      (byKind[label] ||= new Set()).add(f.endpoint ? new URL(f.endpoint).hostname : '—');
+    }
+    return Object.entries(byKind)
+      .map(([label, hosts])=>`${this.failures.filter(f=>(f.kind==='http'&&f.status?`HTTP ${f.status}`:f.kind)===label).length}× ${label} (${[...hosts].join(', ')})`)
+      .join(', ');
+  }
+}
+
+// One POST attempt against one endpoint: hard timeout, export-abort wiring,
+// optional streaming progress, typed failure. `raceSignal` lets the race
+// driver cancel losing attempts.
+async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, raceSignal=null } = {}) {
+  const exportSignal=activeExportAbort?.signal || null;
+  const timeoutSignal=AbortSignal.timeout(timeoutMs);
+  const signals=[timeoutSignal];
+  if (exportSignal) signals.push(exportSignal);
+  if (raceSignal) signals.push(raceSignal);
+  const signal=signals.length>1 ? AbortSignal.any(signals) : timeoutSignal;
+  const classifyAbort=(cause)=>{
+    if (exportSignal?.aborted || raceSignal?.aborted) return new OverpassAttemptError('aborted', endpoint, { cause });
+    return new OverpassAttemptError('timeout', endpoint, { cause });
+  };
+
+  const reqStart=Date.now();
+  let ttfbTimer=null;
+  if (onProgress) {
+    onProgress({ phase:'waiting', elapsed:0, endpoint });
+    ttfbTimer=setInterval(()=>{
+      onProgress({ phase:'waiting', elapsed: Math.round((Date.now()-reqStart)/1000), endpoint });
+    }, 500);
+  }
+  try {
+    let res;
+    try {
+      res=await fetch(endpoint, { method:'POST',
+        headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+        body, mode:'cors', signal });
+    } catch(e) {
+      if (signal.aborted) throw classifyAbort(e);
+      throw new OverpassAttemptError('network', endpoint, { cause:e });
+    }
+    if (res.status===429) {
+      recordEndpointBackoff(endpoint);
+      const retryAfter=res.headers.get('Retry-After');
+      const retryAfterMs=retryAfter ? Math.min(parseInt(retryAfter,10)*1000||0, MAX_BACKOFF_WAIT_MS) : null;
+      throw new OverpassAttemptError('rate-limited', endpoint, { status:429, retryAfterMs });
+    }
+    if (!res.ok) throw new OverpassAttemptError('http', endpoint, { status:res.status });
+    let json;
+    try {
+      // Stream the body when a progress consumer wants byte counts —
+      // Content-Length is usually absent (chunked), so total is often 0.
+      if (onProgress && res.body?.getReader) {
+        const total=+res.headers.get('Content-Length')||0;
+        const reader=res.body.getReader();
+        const chunks=[]; let received=0;
+        while (true) {
+          const { value, done }=await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received+=value.length;
+          onProgress({ phase:'downloading', received, total, endpoint });
+        }
+        const merged=new Uint8Array(received);
+        let offset=0;
+        for (const c of chunks) { merged.set(c, offset); offset+=c.length; }
+        json=JSON.parse(new TextDecoder().decode(merged));
+      } else {
+        json=await res.json();
+      }
+    } catch(e) {
+      if (signal.aborted) throw classifyAbort(e);
+      throw new OverpassAttemptError('parse', endpoint, { cause:e });
+    }
+    // Envelope check: anything 2xx that isn't Overpass-shaped is a parse
+    // failure, so a proxy error page can't masquerade as an empty tile.
+    if (!json || !Array.isArray(json.elements)) throw new OverpassAttemptError('parse', endpoint);
+    return json;
+  } finally {
+    if (ttfbTimer) clearInterval(ttfbTimer);
+  }
+}
+
+// Rotation/backoff driver: tries up to `retries` attempts across available
+// endpoints (preferring `preferredEndpoint` when supplied) and returns
+// { json, endpoint }. Throws OverpassFetchError with the typed attempt
+// history when the budget is spent or the export is aborted.
+async function overpassFetch(body, { retries=MAX_TILE_RETRIES, preferredEndpoint=null, timeoutMs=OVERPASS_ATTEMPT_TIMEOUT_MS, onProgress=null } = {}) {
+  const exportSignal=activeExportAbort?.signal || null;
+  const failures=[];
+  for (let attempt=0; attempt<retries; attempt++) {
+    if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
+    let ep=null;
+    if (preferredEndpoint) {
+      const b=endpointBackoff[preferredEndpoint];
+      if (!b || Date.now()>=b.until) ep=preferredEndpoint;
+    }
+    if (!ep) ep=getAvailableEndpoint();
+    if (!ep) {
+      const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+      const waitMs=Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS);
+      setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn:true });
+      failures.push({ kind:'rate-limited', endpoint:null, status:null });
+      await sleep(waitMs, exportSignal);
+      continue;
+    }
+    try {
+      const json=await overpassAttempt(ep, body, { timeoutMs, onProgress });
+      return { json, endpoint:ep };
+    } catch(e) {
+      if (!(e instanceof OverpassAttemptError)) throw e;
+      failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
+      if (e.kind==='aborted' || exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
+      if (e.kind==='rate-limited') {
+        adaptiveTileDelay=Math.min(adaptiveTileDelay+150, 1500);
+        const waitMs=e.retryAfterMs ?? (endpointBackoff[ep]?.delay||500);
+        setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+        progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn:true });
+        await sleep(waitMs, exportSignal);
+      } else {
+        recordEndpointBackoff(ep);
+        console.warn(`Overpass ${e.kind} (${ep}):`, e.cause?.message || e.message);
+      }
+    }
+  }
+  throw new OverpassFetchError(failures, { aborted: !!exportSignal?.aborted });
+}
+
+// Race variant: fire the same query at every available endpoint, first valid
+// response wins, losers are aborted immediately. Two rounds, then typed
+// failure — used for single-tile exports where rotation would serialize.
+async function overpassFetchRace(body, { timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS, onProgress=null } = {}) {
+  const exportSignal=activeExportAbort?.signal || null;
+  const failures=[];
+  for (let round=0; round<2; round++) {
+    if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
+    const eps=OVERPASS_ENDPOINTS.filter(ep=>{ const bk=endpointBackoff[ep]; return !bk || Date.now()>=bk.until; });
+    if (!eps.length) {
+      const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+      failures.push({ kind:'rate-limited', endpoint:null, status:null });
+      await sleep(Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS), exportSignal);
+      continue;
+    }
+    const reqStart=Date.now();
+    let ttfb=null;
+    const label=`racing ${eps.length} server${eps.length>1?'s':''}`;
+    if (onProgress) {
+      onProgress({ phase:'waiting', elapsed:0, endpoint:label });
+      ttfb=setInterval(()=>onProgress({ phase:'waiting', elapsed: Math.round((Date.now()-reqStart)/1000), endpoint:label }), 500);
+    }
+    const controllers=eps.map(()=>new AbortController());
+    const attempts=eps.map((ep, i)=>
+      overpassAttempt(ep, body, { timeoutMs, raceSignal:controllers[i].signal })
+        .then(json=>({ json, ep, i })));
+    try {
+      const winner=await Promise.any(attempts);
+      controllers.forEach((c, i)=>{ if (i!==winner.i) c.abort(); });
+      if (ttfb) clearInterval(ttfb);
+      if (onProgress) onProgress({ phase:'downloading', received:0, total:0, endpoint:winner.ep });
+      return { json:winner.json, endpoint:winner.ep };
+    } catch(aggregate) {
+      if (ttfb) clearInterval(ttfb);
+      for (const e of aggregate.errors||[]) {
+        if (e instanceof OverpassAttemptError && e.kind!=='aborted') failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
+      }
+      if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
+      // every endpoint failed this round — one retry, then give up
+    }
+  }
+  throw new OverpassFetchError(failures, { aborted: !!exportSignal?.aborted });
 }
 
 async function fetchLayer(layer, bboxStr, bbox) {
@@ -814,59 +1053,21 @@ async function fetchLayer(layer, bboxStr, bbox) {
     const stmt = layer.overpassQuery(tileBboxStr).replaceAll(`(${tileBboxStr})`, '');
     const q = `[out:json][bbox:${tileBboxStr}][timeout:60];(${stmt});out ${layer.overpassOut || 'body geom'} qt;`;
     const body = 'data=' + encodeURIComponent(q);
-    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-    let fetched = null;
-    let tileRetries = 0;
-    let lastFailure = null;
-
-    while (!fetched && tileRetries < MAX_TILE_RETRIES) {
-      const ep = getAvailableEndpoint();
-
-      if (!ep) {
-        // All endpoints are rate-limited — wait for the soonest one to free up
-        const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
-        const waitMs = Math.max(0, soonest - Date.now()) + 200;
-        setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-        progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
-        await sleep(waitMs);
-        tileRetries++;
-        lastFailure = new Error('All Overpass endpoints were rate-limited');
-        continue;
-      }
-
-      try {
-        const res = await fetch(ep, { method:'POST', headers, body, mode:'cors',
-          signal: AbortSignal.timeout(62000) });
-        if (res.status === 429) {
-          const retryAfter = res.headers.get('Retry-After');
-          const waitMs = retryAfter ? parseInt(retryAfter,10)*1000 : (endpointBackoff[ep]?.delay||500);
-          recordEndpoint429(ep);
-          adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
-          setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-          progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
-          await sleep(waitMs);
-          tileRetries++;
-          lastFailure = new Error(`Overpass rate limit (HTTP 429) on ${new URL(ep).hostname}`);
-          continue;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        fetched = await res.json();
-      } catch(e) {
-        console.warn(`Overpass failed (${ep}):`, e.message);
-        lastFailure = e;
-        tileRetries++;
-      }
-    }
-
-    if (!fetched) {
-      console.warn(`Tile ${tileBboxStr} failed after ${MAX_TILE_RETRIES} retries for layer ${layer.id}`);
+    let fetched;
+    try {
+      fetched = (await overpassFetch(body, { timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS })).json;
+    } catch(e) {
+      if (!(e instanceof OverpassFetchError)) throw e;
+      console.warn(`Tile ${tileBboxStr} failed for layer ${layer.id}: ${e.summary()}`);
       failedTiles.push(tile);
       throw new ExportFailure({
         source: layer.id,
         phase: 'fetch',
-        userMessage: `Map data for ${layer.label || layer.id} could not be loaded. Check your connection and try again.`,
-        cause: lastFailure,
-        details: { tile: tileBboxStr, retries: tileRetries },
+        userMessage: e.aborted
+          ? 'Export cancelled while map data was loading.'
+          : `Map data for ${layer.label || layer.id} could not be loaded (${e.summary()}). Check your connection and try again.`,
+        cause: e,
+        details: { tile: tileBboxStr, failures: e.failures },
       });
     }
 
@@ -891,6 +1092,9 @@ async function fetchLayer(layer, bboxStr, bbox) {
 // the request (server-side compute + network latency). Once bytes arrive we
 // stream the body via a ReadableStream reader so we can surface real
 // download size — Content-Length is usually absent (chunked), so total=0.
+// Both combined-tile fetchers throw OverpassFetchError on failure (typed
+// attempt history, `summary()` for messages) — the export orchestrator turns
+// that into an ExportFailure with the tile context attached.
 async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgress=null) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
   // §1.1: strip statements superseded by another layer in THIS fetch.
@@ -901,84 +1105,11 @@ async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgres
   const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
   const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
   const body = 'data=' + encodeURIComponent(q);
-  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-  let fetched = null, retries = 0;
-
-  while (!fetched && retries < MAX_TILE_RETRIES) {
-    // §2.1: try preferredEndpoint first (if available); otherwise fall back
-    // to the normal rotation. Lets two concurrent workers pin to different
-    // endpoints so we don't hammer the same host.
-    let ep = null;
-    if (preferredEndpoint) {
-      const b = endpointBackoff[preferredEndpoint];
-      if (!b || Date.now() >= b.until) ep = preferredEndpoint;
-    }
-    if (!ep) ep = getAvailableEndpoint();
-    if (!ep) {
-      const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
-      const waitMs = Math.max(0, soonest - Date.now()) + 200;
-      setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-      progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
-      await sleep(waitMs);
-      retries++;
-      continue;
-    }
-    // TTFB heartbeat — Overpass can take 5–30s of server-side compute before
-    // any bytes arrive. Without this the UI would be frozen on "0 MB" with
-    // no evidence anything is happening.
-    const reqStart = Date.now();
-    let ttfbTimer = null;
-    if (onProgress) {
-      onProgress({ phase: 'waiting', elapsed: 0, endpoint: ep });
-      ttfbTimer = setInterval(() => {
-        onProgress({ phase: 'waiting', elapsed: Math.round((Date.now() - reqStart)/1000), endpoint: ep });
-      }, 500);
-    }
-    try {
-      const res = await fetch(ep, { method:'POST', headers, body, mode:'cors',
-        signal: AbortSignal.timeout(120000) });
-      if (ttfbTimer) { clearInterval(ttfbTimer); ttfbTimer = null; }
-      if (res.status === 429) {
-        const retryAfter = res.headers.get('Retry-After');
-        const waitMs = retryAfter ? parseInt(retryAfter,10)*1000 : (endpointBackoff[ep]?.delay||500);
-        recordEndpoint429(ep);
-        adaptiveTileDelay = Math.min(adaptiveTileDelay + 150, 1500);
-        setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-        progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
-        await sleep(waitMs);
-        retries++;
-        continue;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Stream the body so we can surface bytes-received while it downloads.
-      // Falls back to res.json() if the environment doesn't give us a
-      // readable body stream.
-      if (onProgress && res.body?.getReader) {
-        const total = +res.headers.get('Content-Length') || 0;
-        const reader = res.body.getReader();
-        const chunks = [];
-        let received = 0;
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          onProgress({ phase: 'downloading', received, total, endpoint: ep });
-        }
-        const merged = new Uint8Array(received);
-        let offset = 0;
-        for (const c of chunks) { merged.set(c, offset); offset += c.length; }
-        fetched = JSON.parse(new TextDecoder().decode(merged));
-      } else {
-        fetched = await res.json();
-      }
-    } catch(e) {
-      if (ttfbTimer) { clearInterval(ttfbTimer); ttfbTimer = null; }
-      console.warn(`Combined fetch failed (${ep}):`, e.message);
-      retries++;
-    }
-  }
-  return fetched;
+  // §2.1: preferredEndpoint lets two concurrent workers pin to different
+  // hosts so we don't hammer the same one; rotation is the fallback.
+  return (await overpassFetch(body, {
+    preferredEndpoint, timeoutMs: OVERPASS_COMBINED_TIMEOUT_MS, onProgress,
+  })).json;
 }
 
 // Race the combined query across ALL currently-available endpoints and return
@@ -992,41 +1123,9 @@ async function fetchTileCombinedRace(layers, tile, onProgress=null) {
   const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
   const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
   const body = 'data=' + encodeURIComponent(q);
-  const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const eps = OVERPASS_ENDPOINTS.filter(ep => { const bk = endpointBackoff[ep]; return !bk || Date.now() >= bk.until; });
-    if (!eps.length) {
-      const soonest = Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
-      await sleep(Math.max(0, soonest - Date.now()) + 200);
-      continue;
-    }
-    const reqStart = Date.now();
-    let ttfb = null;
-    const label = `racing ${eps.length} server${eps.length>1?'s':''}`;
-    if (onProgress) {
-      onProgress({ phase:'waiting', elapsed:0, endpoint: label });
-      ttfb = setInterval(() => onProgress({ phase:'waiting', elapsed: Math.round((Date.now()-reqStart)/1000), endpoint: label }), 500);
-    }
-    const controllers = eps.map(() => new AbortController());
-    const attempts = eps.map((ep, i) => (async () => {
-      const res = await fetch(ep, { method:'POST', headers, body, mode:'cors', signal: controllers[i].signal });
-      if (res.status === 429) { recordEndpoint429(ep); throw new Error('429 ' + ep); }
-      if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + ep);
-      return { json: await res.json(), ep };
-    })());
-    try {
-      const winner = await Promise.any(attempts);
-      controllers.forEach((c, i) => { if (eps[i] !== winner.ep) c.abort(); });
-      if (ttfb) clearInterval(ttfb);
-      if (onProgress) onProgress({ phase:'downloading', received:0, total:0, endpoint: winner.ep });
-      return winner.json;
-    } catch (e) {
-      if (ttfb) clearInterval(ttfb);
-      // every endpoint failed this round — one retry, then give up
-    }
-  }
-  return null;
+  return (await overpassFetchRace(body, {
+    timeoutMs: OVERPASS_COMBINED_TIMEOUT_MS, onProgress,
+  })).json;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3499,11 +3598,17 @@ async function runExportLifecycle(source, work) {
   button.disabled = true;
   exportInProgress = true;
   cancelPendingPreview();
+  // ME-05: every Overpass request in this export hangs off this controller,
+  // so a definitive failure cancels all still-running requests at once.
+  const exportAbort = new AbortController();
+  activeExportAbort = exportAbort;
+  cacheErrorLogged = false;
 
   try {
     const value = await work(runId);
     return { status: EXPORT_STATUS.SUCCESS, value };
   } catch (error) {
+    exportAbort.abort(error);
     const failure = normalizeExportFailure(error, { source });
     console.error(`${source} export failed:`, failure.cause || failure);
     const retained = exportState ? ' Your previous export is still available to download.' : '';
@@ -3511,6 +3616,7 @@ async function runExportLifecycle(source, work) {
     updateDownloadControl();
     return { status: failure.status, error: failure };
   } finally {
+    if (activeExportAbort === exportAbort) activeExportAbort = null;
     progress.end();
     button.disabled = false;
     exportInProgress = false;
@@ -3673,22 +3779,28 @@ async function doExport() {
       // Single-tile exports: race all endpoints (the fastest wins) instead of
       // pinning to this worker's one endpoint. Multi-tile already parallelizes
       // across endpoints via the worker pool, so keep the pinned path there.
-      const combined = tiles.length === 1
-        ? await fetchTileCombinedRace(uncachedLayers, tile, onFetchProgress)
-        : await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
-      if (!combined) {
-        console.warn(`Tile ${idx+1}/${tiles.length} failed after retries`);
+      let combined;
+      try {
+        combined = tiles.length === 1
+          ? await fetchTileCombinedRace(uncachedLayers, tile, onFetchProgress)
+          : await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
+      } catch (e) {
+        if (!(e instanceof OverpassFetchError)) throw e;
         totalFailedTiles++;
+        console.warn(`Tile ${idx+1}/${tiles.length} failed: ${e.summary()}`);
         showFailedTileOverlays([tile], `tile ${idx+1}`);
-        progress.log(`Tile ${idx+1}/${tiles.length} failed after retries`, { warn: true });
+        progress.log(`Tile ${idx+1}/${tiles.length} failed: ${e.summary()}`, { warn: true });
         throw new ExportFailure({
           source: uncachedLayers.map(layer => layer.id).join(','),
           phase: 'fetch',
-          userMessage: 'Map data could not be loaded. Check your connection and try again.',
-          cause: new Error('All Overpass attempts for this tile failed'),
+          userMessage: e.aborted
+            ? 'Export cancelled while map data was loading.'
+            : `Map data could not be loaded — ${e.summary()} on tile ${idx+1} of ${tiles.length}. Check your connection and try again.`,
+          cause: e,
           details: {
             tile: `${tile.s},${tile.w},${tile.n},${tile.e}`,
             layers: uncachedLayers.map(layer => layer.id),
+            failures: e.failures,
           },
         });
       }

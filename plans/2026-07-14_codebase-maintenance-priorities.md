@@ -1,7 +1,7 @@
 # Roadmap: maintenance sprints
 
-**Status: IN PROGRESS (2026-07-14) — Sprint 1 COMPLETE, Sprint 2 ACTIVE.**
-Geprioriteerde technische
+**Status: IN PROGRESS (2026-07-14) — Sprint 1 en 2 COMPLETE, Sprint 3 is de
+volgende.** Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
@@ -186,6 +186,7 @@ node tests/pipeline-equivalence.mjs
 node tests/sea-sign.mjs
 node tests/hamlet-grounding.mjs
 node tests/v2-cutterless-coverage.mjs
+node tests/overpass-fetch.mjs
 node tests/cache-php.mjs
 ```
 
@@ -450,7 +451,27 @@ allowance nodig, want de gaps waren nooit echt.
 
 ## Sprint 2 — Robuuste data-infrastructuur
 
-**Status:** ACTIVE
+**Status:** COMPLETE
+
+```text
+Sprint review — 2026-07-14
+Uitkomst Sprint Goal: gehaald
+Afgerond: ME-04 (a/b/c), ME-05
+Niet afgerond: geen
+Gecontroleerd: cachemisbruiktests (tests/cache-php.mjs, 38 checks tegen echte
+php -S-instanties) en gemockte netwerkfouttests (tests/overpass-fetch.mjs,
+17 checks) groen; volledige offline suite + syntaxchecks groen; geldige
+bestaande cache-hits/misses/?exists= byte-compatibel bewezen; geen enkele
+test raakt live netwerk. Geen live export gedraaid (geen render-/SVG-gedrag
+gewijzigd).
+Besluiten: ME-04c-authorisatiemodel door Coen gekozen — browser writes
+blijven, begrensd met per-IP rate limit (300/10 min) en 2 GiB-cachegrens
+met oudste-eerst-pruning; geen server-side Overpass-proxy (zou al het
+Overpass-verkeer via één server-IP funnelen). ME-05: alle Overpass-requests
+lopen via één gedeeld contract (harde per-poging-timeout, rotatie met korte
+backoff na iedere mislukte poging, export-brede abort, getypeerde fouten);
+foutmeldingen noemen soort uitval + mislukte tile.
+```
 
 **Sprint Goal:** geldige exports blijven voorspelbaar functioneren wanneer de
 publieke cache of één of meer Overpass-endpoints traag, corrupt of onbereikbaar
@@ -533,7 +554,7 @@ cachegrens van 2 GiB met oudste-eerst-pruning plus proactieve TTL-opruiming
 tijdens writes (ME-04c). Knoppen zijn via `MAPEXPORT_CACHE_*`-env overridebaar
 voor de requesttests.
 
-### [ ] ME-05 — Overpass-failover en time-outs eenduidig maken
+### [x] ME-05 — Overpass-failover en time-outs eenduidig maken
 
 **Complexiteit:** hoog
 
