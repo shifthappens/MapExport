@@ -53,6 +53,24 @@ prices and strengths change:
   unit cannot be isolated safely or delegation overhead would cost more than
   the work.
 
+Current project-scoped Codex profiles live in `.codex/agents/` and implement
+these tiers for runtimes that support custom-agent selection:
+
+- `luna_mechanical` (`gpt-5.6-luna`, low reasoning) is the default E0 route.
+- `terra_worker` (`gpt-5.6-terra`, medium reasoning) is the default E1 route
+  and may handle a tightly bounded E2 unit after O has settled every design
+  decision.
+- `sol_reviewer` (`gpt-5.6-sol`, high reasoning, read-only) is the independent
+  E2/O review route. The primary model remains responsible for orchestration,
+  integration and user-facing sign-off.
+
+Treat this mapping as a current implementation of the stable capability tiers,
+not as a permanent preference for those model names. Use it only when the
+runtime exposes the named profile and the account provides its configured
+model; otherwise execute directly or choose the cheapest available equivalent.
+Agent files are loaded when a Codex session starts, so restart or open a new
+session after changing them.
+
 Choose the lowest tier with enough capability, not merely the lowest token
 price. Estimate total cost: worker context + execution + orchestrator review +
 likely rework. Escalate a unit when an executor reports ambiguity or fails its
