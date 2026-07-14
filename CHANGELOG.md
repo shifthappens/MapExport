@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Live previews no longer replace full downloads
+- Reduced previews now have separate, engine-aware state, so changing layers
+  cannot replace the last complete SVG download and stale preview updates are
+  ignored. The preview clearly labels when Download refers to the last export.
+
 ### 2026-07-14 — Failed exports stop without replacing the last good map
 - Missing Overpass tiles and city-block calculation errors now stop both export
   engines with a clear message instead of producing an incomplete SVG. Export

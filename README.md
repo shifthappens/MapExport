@@ -124,6 +124,12 @@ Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks`
 | Render SVG | 70–98% | Per-layer rendering via `renderLayerSVG` |
 | Finalize | 98–100% | `wrapSVG` — XML header, metadata, background, layer groups |
 
+The browser keeps the last successful full export and the live preview as
+separate state snapshots. A reduced preview can therefore update after an
+option change without changing the bytes or filename behind “Download last
+export”; preview requests also carry engine and generation identity so stale
+v1/v2 renders cannot replace a newer result.
+
 ### City blocks (derived layer)
 
 The `city_blocks` layer produces the signature USE-IT look: solid cream shapes filling the space between streets, curb-to-curb. It has no Overpass query — blocks are computed from existing road/water/park geometry:

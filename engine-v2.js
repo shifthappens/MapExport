@@ -2395,8 +2395,8 @@ self.onmessage = function(event) {
   // Browser-side v2 orchestration. Mirrors v1's doExport shape but lean:
   // v2 ignores the layer checkboxes and always builds its own fixed layer
   // set. Reuses v1's shared helpers (bbox guard, area-name resolution,
-  // size/width computation, fetchLayer, progress overlay, preview, history)
-  // so preview/download/history behave identically.
+  // size/width computation, fetchLayer, progress overlay, export state and
+  // history). Its preview is rebuilt by this engine's own buildSVG function.
   async function doExport() {
     if (!bbox || exportInProgress) return;
 
@@ -2420,6 +2420,13 @@ self.onmessage = function(event) {
     const physicalWidthMm = getPhysicalSizeMm(bbox).mmW;
     const widthPx = Math.round(physicalWidthMm / 25.4 * PRINT_DPI);
     const illustratorCompatible = document.getElementById('format-select')?.value !== 'svg-standard';
+    const seaNameOverride = (document.getElementById('v2-sea-name')?.value || '').trim();
+    const exportSettings = getExportSettings(EXPORT_ENGINE.V2, bbox, {
+      widthPx,
+      physicalWidthMm,
+      format: illustratorCompatible ? 'svg-illustrator' : 'svg-standard',
+      seaName: seaNameOverride,
+    });
 
     // YYYY-MM-DD-HHMMSS local time, same as v1, with a `-v2` marker before
     // the timestamp so v1 and v2 exports of the same area never collide and
@@ -2429,7 +2436,7 @@ self.onmessage = function(event) {
     const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
     const filename = `map-${activePreset}-${areaSlug}-v2-${stamp}${illustratorCompatible ? '-illustrator' : ''}.svg`;
 
-    return runExportLifecycle('engine-v2', async () => {
+    return runExportLifecycle(EXPORT_ENGINE.V2, async (runId) => {
 
     const stages = [
       { id: 'fetch', label: 'Fetch layers' },
@@ -2486,7 +2493,6 @@ self.onmessage = function(event) {
     const areaFeatureElements = results.find(r => r.layer.id === areaFeaturesLayer.id)?.data.elements || [];
     // Manual sea-name override from the field next to the v2 toggle; blank falls
     // back to the coastline-derived name (or the nameless 'Sea', no label).
-    const seaNameOverride = (document.getElementById('v2-sea-name')?.value || '').trim();
     const { renderResults: areaRenderResults, classified, seaLabel } = buildAreaResults(areaFeatureElements, bbox, { seaName: seaNameOverride });
     // Feed the sea's map label through v1's feature-label engine: append it to
     // the water_labels elements so it shares that layer's styling, halo and
@@ -2564,7 +2570,7 @@ self.onmessage = function(event) {
     progress.setStage('render', 'done', { meta: `${renderableResults.length} layer${renderableResults.length > 1 ? 's' : ''}`, detail: '' });
     progress.bar(90);
 
-    // Finalize — same conventions as v1 so preview/download/history work.
+    // Finalize — same conventions as v1 so export state/history stay shared.
     progress.setStage('finalize', 'active', { detail: 'Wrapping up…' });
     const actualMB = (svg.length / 1024 / 1024).toFixed(1);
     progress.setStage('finalize', 'done', { meta: `${actualMB} MB`, detail: '' });
@@ -2574,10 +2580,17 @@ self.onmessage = function(event) {
     await new Promise((r) => setTimeout(r, 250));
 
     // Commit output state only after fetch, worker and render all completed.
-    lastResults = renderableResults;
-    lastSvgString = svg;
-    lastSvgFilename = filename;
-    showPreview(svg, filename);
+    commitSuccessfulExport({
+      svg,
+      filename,
+      engine: EXPORT_ENGINE.V2,
+      results: renderableResults,
+      exportBbox: bbox,
+      widthPx,
+      physicalWidthMm,
+      runId,
+      settings: exportSettings,
+    });
     setStatus(`✓ Engine v2 · ${widthPx}px wide · ${actualMB} MB · ${urbanBlocks + hamletBlocks} blocks · ${fallbackBlocks} fallback`, 'success');
     saveHistory(bbox, activePreset, widthPx, filename, actualMB, totalElements, areaName);
     return { filename, totalElements };

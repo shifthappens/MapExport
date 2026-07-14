@@ -138,9 +138,17 @@ const lifecycleExpose = `
     bbox = { south: 51.5, west: 5, north: 51.51, east: 5.01 };
     currentAreaName = 'Testville';
     areaNameLookup = null;
-    lastResults = [{ previous: true }];
-    lastSvgString = '<svg id="previous-output" />';
-    lastSvgFilename = 'previous.svg';
+    const settings = getExportSettings(EXPORT_ENGINE.V1, bbox, { widthPx: 1000, physicalWidthMm: 100 });
+    exportState = Object.freeze({
+      results: [{ previous: true }],
+      svg: '<svg id="previous-output" />',
+      filename: 'previous.svg',
+      engine: EXPORT_ENGINE.V1,
+      runId: 1,
+      bbox: settings.bbox,
+      settings,
+      settingsFingerprint: settingsFingerprint(settings),
+    });
     exportInProgress = false;
     previewDebounce = setTimeout(() => {
       document.getElementById('preview-svg-wrap').innerHTML = 'stale preview fired';
@@ -148,8 +156,8 @@ const lifecycleExpose = `
   },
   snapshot() {
     return {
-      results: JSON.stringify(lastResults), svg: lastSvgString,
-      filename: lastSvgFilename, exportInProgress,
+      results: JSON.stringify(exportState.results), svg: exportState.svg,
+      filename: exportState.filename, runId: exportState.runId, exportInProgress,
       previewPending: previewDebounce !== null,
     };
   },
@@ -216,13 +224,14 @@ async function expectLifecycleFailure(name, options, expectedPhase) {
     assert.ok(outcome.error instanceof ctx.__exportLifecycle.ExportFailure);
     assert.equal(outcome.error.phase, expectedPhase);
     assert.equal(dom.getElementById('status-bar').className, 'error');
-    assert.ok(dom.getElementById('status-text').textContent.length > 10);
+    assert.match(dom.getElementById('status-text').textContent, /previous export is still available to download/i);
     assert.equal(dom.getElementById('btn-export').disabled, false);
     assert.equal(dom.getElementById('progress-overlay').classList.contains('show'), false);
     assert.equal(activeIntervals.size, 0, 'elapsed-time interval still running');
     assert.equal(after.results, before.results);
     assert.equal(after.svg, before.svg);
     assert.equal(after.filename, before.filename);
+    assert.equal(after.runId, before.runId);
     assert.equal(after.exportInProgress, false);
     assert.equal(after.previewPending, false);
     assert.equal(dom.getElementById('preview-svg-wrap').innerHTML, previewBefore);

@@ -318,7 +318,7 @@ visuele verandering bij succesvolle exports.
 - Bestaande succesvolle offline regressietests blijven groen; nieuwe tests
   dekken minimaal volledige fetchuitval en workeruitval.
 
-### [ ] ME-02 — Preview- en downloadstatus scheiden
+### [x] ME-02 — Preview- en downloadstatus scheiden
 
 **Complexiteit:** hoog
 

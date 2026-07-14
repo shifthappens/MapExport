@@ -28,6 +28,10 @@ echo "== export-failures (offline, fail-closed export lifecycle) =="
 node tests/export-failures.mjs
 
 echo
+echo "== preview-state (offline, preview/download separation + races) =="
+node tests/preview-state.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

@@ -8,6 +8,10 @@ const EXPORT_STATUS = Object.freeze({
   PARTIAL: 'partial',
   FAILED: 'failed',
 });
+const EXPORT_ENGINE = Object.freeze({
+  V1: 'engine-v1',
+  V2: 'engine-v2',
+});
 
 function isSuccessfulExportStatus(status) {
   return status === EXPORT_STATUS.SUCCESS;
@@ -454,12 +458,14 @@ const METRO_PALETTE=['#e63030','#2979e6','#29b860','#f0a500','#9b30e6','#00aacc'
 //  APP STATE
 // ════════════════════════════════════════════════════════════════
 let map, bboxRect=null, bbox=null, isDrawing=false, drawStart=null;
-let lastSvgString=null, lastSvgFilename=null;
 let searchTimeout=null;
 let currentAreaName='';       // best-known place name for the current bbox (silent, no UI field)
 let areaNameLookup=null;      // in-flight reverse-geocode promise, if any
 let areaNameLookupToken=0;    // invalidates a stale in-flight lookup after a redraw/re-pick
-let lastResults=null;   // cached Overpass data from the most recent export fetch
+let exportState=null;         // last fully successful, downloadable export (never a live preview)
+let previewState=null;        // SVG currently shown in the preview pane
+let exportRunSequence=0;
+let previewRequestSequence=0;
 let previewDebounce=null;
 let exportInProgress=false;
 let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
@@ -571,6 +577,7 @@ function startDraw() {
       setStatus('Area set — choose style and export','');
       setAreaName('');
       reverseGeocodeAreaName(bbox);
+      scheduleLivePreview();
     }
     map.on('mousemove', onMove); map.on('mouseup', onUp);
   }
@@ -627,6 +634,7 @@ async function fetchBoundaries(placeName) {
         document.getElementById('btn-export').disabled = false;
         setStatus('Boundary loaded — choose style and export','');
         setAreaName(pickAreaName(place.address, place.display_name));
+        scheduleLivePreview();
         res.classList.remove('show');
       });
       res.appendChild(item);
@@ -3167,28 +3175,6 @@ function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null, o
     : wrapSVG(layersSVG, ctx, physicalWidthMm);
 }
 
-// ════════════════════════════════════════════════════════════════
-//  LIVE PREVIEW — rebuilds SVG from cached data, no re-fetch
-// ════════════════════════════════════════════════════════════════
-function scheduleLivePreview() {
-  if (exportInProgress || !lastResults || !bbox) return;
-  clearTimeout(previewDebounce);
-  previewDebounce = setTimeout(async () => {
-    if (exportInProgress) return;
-    const PREVIEW_W = 600;
-    const selected = new Set(getAllSelectedLayers().map(l => l.id));
-    const filtered = lastResults.filter(r => selected.has(r.layer.id) && r.layer.id !== 'city_blocks');
-    if (!filtered.length) return;
-
-    const svg = buildSVG(filtered, bbox, PREVIEW_W);
-    const wrap = document.getElementById('preview-svg-wrap');
-    wrap.innerHTML = svg;
-    document.getElementById('preview-pane').classList.add('show');
-    lastSvgString = svg;
-  }, 120);
-}
-
-
 function getExportWidth(b) {
   return Math.round(getPhysicalSizeMm(b).mmW/25.4*PRINT_DPI);
 }
@@ -3197,6 +3183,211 @@ function getAllSelectedLayers() {
   const layers=[];
   LAYER_REGISTRY.forEach(g=>g.layers.forEach(l=>{ if(document.getElementById('lyr-'+l.id)?.checked) layers.push(l); }));
   return layers;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  EXPORT + PREVIEW STATE
+// ════════════════════════════════════════════════════════════════
+// A preview is a different product from a full export: it may be smaller and
+// may omit expensive derived geometry. Keep its bytes and generation identity
+// separate so no UI update can ever become the download source by accident.
+function getCurrentEngine() {
+  return document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined'
+    ? EXPORT_ENGINE.V2
+    : EXPORT_ENGINE.V1;
+}
+
+function copyBbox(value) {
+  return value ? Object.freeze({
+    south: value.south, west: value.west, north: value.north, east: value.east,
+  }) : null;
+}
+
+function sameBbox(a, b) {
+  return !!a && !!b && a.south === b.south && a.west === b.west &&
+    a.north === b.north && a.east === b.east;
+}
+
+function getExportSettings(engine, exportBbox, {
+  widthPx = null,
+  physicalWidthMm = null,
+  format = document.getElementById('format-select')?.value || 'svg-illustrator',
+  labels = LABEL_VISIBILITY,
+  selectedLayerIds = null,
+  seaName = null,
+} = {}) {
+  const settings = {
+    engine,
+    bbox: copyBbox(exportBbox),
+    preset: activePreset,
+    format,
+    labels: Object.freeze({ ...labels }),
+    widthPx,
+    physicalWidthMm,
+    selectedLayerIds: engine === EXPORT_ENGINE.V1
+      ? Object.freeze(selectedLayerIds ? [...selectedLayerIds] : getAllSelectedLayers().map(layer => layer.id))
+      : Object.freeze([]),
+    seaName: engine === EXPORT_ENGINE.V2
+      ? (seaName === null ? document.getElementById('v2-sea-name')?.value || '' : seaName).trim()
+      : '',
+  };
+  return Object.freeze(settings);
+}
+
+function settingsFingerprint(settings) {
+  if (!settings) return '';
+  return JSON.stringify({
+    engine: settings.engine,
+    bbox: settings.bbox,
+    preset: settings.preset,
+    format: settings.format,
+    labels: settings.labels,
+    selectedLayerIds: settings.selectedLayerIds,
+    seaName: settings.seaName,
+  });
+}
+
+function getCurrentSettingsFingerprint() {
+  return bbox ? settingsFingerprint(getExportSettings(getCurrentEngine(), bbox)) : '';
+}
+
+function engineLabel(engine) {
+  return engine === EXPORT_ENGINE.V2 ? 'Engine v2' : 'Engine v1';
+}
+
+function updateDownloadControl() {
+  const button = document.getElementById('btn-dl');
+  if (!button) return;
+  button.disabled = !exportState;
+  if (!exportState) {
+    button.textContent = '↓ No export yet';
+    button.title = 'Complete an export before downloading';
+    return;
+  }
+  const matchesCurrentSettings = exportState.settingsFingerprint === getCurrentSettingsFingerprint();
+  button.textContent = matchesCurrentSettings ? '↓ Download export' : '↓ Download last export';
+  button.title = `${engineLabel(exportState.engine)} · ${exportState.filename}`;
+}
+
+function setPreviewMeta(message) {
+  const meta = document.getElementById('preview-meta');
+  if (meta) meta.textContent = message;
+}
+
+function presentPreview(state) {
+  previewState = Object.freeze(state);
+  document.getElementById('preview-svg-wrap').innerHTML = state.svg;
+  document.getElementById('preview-pane').classList.add('show');
+  const title = document.getElementById('preview-title');
+  if (title) title.textContent = state.kind === 'export' ? 'Export preview' : 'Live preview';
+  const detail = state.kind === 'export'
+    ? `full export · ${exportState?.filename || ''}`
+    : `reduced preview${exportState ? ` · download remains ${exportState.filename}` : ''}`;
+  setPreviewMeta(`${engineLabel(state.engine)} · ${detail}`);
+  updateDownloadControl();
+}
+
+function cancelPendingPreview() {
+  previewRequestSequence++;
+  clearTimeout(previewDebounce);
+  previewDebounce = null;
+}
+
+function commitSuccessfulExport({ svg, filename, engine, results, exportBbox, widthPx, physicalWidthMm, runId, settings: capturedSettings = null }) {
+  const settings = capturedSettings || getExportSettings(engine, exportBbox, { widthPx, physicalWidthMm });
+  const state = Object.freeze({
+    svg,
+    filename,
+    engine,
+    runId,
+    bbox: settings.bbox,
+    settings,
+    settingsFingerprint: settingsFingerprint(settings),
+    results,
+  });
+  exportState = state;
+  cancelPendingPreview();
+  presentPreview({
+    svg: state.svg,
+    engine: state.engine,
+    kind: 'export',
+    requestId: previewRequestSequence,
+    sourceRunId: state.runId,
+    settingsFingerprint: state.settingsFingerprint,
+  });
+  return state;
+}
+
+function previewSourceSupportsCurrentSettings(source) {
+  if (!source || source.engine !== getCurrentEngine() || !sameBbox(source.bbox, bbox)) return false;
+  if (source.settings.preset !== activePreset) return false;
+  if (source.engine === EXPORT_ENGINE.V2) {
+    return source.settings.seaName === (document.getElementById('v2-sea-name')?.value || '').trim();
+  }
+  const available = new Set(source.results.map(result => result.layer.id));
+  return getAllSelectedLayers().every(layer => layer.id === 'city_blocks' || available.has(layer.id));
+}
+
+function commitLivePreview(requestId, source, svg, fingerprint) {
+  if (requestId !== previewRequestSequence || exportInProgress || exportState !== source) return false;
+  presentPreview({
+    svg,
+    engine: source.engine,
+    kind: 'live',
+    requestId,
+    sourceRunId: source.runId,
+    settingsFingerprint: fingerprint,
+  });
+  return true;
+}
+
+// Rebuilds a display-only SVG from the last compatible export data. v1 keeps
+// its historical reduced preview (without city blocks); v2 must render its
+// already-computed face geometry at the source width because those rings are
+// stored in projected pixels. CSS scales either SVG to the preview pane.
+function scheduleLivePreview() {
+  const requestId = ++previewRequestSequence;
+  clearTimeout(previewDebounce);
+  previewDebounce = null;
+  updateDownloadControl();
+  if (exportInProgress || !exportState || !bbox) return;
+
+  const source = exportState;
+  if (!previewSourceSupportsCurrentSettings(source)) {
+    setPreviewMeta(`Showing the last ${engineLabel(source.engine)} export · export again to preview the current settings`);
+    return;
+  }
+
+  previewDebounce = setTimeout(async () => {
+    previewDebounce = null;
+    if (requestId !== previewRequestSequence || exportInProgress || exportState !== source) return;
+    try {
+      let svg;
+      if (source.engine === EXPORT_ENGINE.V2) {
+        svg = await Promise.resolve(EngineV2.buildSVG(
+          source.results,
+          source.bbox,
+          source.settings.widthPx,
+          null,
+          { illustratorCompatible: false },
+        ));
+      } else {
+        const selected = new Set(getAllSelectedLayers().map(layer => layer.id));
+        const filtered = source.results.filter(result =>
+          selected.has(result.layer.id) && result.layer.id !== 'city_blocks');
+        if (!filtered.length) {
+          setPreviewMeta('No fetched layers are available for this reduced preview');
+          return;
+        }
+        svg = await Promise.resolve(buildSVG(filtered, source.bbox, 600));
+      }
+      commitLivePreview(requestId, source, svg, getCurrentSettingsFingerprint());
+    } catch (error) {
+      if (requestId !== previewRequestSequence) return;
+      console.error('Live preview failed:', error);
+      setPreviewMeta('Live preview could not be updated · the last export is unchanged');
+    }
+  }, 120);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3304,18 +3495,20 @@ function normalizeExportFailure(error, { source = 'export', phase = 'orchestrati
 
 async function runExportLifecycle(source, work) {
   const button = document.getElementById('btn-export');
+  const runId = ++exportRunSequence;
   button.disabled = true;
   exportInProgress = true;
-  clearTimeout(previewDebounce);
-  previewDebounce = null;
+  cancelPendingPreview();
 
   try {
-    const value = await work();
+    const value = await work(runId);
     return { status: EXPORT_STATUS.SUCCESS, value };
   } catch (error) {
     const failure = normalizeExportFailure(error, { source });
     console.error(`${source} export failed:`, failure.cause || failure);
-    setStatus(failure.userMessage, 'error');
+    const retained = exportState ? ' Your previous export is still available to download.' : '';
+    setStatus(failure.userMessage + retained, 'error');
+    updateDownloadControl();
     return { status: failure.status, error: failure };
   } finally {
     progress.end();
@@ -3345,13 +3538,19 @@ async function doExport() {
   // USE-IT designers work in Illustrator) or standards-based SVG. See
   // wrapSVGIllustrator for what the Illustrator profile changes and why.
   const illustratorCompatible=document.getElementById('format-select')?.value!=='svg-standard';
+  const exportSettings = getExportSettings(EXPORT_ENGINE.V1, bbox, {
+    widthPx: W,
+    physicalWidthMm,
+    format: illustratorCompatible ? 'svg-illustrator' : 'svg-standard',
+    selectedLayerIds: selected.map(layer => layer.id),
+  });
   const bboxStr=`${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
   // YYYY-MM-DD-HHMMSS (local time) so multiple exports on the same day don't collide.
   const d=new Date(),p2=n=>String(n).padStart(2,'0');
   const stamp=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
   const filename=`map-${activePreset}-${areaSlug}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
 
-  return runExportLifecycle('engine-v1', async () => {
+  return runExportLifecycle(EXPORT_ENGINE.V1, async (runId) => {
     clearFailedTileOverlays();
     adaptiveTileDelay=350;
 
@@ -3613,10 +3812,17 @@ async function doExport() {
   await new Promise(r=>setTimeout(r,250));
 
   // Commit output state only after fetch, worker and render all completed.
-  lastResults = results;
-  lastSvgString=svg;
-  lastSvgFilename=filename;
-  showPreview(svg,filename);
+  commitSuccessfulExport({
+    svg,
+    filename,
+    engine: EXPORT_ENGINE.V1,
+    results,
+    exportBbox: bbox,
+    widthPx: W,
+    physicalWidthMm,
+    runId,
+    settings: exportSettings,
+  });
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
   showFailedTileSummary(totalFailedTiles);
   saveHistory(bbox, activePreset, W, filename, actualMB, totalElements, areaName);
@@ -3630,11 +3836,6 @@ function triggerDownload(svg,filename) {
   const a=document.createElement('a');
   a.href=url; a.download=filename; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
-}
-
-function showPreview(svg,filename) {
-  document.getElementById('preview-svg-wrap').innerHTML=svg;
-  document.getElementById('preview-pane').classList.add('show');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3695,6 +3896,7 @@ function renderHistory() {
         // Restore preset
         activePreset=PRESETS[entry.preset]?entry.preset:'useit';
         document.querySelectorAll('.preset-btn').forEach(b=>{b.classList.toggle('active',b.dataset.preset===activePreset);});
+        scheduleLivePreview();
         setStatus(`Loaded: ${entry.areaName||entry.preset} · ${entry.date}${entry.time?' '+entry.time:''}`,'success');
       });
       list.appendChild(div);
@@ -3978,8 +4180,14 @@ document.addEventListener('DOMContentLoaded',()=>{
       setStatus(failure.userMessage, 'error');
     });
   });
-  document.getElementById('btn-dl').addEventListener('click',()=>{if(lastSvgString)triggerDownload(lastSvgString,lastSvgFilename);});
+  document.getElementById('btn-dl').addEventListener('click',()=>{
+    if (exportState) triggerDownload(exportState.svg, exportState.filename);
+  });
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
+  document.getElementById('format-select')?.addEventListener('change', scheduleLivePreview);
+  document.getElementById('engine-v2-toggle')?.addEventListener('change', scheduleLivePreview);
+  document.getElementById('v2-sea-name')?.addEventListener('input', scheduleLivePreview);
+  updateDownloadControl();
 
   // Help modal
   document.querySelectorAll('.help-btn').forEach(btn => {
