@@ -275,9 +275,9 @@ export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8'))
     }, set() { return true; }, apply() { return elProxy; },
   });
   const sandbox = {
-    console, setTimeout, clearTimeout, queueMicrotask, performance,
+    console, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask, performance,
     fetch: () => Promise.reject(new Error('no network in loadAppSandbox')),
-    Blob, Response, Request, Headers, URL, AbortSignal, TextEncoder, TextDecoder,
+    Blob, Response, Request, Headers, URL, AbortController, AbortSignal, TextEncoder, TextDecoder,
     document: { getElementById: () => elProxy, querySelector: () => elProxy, querySelectorAll: () => [], createElement: () => elProxy, createElementNS: () => elProxy, addEventListener() {}, body: elProxy, documentElement: elProxy },
     navigator: { userAgent: 'node', clipboard: {} },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -286,6 +286,78 @@ export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8'))
   vm.createContext(sandbox);
   vm.runInContext(scriptSrc, sandbox, { filename: 'script.js' });
   return sandbox;
+}
+
+export function makeExportDomHarness({ engineV2 = false, selectedLayerIds = null } = {}) {
+  const elements = new Map();
+  const historyWrites = [];
+
+  function classList(initial = []) {
+    const names = new Set(initial);
+    return {
+      add: (...values) => values.forEach(value => names.add(value)),
+      remove: (...values) => values.forEach(value => names.delete(value)),
+      contains: value => names.has(value),
+      toggle(value, force) {
+        const enabled = force === undefined ? !names.has(value) : force;
+        if (enabled) names.add(value); else names.delete(value);
+        return enabled;
+      },
+      snapshot: () => [...names].sort(),
+    };
+  }
+
+  function makeElement(id) {
+    const layerId = id.startsWith('lyr-') ? id.slice(4) : null;
+    return {
+      id,
+      checked: id === 'engine-v2-toggle'
+        ? engineV2
+        : !!layerId && (!selectedLayerIds || selectedLayerIds.includes(layerId)),
+      disabled: false,
+      value: id === 'format-select' ? 'svg-standard' : '',
+      textContent: '',
+      innerHTML: '',
+      className: '',
+      scrollTop: 0,
+      scrollHeight: 0,
+      style: {},
+      dataset: {},
+      classList: classList(id === 'preview-pane' ? ['show'] : []),
+      addEventListener() {},
+      removeEventListener() {},
+      appendChild() {},
+      remove() {},
+      after() {},
+      focus() {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    };
+  }
+
+  function getElementById(id) {
+    if (!elements.has(id)) elements.set(id, makeElement(id));
+    return elements.get(id);
+  }
+
+  const document = {
+    getElementById,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    createElement: id => makeElement(id),
+    createElementNS: (_ns, id) => makeElement(id),
+    addEventListener() {},
+    body: makeElement('body'),
+    documentElement: makeElement('html'),
+  };
+  const localStorage = {
+    getItem: () => null,
+    setItem(key, value) { historyWrites.push({ key, value }); },
+    removeItem() {},
+  };
+
+  getElementById('preview-svg-wrap').innerHTML = '<svg id="previous-preview" />';
+  return { document, localStorage, elements, historyWrites, getElementById };
 }
 
 export function loadAppSandbox(exposeNames, scriptPath = SCRIPT_PATH) {

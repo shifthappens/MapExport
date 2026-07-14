@@ -31,6 +31,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 │   ├── real-export.mjs    # End-to-end headless export (v1 and --engine=v2), pass/fail checks
 │   ├── coverage-lint.mjs / render-coverage.mjs   # v2 coverage promise (model + rendered ink)
 │   ├── svg-lint.mjs / label-placement.mjs / label-fit.mjs
+│   ├── export-failures.mjs                       # v1/v2 fail-closed export lifecycle
 │   ├── sea-sign.mjs / hamlet-grounding.mjs       # v2 offline geometry checks
 │   ├── query-equivalence.mjs / pipeline-equivalence.mjs / supersession.mjs
 │   ├── road-merge.mjs / abbreviate.mjs
@@ -196,6 +197,7 @@ node tests/pipeline-equivalence.mjs # Offline tagFilter partition check
 node tests/supersession.mjs         # SUPERSESSIONS rule + coverage check
 node tests/road-merge.mjs           # Road segment stitching (10 cases)
 node tests/abbreviate.mjs           # Multilingual abbreviation (26 cases)
+node tests/export-failures.mjs      # v1/v2 network + worker failure lifecycle
 node tests/sea-sign.mjs             # Engine v2 coastline→sea geometry (offline)
 node tests/hamlet-grounding.mjs     # Engine v2 hamlet place-node grounding (offline)
 

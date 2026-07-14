@@ -1835,11 +1835,23 @@ self.onmessage = function(event) {
   // computeBlocksAsync lifecycle; the message protocol is shape-compatible
   // with v1's ({type:'progress'} / {type:'done', ...}).
   function computeFacesAsync(cutterResults, buildingElements, classified, pr, W, H, onProgress, opts = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const data = prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, opts.bbox, opts.placeNodeElements);
       if (!data.cutterLines.length) { resolve({ blocks: [] }); return; }
 
-      const worker = new Worker(getFaceWorkerUrl());
+      let worker;
+      try {
+        worker = new Worker(getFaceWorkerUrl());
+      } catch (cause) {
+        reject(new ExportFailure({
+          source: 'engine-v2',
+          phase: 'worker',
+          userMessage: 'Map faces could not be computed. Try the export again.',
+          cause,
+          details: { operation: 'start' },
+        }));
+        return;
+      }
       worker.onmessage = function(e) {
         if (e.data.type === 'progress' && onProgress) onProgress(e.data.msg, e.data.pct);
         if (e.data.type === 'done') {
@@ -1850,9 +1862,26 @@ self.onmessage = function(event) {
       worker.onerror = function(err) {
         worker.terminate();
         console.error('Face worker error:', err);
-        resolve({ blocks: [] }); // fail gracefully — skip blocks
+        reject(new ExportFailure({
+          source: 'engine-v2',
+          phase: 'worker',
+          userMessage: 'Map faces could not be computed. Try the export again.',
+          cause: err?.error || err,
+          details: { operation: 'compute' },
+        }));
       };
-      worker.postMessage(data);
+      try {
+        worker.postMessage(data);
+      } catch (cause) {
+        worker.terminate();
+        reject(new ExportFailure({
+          source: 'engine-v2',
+          phase: 'worker',
+          userMessage: 'Map faces could not be computed. Try the export again.',
+          cause,
+          details: { operation: 'postMessage' },
+        }));
+      }
     });
   }
 
@@ -2369,7 +2398,7 @@ self.onmessage = function(event) {
   // size/width computation, fetchLayer, progress overlay, preview, history)
   // so preview/download/history behave identically.
   async function doExport() {
-    if (!bbox) return;
+    if (!bbox || exportInProgress) return;
 
     // Area-name resolution — identical to v1: await any in-flight
     // reverse-geocode, then fall back to the shared name-prompt modal.
@@ -2400,7 +2429,7 @@ self.onmessage = function(event) {
     const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
     const filename = `map-${activePreset}-${areaSlug}-v2-${stamp}${illustratorCompatible ? '-illustrator' : ''}.svg`;
 
-    document.getElementById('btn-export').disabled = true;
+    return runExportLifecycle('engine-v2', async () => {
 
     const stages = [
       { id: 'fetch', label: 'Fetch layers' },
@@ -2443,10 +2472,12 @@ self.onmessage = function(event) {
     const totalElements = results.reduce((sum, r) => sum + (r.data?.elements?.length || 0), 0);
     if (!totalElements) {
       progress.log('No elements fetched — aborting export', { warn: true });
-      progress.end();
-      document.getElementById('btn-export').disabled = false;
-      setStatus('Nothing to render — check your connection', 'error');
-      return;
+      throw new ExportFailure({
+        source: 'engine-v2',
+        phase: 'fetch',
+        userMessage: 'Nothing to render — check your connection and try again.',
+        details: { reason: 'empty-result' },
+      });
     }
 
     // Classify the combined area-features fetch into the render layers and the
@@ -2526,9 +2557,6 @@ self.onmessage = function(event) {
     renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
     renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
 
-    // Cache for the shared live-preview path.
-    lastResults = renderableResults;
-
     // Render stage.
     progress.setStage('render', 'active', { detail: 'Assembling SVG…' });
     await new Promise((r) => setTimeout(r, 0));
@@ -2539,24 +2567,27 @@ self.onmessage = function(event) {
     // Finalize — same conventions as v1 so preview/download/history work.
     progress.setStage('finalize', 'active', { detail: 'Wrapping up…' });
     const actualMB = (svg.length / 1024 / 1024).toFixed(1);
-    lastSvgString = svg;
-    lastSvgFilename = filename;
     progress.setStage('finalize', 'done', { meta: `${actualMB} MB`, detail: '' });
     progress.bar(100);
     progress.log(`Done — ${actualMB} MB, ${totalElements.toLocaleString()} elements`);
 
     await new Promise((r) => setTimeout(r, 250));
-    progress.end();
+
+    // Commit output state only after fetch, worker and render all completed.
+    lastResults = renderableResults;
+    lastSvgString = svg;
+    lastSvgFilename = filename;
     showPreview(svg, filename);
-    document.getElementById('btn-export').disabled = false;
     setStatus(`✓ Engine v2 · ${widthPx}px wide · ${actualMB} MB · ${urbanBlocks + hamletBlocks} blocks · ${fallbackBlocks} fallback`, 'success');
     saveHistory(bbox, activePreset, widthPx, filename, actualMB, totalElements, areaName);
+    return { filename, totalElements };
+    });
   }
 
   return {
     layers, layerOrder, buildSVG, doExport,
     // Exposed for the headless test harness (tests/real-export.mjs).
-    FACE_WORKER_SRC, prepareFaceData, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
+    FACE_WORKER_SRC, prepareFaceData, computeFacesAsync, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
     // Building-fetch padding (cause A) — shared with the headless harness.
     padBboxMeters, BUILDING_FETCH_PAD_M,

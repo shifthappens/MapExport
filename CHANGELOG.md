@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Failed exports stop without replacing the last good map
+- Missing Overpass tiles and city-block calculation errors now stop both export
+  engines with a clear message instead of producing an incomplete SVG. Export
+  controls always recover, while the previous preview, download and history
+  remain untouched.
+
 ### 2026-07-13 — Engine v2: green-dominant ground beats cream; standalone buildings (experimental)
 - Parking areas (`amenity=parking`) now count as city fabric in the block
   classification, so parking-covered land paints as ordinary cream blocks

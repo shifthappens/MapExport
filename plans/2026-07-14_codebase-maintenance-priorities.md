@@ -248,7 +248,7 @@ v2-besluit en pas daarna de grote structurele refactor.
 
 ## Sprint 1 — Betrouwbaar exportcontract
 
-**Status:** PLANNED
+**Status:** IN PROGRESS
 
 **Sprint Goal:** gebruikers en vervolgstappen kunnen erop vertrouwen dat een
 export volledig, actueel en afkomstig van de gekozen engine is; anders stopt
@@ -268,7 +268,7 @@ kaartlagen, visuele redesigns en v2 als standaardengine instellen.
 syntaxchecks zijn groen; een gesimuleerde netwerk- én workerfout leveren geen
 nieuw downloadbaar SVG op.
 
-### [ ] ME-01 — Export expliciet laten slagen of falen
+### [x] ME-01 — Export expliciet laten slagen of falen
 
 **Complexiteit:** hoog
 

@@ -24,6 +24,10 @@ echo "== svg-lint-selftest (offline, guards the SVG linter) =="
 node tests/svg-lint-selftest.mjs
 
 echo
+echo "== export-failures (offline, fail-closed export lifecycle) =="
+node tests/export-failures.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

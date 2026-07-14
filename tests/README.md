@@ -92,6 +92,7 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 - `svg-lint.mjs` — deterministic defect checks on an exported SVG (importable + CLI).
 - `svg-lint-selftest.mjs` — mutation tests guarding svg-lint itself.
 - `road-merge.mjs` / `abbreviate.mjs` — offline unit tests for way stitching and label abbreviation.
+- `export-failures.mjs` — offline v1/v2 orchestration checks proving network and worker failures restore the UI without replacing the last successful SVG, preview or history.
 - `sea-sign.mjs` — offline check of engine v2's coastline→sea geometry (stitching, perimeter walk, island holes).
 - `hamlet-grounding.mjs` — offline check of engine v2's hamlet place-node grounding predicate (tier radii, point-to-polygon distance, nearest-name).
 - `coverage-lint.mjs` / `render-coverage.mjs` — engine v2 coverage promise: geometric lint on the worker model, and rendered-ink check on the finished SVG (headless Chrome over magenta; the authority).

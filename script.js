@@ -1,5 +1,34 @@
 'use strict';
 
+// Shared export outcome/error contract. `partial` is deliberately not a
+// successful outcome: callers must opt into presenting/accepting it instead
+// of accidentally treating an incomplete map as a finished export.
+const EXPORT_STATUS = Object.freeze({
+  SUCCESS: 'success',
+  PARTIAL: 'partial',
+  FAILED: 'failed',
+});
+
+function isSuccessfulExportStatus(status) {
+  return status === EXPORT_STATUS.SUCCESS;
+}
+
+class ExportFailure extends Error {
+  constructor({ status = EXPORT_STATUS.FAILED, source, phase, userMessage, cause, details } = {}) {
+    if (!Object.values(EXPORT_STATUS).includes(status)) throw new TypeError(`Invalid export status: ${status}`);
+    if (isSuccessfulExportStatus(status)) throw new TypeError('ExportFailure cannot have success status');
+    if (!source || !phase || !userMessage) throw new TypeError('ExportFailure requires source, phase and userMessage');
+    super(userMessage);
+    this.name = 'ExportFailure';
+    this.status = status;
+    this.source = source;
+    this.phase = phase;
+    this.userMessage = userMessage;
+    this.cause = cause;
+    this.details = details;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  HELP CONTENT
 // ════════════════════════════════════════════════════════════════
@@ -432,6 +461,7 @@ let areaNameLookup=null;      // in-flight reverse-geocode promise, if any
 let areaNameLookupToken=0;    // invalidates a stale in-flight lookup after a redraw/re-pick
 let lastResults=null;   // cached Overpass data from the most recent export fetch
 let previewDebounce=null;
+let exportInProgress=false;
 let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
 const endpointBackoff={};      // { endpoint -> { until: timestamp, delay: ms } }
 let adaptiveTileDelay=350;     // ms between tile fetches; increases when 429s occur
@@ -779,6 +809,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
     const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
     let fetched = null;
     let tileRetries = 0;
+    let lastFailure = null;
 
     while (!fetched && tileRetries < MAX_TILE_RETRIES) {
       const ep = getAvailableEndpoint();
@@ -791,6 +822,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
         progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
         await sleep(waitMs);
         tileRetries++;
+        lastFailure = new Error('All Overpass endpoints were rate-limited');
         continue;
       }
 
@@ -806,12 +838,14 @@ async function fetchLayer(layer, bboxStr, bbox) {
           progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn: true });
           await sleep(waitMs);
           tileRetries++;
+          lastFailure = new Error(`Overpass rate limit (HTTP 429) on ${new URL(ep).hostname}`);
           continue;
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         fetched = await res.json();
       } catch(e) {
         console.warn(`Overpass failed (${ep}):`, e.message);
+        lastFailure = e;
         tileRetries++;
       }
     }
@@ -819,7 +853,13 @@ async function fetchLayer(layer, bboxStr, bbox) {
     if (!fetched) {
       console.warn(`Tile ${tileBboxStr} failed after ${MAX_TILE_RETRIES} retries for layer ${layer.id}`);
       failedTiles.push(tile);
-      continue;
+      throw new ExportFailure({
+        source: layer.id,
+        phase: 'fetch',
+        userMessage: `Map data for ${layer.label || layer.id} could not be loaded. Check your connection and try again.`,
+        cause: lastFailure,
+        details: { tile: tileBboxStr, retries: tileRetries },
+      });
     }
 
     cacheSet(key, fetched);
@@ -2746,7 +2786,19 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress, opts = {}) {
     if (opts.clusterRings) data.clusterRings = opts.clusterRings;
     if (!data.lines.length && !data.areas.length) { resolve({ blocks: [], needsBuildings: false }); return; }
 
-    const worker = new Worker(getBlockWorkerUrl());
+    let worker;
+    try {
+      worker = new Worker(getBlockWorkerUrl());
+    } catch (cause) {
+      reject(new ExportFailure({
+        source: 'city_blocks',
+        phase: 'worker',
+        userMessage: 'City blocks could not be computed. Try the export again.',
+        cause,
+        details: { operation: 'start' },
+      }));
+      return;
+    }
     worker.onmessage = function(e) {
       if (e.data.type === 'progress' && onProgress) {
         onProgress(e.data.msg, e.data.pct);
@@ -2759,9 +2811,26 @@ function computeBlocksAsync(allResults, pr, W, H, onProgress, opts = {}) {
     worker.onerror = function(err) {
       worker.terminate();
       console.error('Block worker error:', err);
-      resolve({ blocks: [], needsBuildings: false }); // fail gracefully — skip blocks
+      reject(new ExportFailure({
+        source: 'city_blocks',
+        phase: 'worker',
+        userMessage: 'City blocks could not be computed. Try the export again.',
+        cause: err?.error || err,
+        details: { operation: 'compute' },
+      }));
     };
-    worker.postMessage(data);
+    try {
+      worker.postMessage(data);
+    } catch (cause) {
+      worker.terminate();
+      reject(new ExportFailure({
+        source: 'city_blocks',
+        phase: 'worker',
+        userMessage: 'City blocks could not be computed. Try the export again.',
+        cause,
+        details: { operation: 'postMessage' },
+      }));
+    }
   });
 }
 
@@ -3102,9 +3171,10 @@ function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null, o
 //  LIVE PREVIEW — rebuilds SVG from cached data, no re-fetch
 // ════════════════════════════════════════════════════════════════
 function scheduleLivePreview() {
-  if (!lastResults || !bbox) return;
+  if (exportInProgress || !lastResults || !bbox) return;
   clearTimeout(previewDebounce);
   previewDebounce = setTimeout(async () => {
+    if (exportInProgress) return;
     const PREVIEW_W = 600;
     const selected = new Set(getAllSelectedLayers().map(l => l.id));
     const filtered = lastResults.filter(r => selected.has(r.layer.id) && r.layer.id !== 'city_blocks');
@@ -3222,8 +3292,40 @@ function promptForAreaName() {
   });
 }
 
+function normalizeExportFailure(error, { source = 'export', phase = 'orchestration' } = {}) {
+  if (error instanceof ExportFailure) return error;
+  return new ExportFailure({
+    source,
+    phase,
+    userMessage: 'The export could not be completed. Try again.',
+    cause: error,
+  });
+}
+
+async function runExportLifecycle(source, work) {
+  const button = document.getElementById('btn-export');
+  button.disabled = true;
+  exportInProgress = true;
+  clearTimeout(previewDebounce);
+  previewDebounce = null;
+
+  try {
+    const value = await work();
+    return { status: EXPORT_STATUS.SUCCESS, value };
+  } catch (error) {
+    const failure = normalizeExportFailure(error, { source });
+    console.error(`${source} export failed:`, failure.cause || failure);
+    setStatus(failure.userMessage, 'error');
+    return { status: failure.status, error: failure };
+  } finally {
+    progress.end();
+    button.disabled = false;
+    exportInProgress = false;
+  }
+}
+
 async function doExport() {
-  if (!bbox) return;
+  if (!bbox || exportInProgress) return;
   // Experimental engine v2 (default off) takes over the whole export when its
   // toggle is checked. It owns its own orchestration in engine-v2.js.
   if (document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined') return EngineV2.doExport();
@@ -3249,9 +3351,9 @@ async function doExport() {
   const stamp=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
   const filename=`map-${activePreset}-${areaSlug}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
 
-  document.getElementById('btn-export').disabled=true;
-  clearFailedTileOverlays();
-  adaptiveTileDelay=350;
+  return runExportLifecycle('engine-v1', async () => {
+    clearFailedTileOverlays();
+    adaptiveTileDelay=350;
 
   const needsBlocks = selected.some(l => l.id === 'city_blocks');
   // city_blocks has no overpassQuery — it's derived from the other layers'
@@ -3379,10 +3481,17 @@ async function doExport() {
         console.warn(`Tile ${idx+1}/${tiles.length} failed after retries`);
         totalFailedTiles++;
         showFailedTileOverlays([tile], `tile ${idx+1}`);
-        tilesDone++;
         progress.log(`Tile ${idx+1}/${tiles.length} failed after retries`, { warn: true });
-        progress.bar(Math.round((tilesDone/tiles.length)*70));
-        continue;
+        throw new ExportFailure({
+          source: uncachedLayers.map(layer => layer.id).join(','),
+          phase: 'fetch',
+          userMessage: 'Map data could not be loaded. Check your connection and try again.',
+          cause: new Error('All Overpass attempts for this tile failed'),
+          details: {
+            tile: `${tile.s},${tile.w},${tile.n},${tile.e}`,
+            layers: uncachedLayers.map(layer => layer.id),
+          },
+        });
       }
 
       for (const layer of uncachedLayers) {
@@ -3404,7 +3513,19 @@ async function doExport() {
     }
   }
 
-  await Promise.all(OVERPASS_ENDPOINTS.map(worker));
+  let firstFetchFailure = null;
+  const workers = OVERPASS_ENDPOINTS.map(async endpoint => {
+    try {
+      await worker(endpoint);
+    } catch (error) {
+      if (!firstFetchFailure) firstFetchFailure = error;
+      // Stop handing out queued tiles, then let every already-running request
+      // settle before export cleanup can hide the progress UI.
+      queue.length = 0;
+    }
+  });
+  await Promise.allSettled(workers);
+  if (firstFetchFailure) throw firstFetchFailure;
 
   const fetchStageState = totalFailedTiles && totalFailedTiles === tiles.length ? 'failed' : 'done';
   progress.setStage('fetch_tiles', fetchStageState, { meta: fetchedMeta(), detail: '' });
@@ -3414,23 +3535,18 @@ async function doExport() {
     layer,
     data:{ elements: mergeElements([layerElements[layer.id]]), failedTiles:[] }
   }));
-  // Abort only if there's nothing left to render: every Overpass layer came back
-  // empty AND we're not about to build blocks from vector tiles.
-  const overpassResults = results.filter(r => overpassLayers.includes(r.layer));
-  const allOverpassFailed = overpassResults.length > 0 && overpassResults.every(r => !r.data.elements.length);
-  if (allOverpassFailed && !needsBlocks) {
+  const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
+  if (!totalElements) {
     progress.log('All fetches failed — aborting export', { warn: true });
-    progress.end();
-    document.getElementById('btn-export').disabled=false;
-    setStatus('All fetches failed — check your connection','error');
-    return;
+    throw new ExportFailure({
+      source: 'engine-v1',
+      phase: 'fetch',
+      userMessage: 'Nothing to render — check your connection and try again.',
+      details: { reason: 'empty-result' },
+    });
   }
 
-  // Cache results for live preview
-  lastResults = results;
-
-  // Count elements for size warning
-  const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
+  // Estimate output size for the later warning/summary.
   const estMB=(totalElements*0.0003).toFixed(1);
 
   // Stage — compute city blocks (negative space of the street/water/park network)
@@ -3489,19 +3605,23 @@ async function doExport() {
     ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
     : wrapSVG(layersSVG, ctx, physicalWidthMm);
   const actualMB=(svg.length/1024/1024).toFixed(1);
-  lastSvgString=svg; lastSvgFilename=filename;
   progress.setStage('finalize', 'done', { meta: `${actualMB} MB`, detail: '' });
   progress.bar(100);
   progress.log(`Done — ${actualMB} MB, ${totalElements.toLocaleString()} elements`);
 
   // Brief pause so the user registers the 100% state, then hide + reveal.
   await new Promise(r=>setTimeout(r,250));
-  progress.end();
+
+  // Commit output state only after fetch, worker and render all completed.
+  lastResults = results;
+  lastSvgString=svg;
+  lastSvgFilename=filename;
   showPreview(svg,filename);
-  document.getElementById('btn-export').disabled=false;
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
   showFailedTileSummary(totalFailedTiles);
   saveHistory(bbox, activePreset, W, filename, actualMB, totalElements, areaName);
+  return { filename, totalElements };
+  });
 }
 
 function triggerDownload(svg,filename) {
@@ -3851,7 +3971,13 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 
   document.getElementById('btn-draw').addEventListener('click',startDraw);
-  document.getElementById('btn-export').addEventListener('click',doExport);
+  document.getElementById('btn-export').addEventListener('click', () => {
+    void doExport().catch(error => {
+      const failure = normalizeExportFailure(error);
+      console.error('Export preflight failed:', failure.cause || failure);
+      setStatus(failure.userMessage, 'error');
+    });
+  });
   document.getElementById('btn-dl').addEventListener('click',()=>{if(lastSvgString)triggerDownload(lastSvgString,lastSvgFilename);});
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
 
