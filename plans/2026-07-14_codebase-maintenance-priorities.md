@@ -1,6 +1,7 @@
 # Roadmap: maintenance sprints
 
-**Status: READY TO IMPLEMENT (2026-07-14).** Geprioriteerde technische
+**Status: IN PROGRESS (2026-07-14) — Sprint 1 COMPLETE, Sprint 2 ACTIVE.**
+Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
@@ -249,7 +250,23 @@ v2-besluit en pas daarna de grote structurele refactor.
 
 ## Sprint 1 — Betrouwbaar exportcontract
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
+
+```text
+Sprint review — 2026-07-14
+Uitkomst Sprint Goal: gehaald
+Afgerond: ME-01, ME-02, ME-03, ME-03b
+Niet afgerond: geen
+Gecontroleerd: volledige offline suite + syntaxchecks groen; zeven-area
+v2-sweep groen (0 significante coverage-gaps, 0.000% bare, geen nieuwe
+allowance); gesimuleerde netwerk- en workerfout leveren geen nieuw SVG op
+(tests/export-failures.mjs); menselijke visuele sign-off op de zeven
+v2-exports door Coen gegeven op 2026-07-14.
+Besluiten: de 2026-07-14 v2-exports zijn als newest-per-city trail gecommit
+(2741e28) en dat is nu de gedocumenteerde standaard na een sweep; de
+render-lint blijft de onafhankelijke coverage-autoriteit naast de
+geometrische lint.
+```
 
 **Sprint Goal:** gebruikers en vervolgstappen kunnen erop vertrouwen dat een
 export volledig, actueel en afkomstig van de gekozen engine is; anders stopt
@@ -432,7 +449,7 @@ allowance nodig, want de gaps waren nooit echt.
 
 ## Sprint 2 — Robuuste data-infrastructuur
 
-**Status:** PLANNED
+**Status:** ACTIVE
 
 **Sprint Goal:** geldige exports blijven voorspelbaar functioneren wanneer de
 publieke cache of één of meer Overpass-endpoints traag, corrupt of onbereikbaar

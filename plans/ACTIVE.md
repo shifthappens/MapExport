@@ -2,11 +2,24 @@
 
 - **Updated:** 2026-07-14
 - **Roadmap:** `plans/2026-07-14_codebase-maintenance-priorities.md`
-- **Sprint:** Sprint 1 — Betrouwbaar exportcontract (`IN PROGRESS` — technische eindpoort gehaald; visuele sign-off open)
-- **Unit:** ME-03 `DONE` + ME-03b (coverage-lint fix) `DONE`. Resteert: menselijke visuele sign-off op de v2-sweep (`WAITING_FOR_USER`).
-- **Owner/route:** O voerde ME-03 en ME-03b rechtstreeks uit; geen agentdelegatie.
-- **Completed checkpoint:** ME-03 (roadless-frame coverage) gecommit+gepusht (`3fa16b5`). Daarna de verplichte zeven-area v2-sweep gedraaid; die faalde eerst vals op de geometrische lint. Root cause = ME-03b: `renderLandcover` schildert green-remainder-merges via `el._mergedRings` (grown = element ∪ green-open remainder), maar `tests/coverage-lint.mjs` stap 2 markeerde alleen de originele elementgeometrie → grown-only band las als valse "unpainted land"-gap terwijl de render-autoriteit 0.000% bare gaf. Bewezen niet door ME-03 (parent-commit gaf identieke gaps). Fix: lint markeert nu `el._mergedRings` exact zoals de renderer schildert; engine ongewijzigd, geen nieuwe `expectations.json`-allowance. Alle zeven areas nu groen: Tilburg 7→0 significante gaps, Ghent/Paris/Bremerhaven/Oulu/Nièvre(0 cellen)/Erfurt 0 significant, elk render 0.000% bare.
-- **Next action:** Coen bekijkt de zeven v2-exports in `exports/` visueel (untracked, date-only namen) en geeft de menselijke sign-off. Beslis daarbij of die SVG's als v2-trail gecommit worden (niet automatisch gedaan — gebruikersbestanden). Bij akkoord: Sprint 1 op `COMPLETE` met het sprint-reviewblok, dan Sprint 2 (ME-04) starten.
-- **Changed for current unit:** `tests/coverage-lint.mjs` (fix), `ENGINE-V2.md` (§1 lint eert merged landcover), `plans/2026-07-14_codebase-maintenance-priorities.md` (ME-03b onder Sprint 1), dit checkpoint. 7 nieuwe `exports/*-v2-2026-07-14.svg` untracked gelaten (gebruikersbestanden). ME-03-diff staat al op `main`.
-- **Latest checks:** Zeven-area v2-sweep groen (0 significante gaps, 0.000% bare, geen allowance). `OFFLINE_ONLY=1 bash tests/smoke.sh`, `sea-sign`, `hamlet-grounding` groen; `node --check` op `coverage-lint.mjs`/`engine-v2.js` groen; Tilburg v2 expliciet her-gedraaid 7→0 na de fix; parent-commit gaf identieke 7 gaps (attributiebewijs). Visuele/menselijke sign-off nog NIET gegeven.
-- **Decisions/blockers:** De lint-fix kan alleen dekking toevoegen, nooit vals laten slagen — de render-lint blijft de onafhankelijke autoriteit (0.000%). Blocker voor sprintafsluiting: menselijke visuele sign-off + exports-beslissing bij Coen.
+- **Sprint:** Sprint 2 — Robuuste data-infrastructuur (`ACTIVE`; Sprint 1 is
+  `COMPLETE` met Coens visuele sign-off van 2026-07-14, reviewblok staat in de
+  roadmap).
+- **Unit:** ME-04a (validatie/limieten) + ME-04b (atomische writes) `IN_PROGRESS`
+  als één diff — beide raken dezelfde POST-handler in `cache.php`. ME-04c
+  (authorisatiemodel + opruiming) is `WAITING_FOR_USER` (roadmap-Beslispunt).
+- **Owner/route:** O voert 04a/04b rechtstreeks uit (security-gevoelig klein
+  bestand; briefing+review zou meer kosten dan direct uitvoeren).
+- **Completed checkpoint:** Sprint 1-afsluiting gecommit; ME-04 gestart.
+- **Next action:** `cache.php` POST-pad begrenzen (harde compressed/decompressed
+  limieten, methode/key/contenttype/gzip/JSON-structuurvalidatie) en atomair
+  maken (tempfile+rename); `tests/cache-php.mjs` requesttests tegen `php -S`
+  schrijven; changelog; checks draaien.
+- **Changed for current unit:** `cache.php`, `tests/cache-php.mjs` (nieuw),
+  `CHANGELOG.md`, dit checkpoint.
+- **Latest checks:** nog geen voor deze unit.
+- **Decisions/blockers:** ME-04c-authorisatiemodel vergt één menselijke keuze
+  (browserclients direct laten schrijven + misbruikbeperking, of een
+  server-side fetchroute); validatie/limieten/atomiciteit staan daar per
+  roadmap los van en gaan alvast door. GET-semantiek (hit/miss/`null`, gzip
+  passthrough, `?exists=`-batch) blijft byte-compatibel.
