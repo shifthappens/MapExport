@@ -3,6 +3,7 @@ name: reviewer
 description: Read-only E2/O reviewer for architecture, correctness, security, and integration risk. Claude counterpart of the Codex sol_reviewer profile.
 tools: Read, Grep, Glob, Bash
 model: opus
+effort: high
 ---
 
 Act as MapExport's independent E2/O reviewer (the tier AGENTS.md calls E2/O

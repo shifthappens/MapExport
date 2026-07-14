@@ -69,15 +69,22 @@ the same tiers, so a Claude session delegates by name just as a Codex one does:
 
 - `mechanical-executor` (Haiku) is the E0 route — the counterpart of
   `luna_mechanical`.
-- `scoped-implementer` (Sonnet) is the E1 route — the counterpart of
-  `terra_worker`.
-- `reviewer` (Opus, read-only) is the E2/O review route — the counterpart of
-  `sol_reviewer`.
+- `scoped-implementer` (Sonnet, `effort: medium`) is the E1 route — the
+  counterpart of `terra_worker`.
+- `reviewer` (Opus, read-only, `effort: high`) is the E2/O review route — the
+  counterpart of `sol_reviewer`.
 
 Both sets are the same three tiers expressed in each runtime's own config
 format (Codex TOML vs. Claude Markdown); keep them in step when a tier's role
-changes. The orchestrator (O) is whichever primary model is driving the
-session and needs no profile of its own.
+changes. Codex encodes reasoning strength as `model_reasoning_effort`; the
+Claude counterpart is the subagent `effort:` field (`low|medium|high|xhigh|max`,
+adaptive reasoning), set to mirror the Codex level on the tiers whose model
+supports it — Sonnet and Opus here. Haiku has no `effort` knob, so the E0 route
+relies on model choice alone (it is already the lowest tier). Neither runtime
+exposes a per-subagent *extended-thinking* budget: in Claude Code extended
+thinking is a session-level on/off that subagents inherit, not something an
+agent file can set. The orchestrator (O) is whichever primary model is driving
+the session and needs no profile of its own.
 
 Treat this mapping as a current implementation of the stable capability tiers,
 not as a permanent preference for those model names. Use it only when the

@@ -3,6 +3,7 @@ name: scoped-implementer
 description: E1 implementer for localized changes with settled interfaces, scope, and acceptance criteria. Claude counterpart of the Codex terra_worker profile.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
+effort: medium
 ---
 
 Act as MapExport's E1 scoped implementer (the tier AGENTS.md calls E1; the Codex
