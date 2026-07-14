@@ -189,6 +189,12 @@ rule is restated at the top of `CHANGELOG.md` itself.
   Needs a webserver serving the repo at `/mapexport/` on `:8080` with PHP
   support for `cache.php` — `lamp start` on Coen's machine, or plain
   `php -S` anywhere else (see `memory/reference_lamp_server.md`).
+- The `exports/` trail is kept thin automatically: `tools/prune-exports.sh`
+  reduces it to the newest SVG per city within a 7-day window, and
+  `.github/workflows/prune-exports.yml` runs it daily (and on demand),
+  committing the pruning to `main`. Don't hand-commit large batches of
+  intermediate exports — commit the latest per city and let the job trim the
+  rest. (git history still retains every blob; the prune only trims the tree.)
 
 ## Conventions worth preserving
 
