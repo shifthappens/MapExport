@@ -197,9 +197,13 @@ rule is restated at the top of `CHANGELOG.md` itself.
   keep the full `HH-MM-SS` timestamp and are unchanged). `tools/prune-exports.sh`
   then reduces the trail to the newest SVG per city within a 7-day window, and
   `.github/workflows/prune-exports.yml` runs it daily (and on demand),
-  committing the pruning to `main`. Don't hand-commit large batches of
-  intermediate exports — commit the latest per city and let the job trim the
-  rest. (git history still retains every blob; the prune only trims the tree.)
+  committing the pruning to `main`. **Standing policy (Coen, 2026-07-14): after
+  a sweep, commit the newest SVG per city by default** — stage the latest
+  date-stamped file for each city and `git rm` the superseded older-dated ones
+  (the same newest-per-city shape the prune job enforces), so the trail moves
+  forward with the work instead of waiting on the daily job. Don't hand-commit
+  large batches of intermediate exports beyond that newest-per-city set. (git
+  history still retains every blob; the prune only trims the tree.)
 
 ## Conventions worth preserving
 
