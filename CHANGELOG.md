@@ -11,6 +11,16 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Cache endpoint rejects bad uploads and writes atomically
+- The server-side tile cache (`cache.php`) now refuses uploads that aren't
+  shaped like our own Overpass tiles before anything touches disk: wrong
+  method/content type, corrupt or truncated gzip, non-JSON payloads, bodies
+  over 8 MiB compressed or 80 MiB decompressed (gzip bombs included). Valid
+  entries are staged in a temp file and renamed into place, so a reader can
+  never see a half-written tile and a failed upload can never clobber a good
+  cached entry. Existing cache hits, misses, the `?exists=` batch probe and
+  legacy uncompressed entries behave exactly as before.
+
 ### 2026-07-14 — Engine v2: countryside/roadless frames are covered again
 - A v2 export of a frame with no block-cutting roads (open countryside, or a
   view with only paths or tunnels) no longer comes back blank. The frame is now

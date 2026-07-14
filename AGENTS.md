@@ -183,7 +183,9 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
   `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),
-  `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise).
+  `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise),
+  `tests/cache-php.mjs` (cache.php limits/validation/atomic writes — needs a
+  `php` CLI; spins up its own `php -S` on localhost, no network beyond that).
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build
   step) headless and writes a real SVG to `exports/` (a committed "trail").
   It hits live Overpass if the local cache isn't running, so it can be slow.

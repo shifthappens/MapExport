@@ -186,6 +186,7 @@ node tests/pipeline-equivalence.mjs
 node tests/sea-sign.mjs
 node tests/hamlet-grounding.mjs
 node tests/v2-cutterless-coverage.mjs
+node tests/cache-php.mjs
 ```
 
 ### Syntax en statische basiscontrole

@@ -43,6 +43,10 @@ echo
 echo "== v2-cutterless-coverage (offline, roadless frame still gets a face) =="
 node tests/v2-cutterless-coverage.mjs
 
+echo
+echo "== cache-php (offline, cache.php bounds/validation/atomic writes; php -S on localhost) =="
+node tests/cache-php.mjs
+
 if [ "${OFFLINE_ONLY:-0}" = "1" ]; then
   echo
   echo "(OFFLINE_ONLY=1 — skipping query-equivalence)"
