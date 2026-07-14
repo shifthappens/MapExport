@@ -182,7 +182,8 @@ rule is restated at the top of `CHANGELOG.md` itself.
 - Offline (no network): `node tests/road-merge.mjs`, `tests/abbreviate.mjs`,
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
-  `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding).
+  `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),
+  `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise).
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build
   step) headless and writes a real SVG to `exports/` (a committed "trail").
   It hits live Overpass if the local cache isn't running, so it can be slow.

@@ -184,6 +184,7 @@ node tests/supersession.mjs
 node tests/pipeline-equivalence.mjs
 node tests/sea-sign.mjs
 node tests/hamlet-grounding.mjs
+node tests/v2-cutterless-coverage.mjs
 ```
 
 ### Syntax en statische basiscontrole
@@ -363,7 +364,7 @@ in `engine-v2.js`.
 - Snel achtereenvolgende invoer kan geen verouderde preview tonen.
 - Een mislukte export bewaart de vorige geldige download, met heldere UI-status.
 
-### [ ] ME-03 — v2-dekkingsbelofte herstellen zonder wegen
+### [x] ME-03 — v2-dekkingsbelofte herstellen zonder wegen
 
 **Complexiteit:** middel
 

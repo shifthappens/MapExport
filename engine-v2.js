@@ -1837,7 +1837,13 @@ self.onmessage = function(event) {
   function computeFacesAsync(cutterResults, buildingElements, classified, pr, W, H, onProgress, opts = {}) {
     return new Promise((resolve, reject) => {
       const data = prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, opts.bbox, opts.placeNodeElements);
-      if (!data.cutterLines.length) { resolve({ blocks: [] }); return; }
+      // No early-out on empty cutters. A bbox with no block-cutting roads (open
+      // countryside, a paths-only or tunnels-only frame) still owes the coverage
+      // promise (ENGINE-V2.md §1): the worker cuts the frame rectangle minus an
+      // empty void into ONE full-frame face, which classification then paints as
+      // countryside, a cream block or fallback. Returning { blocks: [] } here
+      // left that whole frame bare — the page showed through. The worker already
+      // handles empty cutterLines (voidClean is empty → face = frame).
 
       let worker;
       try {

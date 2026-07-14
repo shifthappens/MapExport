@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Engine v2: countryside/roadless frames are covered again
+- A v2 export of a frame with no block-cutting roads (open countryside, or a
+  view with only paths or tunnels) no longer comes back blank. The frame is now
+  painted by the normal coverage layers instead of showing the page through.
+
 ### 2026-07-14 — Live previews no longer replace full downloads
 - Reduced previews now have separate, engine-aware state, so changing layers
   cannot replace the last complete SVG download and stale preview updates are
