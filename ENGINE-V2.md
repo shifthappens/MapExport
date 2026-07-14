@@ -28,7 +28,13 @@ the authority:
 - **Geometric lint** (`tests/coverage-lint.mjs`): rasterizes the *worker's
   model* (blocks + area features + cut lines) on a grid. Fast, offline, finds
   model-level regressions. On v2 runs, unpainted countryside placeholders do
-  NOT count as covered (`countrysideCovers: false`).
+  NOT count as covered (`countrysideCovers: false`). When a landcover element
+  carries `_mergedRings` (a green-remainder merge — grown to element ∪ the
+  green-open coverage remainder it sits in), the lint marks those grown rings,
+  exactly as `renderLandcover` paints them; marking only the raw element
+  geometry there made the grown-only band read as a false unpainted-land gap
+  while the SVG covered it (fixed 2026-07-14 — a lint-side complement-rule
+  slip, engine unchanged).
 - **Render coverage** (`tests/render-coverage.mjs`): rasterizes the *finished
   SVG* over a magenta page in headless Chrome and counts actual bare pixels.
   The model and the paint have disagreed three separate times (rail corridors

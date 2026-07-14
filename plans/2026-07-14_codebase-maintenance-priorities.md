@@ -403,6 +403,33 @@ land door een semantische laag of fallback wordt gedekt.
 - Een groot countryside-face blijft conform contract achtergrond.
 - Een gerichte offline regressietest legt deze gevallen vast.
 
+### [x] ME-03b — coverage-lint eert merged landcover (ontdekt in de ME-03 v2-sweep)
+
+**Complexiteit:** laag — test-infrastructuur, geen enginegedrag.
+
+**Impact:** deblokkeert de Sprint 1-eindpoort; de zeven-area v2-sweep faalde
+vals-positief.
+
+**Context voor andere agents:** tijdens de verplichte v2-sweep na ME-03 faalde
+de geometrische lint (`tests/coverage-lint.mjs`) op Tilburg met 7 significante
+"unpainted land"-cellen, terwijl de render-lint (de autoriteit, ENGINE-V2.md §1)
+0.000% bare pixels rapporteerde. Bewezen niet door ME-03 veroorzaakt: de
+parent-commit gaf identieke gaps.
+
+**Root cause:** een green-remainder merge groeit een landcover-element tot
+`element ∪ green-open coverage-remainder` en `renderLandcover` schildert die
+grown vorm via `el._mergedRings` (al in projected px). De lint markeerde alleen
+de originele elementgeometrie, dus de grown-only band telde niet mee → valse
+gaps waar de SVG wél inkt zet. Een complement-regel-slip aan de testkant.
+
+**Fix:** `coverage-lint.mjs` stap 2 markeert `el._mergedRings` (superset van de
+eigen geometrie) wanneer aanwezig, exact zoals `renderLandcover` schildert.
+Engine ongewijzigd. `expectations.json` behoudt `coverageGaps: 0` — geen
+allowance nodig, want de gaps waren nooit echt.
+
+**Acceptatie:** Tilburg v2 gaat van 7 → 0 significante gaps; render blijft
+0.000%. De zeven-area sweep is groen zonder nieuwe allowance.
+
 ## Sprint 2 — Robuuste data-infrastructuur
 
 **Status:** PLANNED

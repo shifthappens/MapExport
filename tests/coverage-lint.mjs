@@ -134,6 +134,19 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr, countr
   for (const { layer, data: rdata } of results) {
     if (layer.id !== 'water_bodies' && layer.id !== 'parks' && layer.id !== 'landcover') continue;
     for (const el of rdata.elements) {
+      // Green-remainder merge (engine-v2 doExportV2 / real-export): a landcover
+      // element is grown to (element ∪ the green-open coverage remainder it lies
+      // in), and renderLandcover paints THAT grown shape via el._mergedRings —
+      // rings already in projected px at the void tolerance. Mark exactly what
+      // the renderer paints, or the grown-only band reads as a false
+      // unpainted-land gap while the SVG covers it (a model-vs-paint
+      // disagreement, ENGINE-V2.md §1: the paint is authoritative). The grown
+      // rings are a superset of the element's own geometry, so this replaces —
+      // not supplements — the raw-geometry marking below.
+      if (el._mergedRings) {
+        markShape(el._mergedRings.filter(r => r.length >= 3));
+        continue;
+      }
       let outer, inner;
       if (el.type === 'way' && el.geometry?.length >= 3) { outer = [el.geometry]; inner = []; }
       else if (el.type === 'relation' && el.members) {
