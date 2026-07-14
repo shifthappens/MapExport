@@ -99,6 +99,17 @@ Endpoints:
 - `POST cache.php?key=...` — store a response (accepts plain JSON or gzip)
 - `GET cache.php?exists=k1,k2,...` — batch probe up to 64 keys (returns `{k:bool}`)
 
+Writes are guarded (the endpoint is public by design — browsers fetch Overpass
+from their own IPs and share results back, which keeps Overpass load off any
+single server IP): uploads must be JSON shaped like an Overpass response
+(an `elements` array), at most 8 MiB compressed / 80 MiB decompressed, are
+staged to a temp file and renamed into place atomically, and each IP gets at
+most 300 writes per 10 minutes (429 beyond that — the app just treats it as a
+cache miss). A sweep during writes proactively drops entries past the 7-day
+TTL and prunes oldest-first whenever `cache/` exceeds 2 GiB. All knobs have
+`MAPEXPORT_CACHE_*` env overrides (see the top of `cache.php`), used by
+`tests/cache-php.mjs`.
+
 ## Architecture
 
 ### Layer registry

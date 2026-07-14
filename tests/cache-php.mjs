@@ -23,32 +23,39 @@ const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 try { execFileSync('php', ['-v'], { stdio: 'ignore' }); }
 catch { console.error('[cache] SKIP-FAIL: php CLI not found — this test needs it'); process.exit(1); }
 
-// ---- throwaway docroot + server ----
-const docroot = fs.mkdtempSync(path.join(os.tmpdir(), 'mapexport-cache-test-'));
-fs.copyFileSync(path.join(REPO, 'cache.php'), path.join(docroot, 'cache.php'));
-const cacheDir = path.join(docroot, 'cache');
+// ---- throwaway docroots + servers (one per limit configuration) ----
+const servers = [];
+process.on('exit', () => {
+  for (const s of servers) { try { s.php.kill(); } catch {} try { fs.rmSync(s.docroot, { recursive: true, force: true }); } catch {} }
+});
 
-const PORT = 18730 + (process.pid % 200);
-const BASE = `http://127.0.0.1:${PORT}/cache.php`;
-const php = spawn('php', [
-  '-d', 'post_max_size=64M', '-d', 'memory_limit=256M',
-  '-d', 'display_errors=0', '-d', 'log_errors=0',
-  '-S', `127.0.0.1:${PORT}`, '-t', docroot,
-], { stdio: 'ignore' });
-
-let phpExited = false;
-php.on('exit', () => { phpExited = true; });
-function cleanup() { try { php.kill(); } catch {} try { fs.rmSync(docroot, { recursive: true, force: true }); } catch {} }
-process.on('exit', cleanup);
-
-for (let i = 0; ; i++) {
-  if (phpExited) { console.error(`[cache] php -S failed to start on :${PORT}`); process.exit(1); }
-  try { await fetch(`${BASE}?key=warmup`); break; }
-  catch {
-    if (i >= 50) { console.error('[cache] php -S never became reachable'); process.exit(1); }
-    await new Promise(r => setTimeout(r, 100));
+let nextPort = 18730 + (process.pid % 200) * 3;
+async function startServer(env = {}) {
+  const docroot = fs.mkdtempSync(path.join(os.tmpdir(), 'mapexport-cache-test-'));
+  fs.copyFileSync(path.join(REPO, 'cache.php'), path.join(docroot, 'cache.php'));
+  const port = nextPort++;
+  const php = spawn('php', [
+    '-d', 'post_max_size=64M', '-d', 'memory_limit=256M',
+    '-d', 'display_errors=0', '-d', 'log_errors=0',
+    '-S', `127.0.0.1:${port}`, '-t', docroot,
+  ], { stdio: 'ignore', env: { ...process.env, ...env } });
+  const srv = { php, docroot, exited: false,
+    base: `http://127.0.0.1:${port}/cache.php`, cacheDir: path.join(docroot, 'cache') };
+  php.on('exit', () => { srv.exited = true; });
+  servers.push(srv);
+  for (let i = 0; ; i++) {
+    if (srv.exited) { console.error(`[cache] php -S failed to start on :${port}`); process.exit(1); }
+    try { await fetch(`${srv.base}?key=warmup`); break; }
+    catch {
+      if (i >= 50) { console.error('[cache] php -S never became reachable'); process.exit(1); }
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
+  return srv;
 }
+
+const main = await startServer(); // production-default limits
+const { base: BASE, cacheDir } = main;
 
 // ---- tiny assertion harness (same shape as the other offline tests) ----
 let failures = 0;
@@ -170,7 +177,8 @@ const docJson = JSON.stringify(doc);
 // ---- ME-04b: atomicity observable side ----
 {
   check('no .tmp staging files left behind', noTempLeft(), cacheFiles().join(','));
-  const entries = cacheFiles();
+  // dotfiles (.lastsweep marker, .ratelimit/ counters) are bookkeeping, not entries
+  const entries = cacheFiles().filter(f => !f.startsWith('.'));
   check('cache dir holds only complete .json.gz entries',
     entries.length > 0 && entries.every(f => f.endsWith('.json.gz')), entries.join(','));
 
@@ -185,6 +193,50 @@ const docJson = JSON.stringify(doc);
   await post('t_gz', gz.subarray(0, gz.length - 6), GZ_HDR);
   const r2 = await get('t_gz');
   check('failed overwrite keeps previous entry', JSON.stringify(await r2.json()) === doc2);
+}
+
+// ---- ME-04c: per-IP write rate limit (dedicated server, 5 writes / 60 s) ----
+{
+  const rl = await startServer({ MAPEXPORT_CACHE_RL_MAX: '5', MAPEXPORT_CACHE_RL_WINDOW: '60' });
+  let last;
+  for (let i = 1; i <= 5; i++) last = await fetch(`${rl.base}?key=rl_${i}`, { method: 'POST', headers: JSON_HDR, body: docJson });
+  check('writes within the limit → 204', last.status === 204, `got ${last.status}`);
+  const over = await fetch(`${rl.base}?key=rl_6`, { method: 'POST', headers: JSON_HDR, body: docJson });
+  check('write over the limit → 429 with Retry-After',
+    over.status === 429 && +(over.headers.get('retry-after') || 0) >= 1, `got ${over.status}`);
+  check('throttled write not stored', (await (await fetch(`${rl.base}?key=rl_6`)).text()) === 'null');
+  const rd = await fetch(`${rl.base}?key=rl_1`);
+  check('reads are never rate limited', rd.status === 200 && rd.headers.get('x-cache') === 'HIT');
+}
+
+// ---- ME-04c: total-size cap prunes oldest (dedicated server, 15 KB cap) ----
+{
+  const sz = await startServer({
+    MAPEXPORT_CACHE_MAX_BYTES: '15000', MAPEXPORT_CACHE_SWEEP_INTERVAL: '0',
+    MAPEXPORT_CACHE_RL_MAX: '1000',
+  });
+  // incompressible ~3 KiB per entry so sizes on disk are predictable
+  const fat = () => JSON.stringify({ elements: [], pad: randomBytes(2200).toString('base64') });
+  for (let i = 1; i <= 6; i++) {
+    await fetch(`${sz.base}?key=sz_${i}`, { method: 'POST', headers: JSON_HDR, body: fat() });
+    // sweeps order by mtime — spread them so "oldest" is well-defined
+    const t = new Date(Date.now() - (10 - i) * 60000);
+    fs.utimesSync(path.join(sz.cacheDir, `sz_${i}.json.gz`), t, t);
+  }
+  await fetch(`${sz.base}?key=sz_7`, { method: 'POST', headers: JSON_HDR, body: fat() });
+  const left = fs.readdirSync(sz.cacheDir).filter(f => f.endsWith('.json.gz'));
+  const total = left.reduce((n, f) => n + fs.statSync(path.join(sz.cacheDir, f)).size, 0);
+  check('sweep prunes cache below the size cap', total <= 15000, `${total} bytes across ${left.join(',')}`);
+  check('oldest entries pruned first, newest kept',
+    !left.includes('sz_1.json.gz') && left.includes('sz_7.json.gz'), left.join(','));
+
+  // proactive TTL deletion: an expired entry disappears on sweep, without a read
+  const stale = path.join(sz.cacheDir, 'sz_stale.json.gz');
+  fs.writeFileSync(stale, zlib.gzipSync(docJson));
+  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(stale, past, past);
+  await fetch(`${sz.base}?key=sz_8`, { method: 'POST', headers: JSON_HDR, body: fat() });
+  check('sweep proactively deletes TTL-expired entries', !fs.existsSync(stale));
 }
 
 if (failures) { console.error(`[cache] ${failures} check(s) failed`); process.exit(1); }

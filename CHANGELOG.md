@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Cache endpoint rate-limits writes and bounds its disk use
+- Each IP may now store at most 300 cache entries per 10 minutes; anything
+  more gets HTTP 429 and the app simply proceeds as if the cache missed, so
+  exports never fail because of the throttle. The cache also cleans up after
+  itself during writes: entries past the 7-day TTL are dropped proactively
+  and, above 2 GiB total, the oldest entries are pruned first. Decision
+  recorded with ME-04c: browsers keep writing directly (no server-side
+  Overpass proxy), so Overpass load stays spread across user IPs.
+
 ### 2026-07-14 — Cache endpoint rejects bad uploads and writes atomically
 - The server-side tile cache (`cache.php`) now refuses uploads that aren't
   shaped like our own Overpass tiles before anything touches disk: wrong

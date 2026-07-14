@@ -471,7 +471,7 @@ productfeature, query-uitbreidingen, deployment of infrastructuurmigratie.
 netwerkfouttests zijn groen; geldige bestaande cache-hits blijven compatibel;
 geen test vereist live netwerk.
 
-### [ ] ME-04 — `cache.php` begrenzen en atomair maken
+### [x] ME-04 — `cache.php` begrenzen en atomair maken
 
 **Complexiteit:** hoog
 
@@ -523,6 +523,15 @@ mogelijk.
 Het precieze authorisatiemodel kan deploymentconfiguratie raken en vraagt vóór
 implementatie om één menselijke keuze. De validatie-, limiet- en atomiciteits-
 maatregelen kunnen onafhankelijk daarvan alvast worden uitgevoerd.
+
+**Besluit (Coen, 2026-07-14):** browserclients blijven direct schrijven — een
+server-side Overpass-fetchroute zou al het Overpass-verkeer via één server-IP
+laten lopen en de hele dienst gevoelig maken voor throttling. Misbruik wordt
+begrensd in plaats van geauthenticeerd: uploadvalidatie (ME-04a), een per-IP
+schrijflimiet (300 writes/10 min, 429 + Retry-After, fail-open) en een totale
+cachegrens van 2 GiB met oudste-eerst-pruning plus proactieve TTL-opruiming
+tijdens writes (ME-04c). Knoppen zijn via `MAPEXPORT_CACHE_*`-env overridebaar
+voor de requesttests.
 
 ### [ ] ME-05 — Overpass-failover en time-outs eenduidig maken
 

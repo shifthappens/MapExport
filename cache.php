@@ -10,6 +10,78 @@ $CACHE_TTL = 7 * 24 * 3600; // 7 days
 $MAX_BODY_BYTES    = 8 * 1024 * 1024;
 $MAX_DECODED_BYTES = 80 * 1024 * 1024;
 
+// ME-04c write-authorization model (decided by Coen, 2026-07-14): browsers
+// keep writing directly — a server-side Overpass proxy would funnel every
+// user's Overpass traffic through this one server IP and get the whole
+// service throttled — so abuse is bounded instead of authenticated: the
+// upload validation above, a per-IP write rate limit, and a total-size cap
+// pruning oldest entries first. The env overrides exist for the request
+// tests; production runs on these defaults.
+$envInt = function ($name, $default) {
+    $v = getenv($name); // NB: not `?:` — an explicit "0" must stay 0
+    return ($v === false || $v === '') ? $default : (int)$v;
+};
+$RL_MAX_WRITES   = $envInt('MAPEXPORT_CACHE_RL_MAX', 300);      // per IP per window
+$RL_WINDOW       = $envInt('MAPEXPORT_CACHE_RL_WINDOW', 600);   // seconds
+$MAX_CACHE_BYTES = $envInt('MAPEXPORT_CACHE_MAX_BYTES', 2147483648); // 2 GiB
+$SWEEP_INTERVAL  = $envInt('MAPEXPORT_CACHE_SWEEP_INTERVAL', 300);   // seconds
+
+// Fixed-window per-IP write counter in cache/.ratelimit/ (REMOTE_ADDR only —
+// the app sits behind no proxy, so forwarded headers are attacker-controlled).
+// Counts attempts, not successes, so hammering rejects doesn't stay free.
+// Fails open: a broken limiter must never break exports, it only stops
+// guarding them.
+function writeRateLimited($cacheDir, $max, $window) {
+    $dir = $cacheDir . '.ratelimit/';
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $fh = @fopen($dir . 'rl_' . substr(sha1($_SERVER['REMOTE_ADDR'] ?? ''), 0, 16), 'c+');
+    if (!$fh || !flock($fh, LOCK_EX)) { if ($fh) fclose($fh); return false; }
+    $now = time();
+    $parts = explode(' ', trim((string)stream_get_contents($fh)));
+    $start = (int)($parts[0] ?? 0);
+    $count = ($now - $start >= $window) ? 0 : (int)($parts[1] ?? 0);
+    if ($count === 0) $start = $now;
+    $count++;
+    ftruncate($fh, 0); rewind($fh); fwrite($fh, "$start $count");
+    flock($fh, LOCK_UN); fclose($fh);
+    if ($count <= $max) return false;
+    header('Retry-After: ' . max(1, $start + $window - $now));
+    return true;
+}
+
+// Opportunistic cleanup, at most once per $interval and behind a non-blocking
+// lock so concurrent uploads don't stampede: proactively drop TTL-expired
+// entries (lazy expiry only fires when a key is read), then, if the cache
+// still exceeds $maxBytes, prune oldest-mtime entries down to 90% of the cap.
+function sweepCache($cacheDir, $maxBytes, $ttl, $interval, $rlWindow) {
+    $marker = $cacheDir . '.lastsweep';
+    if (file_exists($marker) && time() - filemtime($marker) < $interval) return;
+    $fh = @fopen($marker, 'c');
+    if (!$fh) return;
+    if (!flock($fh, LOCK_EX | LOCK_NB)) { fclose($fh); return; }
+    touch($marker);
+    $now = time();
+    $entries = []; $total = 0;
+    foreach (array_merge(glob($cacheDir . '*.json.gz') ?: [], glob($cacheDir . '*.json') ?: []) as $p) {
+        $mtime = @filemtime($p); $size = @filesize($p);
+        if ($mtime === false || $size === false) continue;
+        if ($now - $mtime > $ttl) { @unlink($p); continue; }
+        $entries[] = [$mtime, $size, $p];
+        $total += $size;
+    }
+    if ($total > $maxBytes) {
+        usort($entries, fn($a, $b) => $a[0] <=> $b[0]);
+        foreach ($entries as [, $size, $p]) {
+            if ($total <= (int)($maxBytes * 0.9)) break;
+            if (@unlink($p)) $total -= $size;
+        }
+    }
+    foreach (glob($cacheDir . '.ratelimit/rl_*') ?: [] as $p) {
+        if ($now - (@filemtime($p) ?: $now) > 2 * $rlWindow) @unlink($p);
+    }
+    flock($fh, LOCK_UN); fclose($fh);
+}
+
 function validKey($k) { return preg_match('/^[a-z0-9_.\-]+$/i', $k) && strlen($k) > 0 && strlen($k) <= 120; }
 
 // Overpass responses (and the client's {elements:[...]} envelopes) put the
@@ -102,6 +174,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         http_response_code(413); exit;
     }
 
+    // ME-04c: per-IP write throttle, before the body is read. The client
+    // treats any failed cache write as a plain miss, so a 429 costs one
+    // re-fetch from Overpass, never a failed export.
+    if (writeRateLimited($CACHE_DIR, $RL_MAX_WRITES, $RL_WINDOW)) {
+        http_response_code(429); exit;
+    }
+
     // ME-04b: reap temp files that an aborted upload may have stranded.
     // Anything .tmp-prefixed older than an hour is garbage by construction.
     foreach (glob($CACHE_DIR . '.tmp*') ?: [] as $stale) {
@@ -176,6 +255,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
     // Remove legacy uncompressed file if it exists
     if (file_exists($fileLegacy)) @unlink($fileLegacy);
+
+    // ME-04c: bound total cache size now that this write landed.
+    sweepCache($CACHE_DIR, $MAX_CACHE_BYTES, $CACHE_TTL, $SWEEP_INTERVAL, $RL_WINDOW);
     http_response_code(204);
 
 } else {
