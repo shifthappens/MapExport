@@ -94,6 +94,8 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 - `road-merge.mjs` / `abbreviate.mjs` — offline unit tests for way stitching and label abbreviation.
 - `export-failures.mjs` — offline v1/v2 orchestration checks proving network and worker failures restore the UI without replacing the last successful SVG, preview or history.
 - `preview-state.mjs` — offline preview/download state checks proving previews cannot replace export bytes, v1/v2 use their own builder and stale preview requests cannot commit.
+- `overpass-fetch.mjs` — offline (mocked fetch) checks of the shared Overpass fetch contract: hard per-attempt timeouts, failover to a healthy endpoint, race-loser and export-abort cancellation, typed failure kinds (`timeout`/`rate-limited`/`http`/`network`/`parse`/`aborted`) and elements-empty-but-valid responses.
+- `cache-php.mjs` — offline request tests for `cache.php` (spawns its own `php -S` instances on localhost with throwaway docroots): payload bounds (8 MiB received / 80 MiB decompressed), method/key/content-type/gzip/JSON-structure rejection, atomic temp-file+rename writes, per-IP write rate limiting (429), the size-cap/TTL sweep, and GET/`?exists=`/legacy compatibility. Tight-limit instances use the `MAPEXPORT_CACHE_*` env overrides.
 - `sea-sign.mjs` — offline check of engine v2's coastline→sea geometry (stitching, perimeter walk, island holes).
 - `hamlet-grounding.mjs` — offline check of engine v2's hamlet place-node grounding predicate (tier radii, point-to-polygon distance, nearest-name).
 - `v2-cutterless-coverage.mjs` — offline guard that a v2 frame with no block-cutting roads (no roads, paths only, tunnels only) still reaches the face worker instead of short-circuiting to an empty, page-baring export.

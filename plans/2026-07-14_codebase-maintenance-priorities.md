@@ -1,6 +1,7 @@
 # Roadmap: maintenance sprints
 
-**Status: READY TO IMPLEMENT (2026-07-14).** Geprioriteerde technische
+**Status: IN PROGRESS (2026-07-14) — Sprint 1 en 2 COMPLETE, Sprint 3 is de
+volgende.** Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
@@ -185,6 +186,8 @@ node tests/pipeline-equivalence.mjs
 node tests/sea-sign.mjs
 node tests/hamlet-grounding.mjs
 node tests/v2-cutterless-coverage.mjs
+node tests/overpass-fetch.mjs
+node tests/cache-php.mjs
 ```
 
 ### Syntax en statische basiscontrole
@@ -254,18 +257,21 @@ v2-besluit en pas daarna de grote structurele refactor.
 ```text
 Sprint review — 2026-07-14
 Uitkomst Sprint Goal: gehaald
-Afgerond: ME-01, ME-02, ME-03 (+ ME-03b coverage-lint-fix)
+Afgerond: ME-01, ME-02, ME-03, ME-03b
 Niet afgerond: geen
 Gecontroleerd: volledige offline suite + syntaxchecks groen; zeven-area
-  v2-sweep 0.000% bare / 0 significante lint-gaps; Coen heeft de exports
-  visueel bekeken en de coverage/hoeveelheid-groen goedgekeurd (Gera-island
-  "perfecte mix").
-Besluiten: de visuele review leverde cartografische feedback op die BUITEN de
-  "geen features"-charter van deze roadmap valt (sand-naamgeving, groen
-  ontrommelen, countryside/parks samenvoegen). Die staat als apart, actief plan
-  in `plans/2026-07-14_v2-cartografische-feedback.md` (CF-01/CF-02 uitvoerbaar,
-  CF-03 backlog met ontwerpbesluit). De maintenance-roadmap gaat verder bij
-  Sprint 2 (ME-04) zodra dat cartografische werk of Coen dat vrijgeeft.
+v2-sweep groen (0 significante coverage-gaps, 0.000% bare, geen nieuwe
+allowance); gesimuleerde netwerk- en workerfout leveren geen nieuw SVG op
+(tests/export-failures.mjs); menselijke visuele sign-off op de zeven
+v2-exports door Coen gegeven op 2026-07-14 (Gera-island "perfecte mix").
+Besluiten: de 2026-07-14 v2-exports zijn als newest-per-city trail gecommit
+(2741e28) en dat is nu de gedocumenteerde standaard na een sweep; de
+render-lint blijft de onafhankelijke coverage-autoriteit naast de
+geometrische lint. De visuele review leverde daarnaast cartografische
+feedback op die BUITEN de "geen features"-charter van deze roadmap valt
+(sand-naamgeving, groen ontrommelen, countryside/parks samenvoegen); die
+staat als apart plan in `plans/2026-07-14_v2-cartografische-feedback.md`
+(CF-01/CF-02 gecommit, CF-03 backlog met ontwerpbesluit — GitHub #2).
 ```
 
 **Sprint Goal:** gebruikers en vervolgstappen kunnen erop vertrouwen dat een
@@ -461,7 +467,27 @@ allowance nodig, want de gaps waren nooit echt.
 
 ## Sprint 2 — Robuuste data-infrastructuur
 
-**Status:** PLANNED
+**Status:** COMPLETE
+
+```text
+Sprint review — 2026-07-14
+Uitkomst Sprint Goal: gehaald
+Afgerond: ME-04 (a/b/c), ME-05
+Niet afgerond: geen
+Gecontroleerd: cachemisbruiktests (tests/cache-php.mjs, 38 checks tegen echte
+php -S-instanties) en gemockte netwerkfouttests (tests/overpass-fetch.mjs,
+17 checks) groen; volledige offline suite + syntaxchecks groen; geldige
+bestaande cache-hits/misses/?exists= byte-compatibel bewezen; geen enkele
+test raakt live netwerk. Geen live export gedraaid (geen render-/SVG-gedrag
+gewijzigd).
+Besluiten: ME-04c-authorisatiemodel door Coen gekozen — browser writes
+blijven, begrensd met per-IP rate limit (300/10 min) en 2 GiB-cachegrens
+met oudste-eerst-pruning; geen server-side Overpass-proxy (zou al het
+Overpass-verkeer via één server-IP funnelen). ME-05: alle Overpass-requests
+lopen via één gedeeld contract (harde per-poging-timeout, rotatie met korte
+backoff na iedere mislukte poging, export-brede abort, getypeerde fouten);
+foutmeldingen noemen soort uitval + mislukte tile.
+```
 
 **Sprint Goal:** geldige exports blijven voorspelbaar functioneren wanneer de
 publieke cache of één of meer Overpass-endpoints traag, corrupt of onbereikbaar
@@ -482,7 +508,7 @@ productfeature, query-uitbreidingen, deployment of infrastructuurmigratie.
 netwerkfouttests zijn groen; geldige bestaande cache-hits blijven compatibel;
 geen test vereist live netwerk.
 
-### [ ] ME-04 — `cache.php` begrenzen en atomair maken
+### [x] ME-04 — `cache.php` begrenzen en atomair maken
 
 **Complexiteit:** hoog
 
@@ -535,7 +561,16 @@ Het precieze authorisatiemodel kan deploymentconfiguratie raken en vraagt vóór
 implementatie om één menselijke keuze. De validatie-, limiet- en atomiciteits-
 maatregelen kunnen onafhankelijk daarvan alvast worden uitgevoerd.
 
-### [ ] ME-05 — Overpass-failover en time-outs eenduidig maken
+**Besluit (Coen, 2026-07-14):** browserclients blijven direct schrijven — een
+server-side Overpass-fetchroute zou al het Overpass-verkeer via één server-IP
+laten lopen en de hele dienst gevoelig maken voor throttling. Misbruik wordt
+begrensd in plaats van geauthenticeerd: uploadvalidatie (ME-04a), een per-IP
+schrijflimiet (300 writes/10 min, 429 + Retry-After, fail-open) en een totale
+cachegrens van 2 GiB met oudste-eerst-pruning plus proactieve TTL-opruiming
+tijdens writes (ME-04c). Knoppen zijn via `MAPEXPORT_CACHE_*`-env overridebaar
+voor de requesttests.
+
+### [x] ME-05 — Overpass-failover en time-outs eenduidig maken
 
 **Complexiteit:** hoog
 

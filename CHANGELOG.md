@@ -29,6 +29,37 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   `landuse=grass`) below ~80 m² are no longer painted, so parks and lawns stay
   green without the map filling up with green confetti. Coverage is unchanged.
 
+### 2026-07-14 — Overpass failover, timeouts and cancellation unified
+- Every Overpass request in both engines now goes through one shared fetch
+  contract: a hung endpoint hits a hard per-attempt timeout, goes on a short
+  backoff, and a healthy endpoint takes over instead of the export stalling
+  or the same dead host being retried. When an export fails, all of its
+  still-running requests (including losing race requests) are cancelled at
+  once. Error messages now name the actual kind of outage — timeout, rate
+  limit, HTTP error, unreadable response or network drop — and which tile
+  failed, and a failing cache read is reported as such instead of silently
+  looking like an empty cache. An empty-but-valid Overpass answer is still
+  treated as a legitimate empty map layer, never as an error.
+
+### 2026-07-14 — Cache endpoint rate-limits writes and bounds its disk use
+- Each IP may now store at most 300 cache entries per 10 minutes; anything
+  more gets HTTP 429 and the app simply proceeds as if the cache missed, so
+  exports never fail because of the throttle. The cache also cleans up after
+  itself during writes: entries past the 7-day TTL are dropped proactively
+  and, above 2 GiB total, the oldest entries are pruned first. Decision
+  recorded with ME-04c: browsers keep writing directly (no server-side
+  Overpass proxy), so Overpass load stays spread across user IPs.
+
+### 2026-07-14 — Cache endpoint rejects bad uploads and writes atomically
+- The server-side tile cache (`cache.php`) now refuses uploads that aren't
+  shaped like our own Overpass tiles before anything touches disk: wrong
+  method/content type, corrupt or truncated gzip, non-JSON payloads, bodies
+  over 8 MiB compressed or 80 MiB decompressed (gzip bombs included). Valid
+  entries are staged in a temp file and renamed into place, so a reader can
+  never see a half-written tile and a failed upload can never clobber a good
+  cached entry. Existing cache hits, misses, the `?exists=` batch probe and
+  legacy uncompressed entries behave exactly as before.
+
 ### 2026-07-14 — Engine v2: countryside/roadless frames are covered again
 - A v2 export of a frame with no block-cutting roads (open countryside, or a
   view with only paths or tunnels) no longer comes back blank. The frame is now

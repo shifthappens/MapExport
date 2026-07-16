@@ -184,7 +184,11 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
   `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),
   `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise,
-  orchestration-level: fake worker).
+  orchestration-level: fake worker),
+  `tests/overpass-fetch.mjs` (shared Overpass timeout/failover/abort contract,
+  mocked fetch),
+  `tests/cache-php.mjs` (cache.php limits/validation/atomic writes — needs a
+  `php` CLI; spins up its own `php -S` on localhost, no network beyond that).
 - Needs ClipperLib (CDN, cached in the OS temp dir like `real-export.mjs`; runs
   offline once warm, else SKIPs): `tests/v2-cutterless-worker.mjs` runs the real
   face worker on an empty frame and asserts a full-frame `fallback` face — the
