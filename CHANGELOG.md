@@ -11,6 +11,14 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-14 — Engine v2: "Sand" layer and less green confetti
+- The v2 "Beaches" layer is now "Sand" and labels each patch by what OSM
+  actually records — Beach, Dune, Sandbox, or plain Sand — so inland sandy
+  ground stops being called a beach. Coastal dunes (`natural=dune`) now render.
+- Tiny grass patches (street verges, tree pits, single-bush beds mapped as
+  `landuse=grass`) below ~80 m² are no longer painted, so parks and lawns stay
+  green without the map filling up with green confetti. Coverage is unchanged.
+
 ### 2026-07-14 — Engine v2: countryside/roadless frames are covered again
 - A v2 export of a frame with no block-cutting roads (open countryside, or a
   view with only paths or tunnels) no longer comes back blank. The frame is now

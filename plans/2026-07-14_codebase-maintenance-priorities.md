@@ -249,7 +249,24 @@ v2-besluit en pas daarna de grote structurele refactor.
 
 ## Sprint 1 — Betrouwbaar exportcontract
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
+
+```text
+Sprint review — 2026-07-14
+Uitkomst Sprint Goal: gehaald
+Afgerond: ME-01, ME-02, ME-03 (+ ME-03b coverage-lint-fix)
+Niet afgerond: geen
+Gecontroleerd: volledige offline suite + syntaxchecks groen; zeven-area
+  v2-sweep 0.000% bare / 0 significante lint-gaps; Coen heeft de exports
+  visueel bekeken en de coverage/hoeveelheid-groen goedgekeurd (Gera-island
+  "perfecte mix").
+Besluiten: de visuele review leverde cartografische feedback op die BUITEN de
+  "geen features"-charter van deze roadmap valt (sand-naamgeving, groen
+  ontrommelen, countryside/parks samenvoegen). Die staat als apart, actief plan
+  in `plans/2026-07-14_v2-cartografische-feedback.md` (CF-01/CF-02 uitvoerbaar,
+  CF-03 backlog met ontwerpbesluit). De maintenance-roadmap gaat verder bij
+  Sprint 2 (ME-04) zodra dat cartografische werk of Coen dat vrijgeeft.
+```
 
 **Sprint Goal:** gebruikers en vervolgstappen kunnen erop vertrouwen dat een
 export volledig, actueel en afkomstig van de gekozen engine is; anders stopt

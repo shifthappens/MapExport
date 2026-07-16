@@ -87,7 +87,7 @@ const EngineV2 = (() => {
   // Beach/sand is v2-only — v1 has no such layer, so there is nothing to look
   // up in LAYER_REGISTRY; v2 owns id/label itself. Rendered by renderBeach
   // (paint-only overlay, no subtraction void — see AREA_FEATURES below).
-  const beachLayer = { id: 'beach', label: 'Beaches' };
+  const beachLayer = { id: 'beach', label: 'Sand' };
 
   // One combined fetch that brings back everything the AREA_FEATURES table can
   // paint (water surfaces, named green, sports/recreation green, countryside
@@ -140,7 +140,7 @@ const EngineV2 = (() => {
       // parksNamedGate/table rows are tag-specific, so widening the fetch
       // cannot widen what paints.
       `wr["landuse"](${b});`,
-      `wr["natural"~"^(scrub|shrubbery|heath|grassland|sand|beach|wetland|shingle|bare_rock)$"](${b});`,
+      `wr["natural"~"^(scrub|shrubbery|heath|grassland|sand|beach|dune|wetland|shingle|bare_rock)$"](${b});`,
       `wr["amenity"="parking"](${b});`,
       `wr["man_made"~"^(embankment|pier|breakwater)$"](${b});`,
       `wr["aeroway"~"^(aerodrome|apron|runway|taxiway|helipad)$"](${b});`,
@@ -230,7 +230,7 @@ const EngineV2 = (() => {
   //    green     → parks        (park green)
   //    landcover → landcover    (farmland=field tint, wood/forest=park green,
   //                              coloured by tag inside v1's landcover renderer)
-  //    beach     → beach        (sand — natural=beach|sand, v2-only layer)
+  //    beach     → beach        (Sand layer — natural=beach|sand|dune, v2-only)
   //
   //  Two deliberate coded exceptions live OUTSIDE this table, not as rows:
   //  natural=coastline (the sea, closed against the bbox) and linear waterways
@@ -268,11 +268,13 @@ const EngineV2 = (() => {
     // !name guard here keeps this to the nameless remainder.
     { match: (t) => /^(grass|village_green)$/.test(t.landuse || ''), category: 'grass' },
     { match: (t) => /^(park|garden)$/.test(t.leisure || '') && !t.name, category: 'grass' },
-    // Beach/sand: its own paint-only overlay layer, placed after landcover and
+    // Sand: its own paint-only overlay layer, placed after landcover and
     // before the label-only fallthrough so it wins the patch instead of just
     // naming an Uncategorized one. Paints above blocks (like parks) but is
-    // NOT part of any subtraction void — cream stays underneath.
-    { match: (t) => /^(beach|sand)$/.test(t.natural || ''), category: 'beach' },
+    // NOT part of any subtraction void — cream stays underneath. Covers all
+    // sandy ground (natural=beach|sand|dune); the per-element label in
+    // renderBeach names the specific kind.
+    { match: (t) => /^(beach|sand|dune)$/.test(t.natural || ''), category: 'beach' },
   ];
 
   // Category for a tag set, or null. First matching row wins.
@@ -295,6 +297,18 @@ const EngineV2 = (() => {
   // Split one area-features fetch into per-layer element buckets. Coastline and
   // linear waterways are pulled out by their own coded paths BEFORE the table;
   // everything else passes the closed-way/multipolygon gate, then the table.
+  // Declutter threshold for grass-display patches (nameless landuse=grass/
+  // village_green and nameless leisure=park|garden). Ground OSM maps countless
+  // tiny verges, tree pits and single-bush beds as landuse=grass; at USE-IT
+  // scale they read as green confetti (~1700 in Tilburg). A patch smaller than
+  // this ground area is not painted — the city block's cream simply shows
+  // instead. Filtered at classification so BOTH the render array and the worker
+  // void/merge see the same set (index alignment) and coverage stays intact:
+  // grass is excluded from the open-land signal already, and dropped patches
+  // leave the fallback/block void, so cream fills them rather than leaving a
+  // hole. Only the grass-display category is affected — named parks and
+  // farmland/wood/forest landcover are untouched.
+  const GRASS_MIN_PAINT_M2 = 80;
   function classifyAreaFeatures(elements) {
     const water = [], green = [], landcover = [], grass = [], beach = [], waterways = [], coastline = [], labelOnly = [];
     for (const el of (elements || [])) {
@@ -307,7 +321,7 @@ const EngineV2 = (() => {
       if (category === 'water') water.push(el);
       else if (category === 'green') green.push(el);
       else if (category === 'landcover') landcover.push(el);
-      else if (category === 'grass') grass.push(el);
+      else if (category === 'grass') { if (elementAreaM2(el) >= GRASS_MIN_PAINT_M2) grass.push(el); }
       else if (category === 'beach') beach.push(el);
       // No row claims it → label-only: never painted, but its tags name the
       // land under an Uncategorized patch (see renderFallbackBlocks). Beach
@@ -596,6 +610,29 @@ const EngineV2 = (() => {
       a += ring[j].lon * ring[i].lat - ring[i].lon * ring[j].lat;
     }
     return Math.abs(a / 2);
+  }
+  // Approximate ground area of an area element in m², projection-independent.
+  // ringAreaLatLon gives area in deg² (lon and lat both in degrees); one degree
+  // of latitude is ~111320 m and one degree of longitude ~111320·cos(lat) m, so
+  // deg² → m² is × 111320² × cos(lat). Multipolygons sum their outer rings minus
+  // inner ones. Unmeasurable geometry returns Infinity so callers never drop it.
+  function elementAreaM2(el) {
+    const rings = [];
+    if (el.type === 'way' && el.geometry?.length >= 3) rings.push({ ring: el.geometry, sign: 1 });
+    else if (el.type === 'relation' && el.members) {
+      const { outer, inner } = stitchMultipolygonRings(el.members);
+      for (const r of outer) if (r.length >= 3) rings.push({ ring: r, sign: 1 });
+      for (const r of inner) if (r.length >= 3) rings.push({ ring: r, sign: -1 });
+    }
+    if (!rings.length) return Infinity;
+    let deg2 = 0, latSum = 0, n = 0;
+    for (const { ring, sign } of rings) {
+      deg2 += sign * ringAreaLatLon(ring);
+      for (const p of ring) { latSum += p.lat; n++; }
+    }
+    if (deg2 <= 0 || !n) return Infinity;
+    const M = 111320;
+    return deg2 * M * M * Math.cos((latSum / n) * Math.PI / 180);
   }
   function pointInRingLatLon(lat, lon, ring) {
     let inside = false;
@@ -2228,14 +2265,21 @@ self.onmessage = function(event) {
         d = d.trim();
       }
       if (!d) continue;
-      const name = el.tags?.name;
-      const kind = el.tags?.natural === 'sand' ? 'Sand' : 'Beach';
+      const t = el.tags || {};
+      const name = t.name;
+      // English label for the specific sandy ground OSM records. Group is "Sand"
+      // (the honest umbrella); a beach reads "Beach", a coastal dune "Dune",
+      // a children's sandpit "Sandbox", anything else plain "Sand".
+      const kind = t.natural === 'beach' ? 'Beach'
+        : t.natural === 'dune' ? 'Dune'
+        : (t.leisure === 'sandpit' || t.playground === 'sandpit') ? 'Sandbox'
+        : 'Sand';
       const id = name ? uid(`beach_${safeName(name)}`) : uid(`beach_${el.id ?? 'x'}`);
       const label = name || kind;
       content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${SAND}" fill-rule="evenodd" stroke="${SAND}" stroke-width="1" stroke-linejoin="round"/>`;
     }
     if (!content) return '';
-    return `  <g id="beach" inkscape:label="Beaches" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+    return `  <g id="beach" inkscape:label="Sand" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
 
   // ── Human-readable group labels for merged road/rail paths ────────
