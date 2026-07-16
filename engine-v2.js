@@ -2450,19 +2450,29 @@ self.onmessage = function(event) {
   async function doExport() {
     if (!bbox || exportInProgress) return;
 
-    // Area-name resolution — identical to v1: await any in-flight
-    // reverse-geocode, then fall back to the shared name-prompt modal.
-    if (areaNameLookup) {
-      setStatus('Looking up a name for this area…', 'loading');
-      await areaNameLookup;
-    }
-    if (!slugifyName(currentAreaName)) {
-      const typed = await promptForAreaName();
-      if (typed === null) {
-        setStatus('Export cancelled — no name given', 'error');
-        return;
+    // Claim the lock before the first await below, for the same reason as v1:
+    // area-name resolution can suspend, and without the lock a second click
+    // passes the guard above during that gap and starts a concurrent export.
+    // runExportLifecycle re-asserts the lock; the finally releases it on the
+    // cancel/early-return paths that never reach the lifecycle.
+    exportInProgress = true;
+    try {
+      // Area-name resolution — identical to v1: await any in-flight
+      // reverse-geocode, then fall back to the shared name-prompt modal.
+      if (areaNameLookup) {
+        setStatus('Looking up a name for this area…', 'loading');
+        await areaNameLookup;
       }
-      setAreaName(typed);
+      if (!slugifyName(currentAreaName)) {
+        const typed = await promptForAreaName();
+        if (typed === null) {
+          setStatus('Export cancelled — no name given', 'error');
+          return;
+        }
+        setAreaName(typed);
+      }
+    } finally {
+      exportInProgress = false;
     }
     const areaName = currentAreaName;
     const areaSlug = slugifyName(areaName);
@@ -2487,6 +2497,12 @@ self.onmessage = function(event) {
     const filename = `map-${activePreset}-${areaSlug}-v2-${stamp}${illustratorCompatible ? '-illustrator' : ''}.svg`;
 
     return runExportLifecycle(EXPORT_ENGINE.V2, async (runId) => {
+
+    // Freeze the geometry for this run to the bbox captured into exportSettings
+    // when the export began — not the live global, which a history/boundary pick
+    // can move mid-run and desync the fetched data from the projection. Shadows
+    // the module global for the whole work body.
+    const bbox = exportSettings.bbox;
 
     const stages = [
       { id: 'fetch', label: 'Fetch layers' },
@@ -2527,14 +2543,23 @@ self.onmessage = function(event) {
     progress.setStage('fetch', 'done', { meta: `${fetched}/${fetchableLayers.length}`, detail: '' });
 
     const totalElements = results.reduce((sum, r) => sum + (r.data?.elements?.length || 0), 0);
-    if (!totalElements) {
-      progress.log('No elements fetched — aborting export', { warn: true });
+    // Zero elements only means "check your connection" when tiles actually
+    // failed. Zero elements with every tile OK is a genuinely empty frame (an
+    // unmapped or cutterless area) — that must flow to the full-frame coverage
+    // fallback below, not abort, or the coverage promise ("no frame comes back
+    // blank", ENGINE-V2.md §1) breaks. The face worker turns empty cutters into
+    // one full-frame face; see computeFacesAsync.
+    if (!totalElements && totalFailedTiles > 0) {
+      progress.log('No elements fetched and tiles failed — aborting export', { warn: true });
       throw new ExportFailure({
         source: 'engine-v2',
         phase: 'fetch',
         userMessage: 'Nothing to render — check your connection and try again.',
         details: { reason: 'empty-result' },
       });
+    }
+    if (!totalElements) {
+      progress.log('No mapped features in this area — painting an empty frame', { warn: true });
     }
 
     // Classify the combined area-features fetch into the render layers and the

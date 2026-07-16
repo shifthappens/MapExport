@@ -3294,6 +3294,10 @@ function cancelPendingPreview() {
 }
 
 function commitSuccessfulExport({ svg, filename, engine, results, exportBbox, widthPx, physicalWidthMm, runId, settings: capturedSettings = null }) {
+  // Drop the result of a superseded run. exportRunSequence only advances, so a
+  // slower older run (lower runId) must not overwrite a newer export's state and
+  // make stale output downloadable. Keep the current (newer) state.
+  if (runId !== exportRunSequence) return exportState;
   const settings = capturedSettings || getExportSettings(engine, exportBbox, { widthPx, physicalWidthMm });
   const state = Object.freeze({
     svg,
@@ -3524,11 +3528,21 @@ async function doExport() {
   if (document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined') return EngineV2.doExport();
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
-  if (areaNameLookup) { setStatus('Looking up a name for this area…','loading'); await areaNameLookup; }
-  if (!slugifyName(currentAreaName)) {
-    const typed=await promptForAreaName();
-    if (typed===null) { setStatus('Export cancelled — no name given','error'); return; }
-    setAreaName(typed);
+  // Claim the lock before the first await below (area-name resolution can suspend
+  // on an in-flight reverse-geocode or the name-prompt modal). Without it a second
+  // click passes the exportInProgress guard above during that gap and starts a
+  // concurrent export. runExportLifecycle re-asserts the lock; the finally here
+  // releases it on the cancel/early-return paths that never reach the lifecycle.
+  exportInProgress = true;
+  try {
+    if (areaNameLookup) { setStatus('Looking up a name for this area…','loading'); await areaNameLookup; }
+    if (!slugifyName(currentAreaName)) {
+      const typed=await promptForAreaName();
+      if (typed===null) { setStatus('Export cancelled — no name given','error'); return; }
+      setAreaName(typed);
+    }
+  } finally {
+    exportInProgress = false;
   }
   const areaName=currentAreaName;
   const areaSlug=slugifyName(areaName);
@@ -3551,6 +3565,11 @@ async function doExport() {
   const filename=`map-${activePreset}-${areaSlug}-${stamp}${illustratorCompatible?'-illustrator':''}.svg`;
 
   return runExportLifecycle(EXPORT_ENGINE.V1, async (runId) => {
+    // Freeze the geometry for this run to the bbox captured into exportSettings
+    // when the export began — not the live global, which a history/boundary pick
+    // can move mid-run and desync the fetched data from the projection. Shadows
+    // the module global for the whole work body.
+    const bbox = exportSettings.bbox;
     clearFailedTileOverlays();
     adaptiveTileDelay=350;
 

@@ -11,6 +11,16 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-16 — Exports: no races, frozen bbox, empty frames render
+- Double-clicking Export can no longer start two exports at once, and a slower
+  superseded run can no longer overwrite a newer export — the map you can
+  download always comes from the most recent run of the chosen engine.
+- A running export now sticks to the bbox it started with, so changing the area
+  (history or boundary pick) mid-export can't mix old data with a new frame.
+- Engine v2: a genuinely empty area (nothing mapped, no failed tiles) now paints
+  a full covered frame via the coverage fallback instead of erroring; the
+  "check your connection" message is reserved for actual fetch failures.
+
 ### 2026-07-14 — Engine v2: "Sand" layer and less green confetti
 - The v2 "Beaches" layer is now "Sand" and labels each patch by what OSM
   actually records — Beach, Dune, Sandbox, or plain Sand — so inland sandy
