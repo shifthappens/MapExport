@@ -165,10 +165,15 @@ async function getClipperSrc() {
 // postMessage('done'). Returns { blocks, needsBuildings } like
 // computeBlocksAsync in script.js. `workerSrc` defaults to v1's block worker;
 // the v2 path passes X2.FACE_WORKER_SRC (v1 call sites unchanged). v1 payloads
-// carry `lines`/`areas`, v2 payloads carry `cutterLines` — the empty guard
-// accepts either.
+// carry `lines`/`areas`, v2 face payloads carry `cutterLines`.
 function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
-  if (!data.lines?.length && !data.areas?.length && !data.cutterLines?.length) return { blocks: [], needsBuildings: false };
+  // Only v1 block payloads keep the empty-guard, where nothing to cut genuinely
+  // means no blocks. v2 face payloads must NOT short-circuit on empty cutters:
+  // production computeFacesAsync stopped doing that (ME-03 — a cutterless frame
+  // still owes the coverage promise, and the worker turns it into one full-frame
+  // face), so the harness masking that would hide the very fix it should test.
+  const isV2Face = 'cutterLines' in data;
+  if (!isV2Face && !data.lines?.length && !data.areas?.length) return { blocks: [], needsBuildings: false };
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;

@@ -183,7 +183,12 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
   `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),
-  `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise).
+  `tests/v2-cutterless-coverage.mjs` (engine v2 roadless-frame coverage promise,
+  orchestration-level: fake worker).
+- Needs ClipperLib (CDN, cached in the OS temp dir like `real-export.mjs`; runs
+  offline once warm, else SKIPs): `tests/v2-cutterless-worker.mjs` runs the real
+  face worker on an empty frame and asserts a full-frame `fallback` face — the
+  end-to-end half of the ME-03 coverage promise.
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build
   step) headless and writes a real SVG to `exports/` (a committed "trail").
   It hits live Overpass if the local cache isn't running, so it can be slow.

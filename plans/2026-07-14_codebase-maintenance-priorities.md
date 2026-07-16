@@ -420,6 +420,18 @@ land door een semantische laag of fallback wordt gedekt.
 - Een groot countryside-face blijft conform contract achtergrond.
 - Een gerichte offline regressietest legt deze gevallen vast.
 
+> **Bewijs (2026-07-16, review-follow-up).** De oorspronkelijke test
+> (`tests/v2-cutterless-coverage.mjs`) bewees alleen dat de *orchestratie* niet
+> meer kortsluit — hij draaide een *fake* worker die zelf een sentinel-block
+> teruggaf, en de e2e-harness (`tests/real-export.mjs`) kortsloot lege cutters
+> óók, dus de échte ClipperLib-worker werd nooit op een cutterloos frame
+> uitgevoerd. Gedicht: `tests/v2-cutterless-worker.mjs` draait de echte
+> `FACE_WORKER_SRC` op een volledig leeg frame (geen cutters/buildings/area
+> features) en bevestigt één full-frame `fallback`-face met 1000000/1000000 px²
+> dekking; de harness-kortsluiting geldt nu alleen nog voor v1-payloads. Daarmee
+> dekt de test de eerste twee criteria echt; het grote-countryside-criterium
+> blijft geborgd door de green-dominance-checks in de zeven-area sweep.
+
 ### [x] ME-03b — coverage-lint eert merged landcover (ontdekt in de ME-03 v2-sweep)
 
 **Complexiteit:** laag — test-infrastructuur, geen enginegedrag.

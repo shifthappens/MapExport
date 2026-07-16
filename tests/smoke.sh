@@ -43,6 +43,10 @@ echo
 echo "== v2-cutterless-coverage (offline, roadless frame still gets a face) =="
 node tests/v2-cutterless-coverage.mjs
 
+echo
+echo "== v2-cutterless-worker (real ClipperLib worker; SKIPs if no clipper cache/network) =="
+node tests/v2-cutterless-worker.mjs
+
 if [ "${OFFLINE_ONLY:-0}" = "1" ]; then
   echo
   echo "(OFFLINE_ONLY=1 — skipping query-equivalence)"
