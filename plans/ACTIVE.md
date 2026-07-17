@@ -5,26 +5,26 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-03a — scrub/heath aan Landcover/Countryside binden — `READY`.
-  AF-01 (`6b835c2`), AF-02a (`9c52015`), AF-02b (`cc65317`) zijn `DONE`;
-  AF-02c-hercontrole afgerond zonder codewijziging (geen reproduceerbaar
-  restgeval; bewijs in het planbestand). ME-06c gesynchroniseerd.
-- **Owner/route:** O orchestreert; AF-03a is E1 (`scoped-implementer`) na
-  O-contractcheck; AF-03b/c zijn E2 met onafhankelijke `reviewer`-pass.
-- **Completed checkpoint:** AF-02 offline volledig af: feature-labeldedup
-  (naam+1000×sf, grootste eerst), eigen `square_labels`-groep + geen
-  street-labelduplicaat, ENGINE-V2.md §2/§7 geamendeerd; tests
-  `svg-id-uniqueness`/`feature-label-dedup`/`square-labels` in smoke.sh,
-  volledige offline suite groen.
-- **Next action:** AF-03a: bind `natural=scrub|heath` in engine v2 aan de
-  Landcover/Countryside-rendering (AREA_FEATURES-tabel, één rij + querycheck +
-  presetkleur conform ENGINE-V2.md §5; coverage/complement is
-  acceptatie-invariant). Baselines: Ghent fallback 20/24 en Nièvre fallback 1.
-  O checkt eerst het §5-contract en de bestaande scrub-fetch/renderpaden.
-- **Changed for current unit:** nog niets (AF-03a niet gestart).
-- **Latest checks:** `OFFLINE_ONLY=1 bash tests/smoke.sh` volledig groen na
-  AF-02b; `node --check script.js`/`engine-v2.js` groen; svg-lint op alle
-  zeven audit-exports: 0 errors/0 warnings.
+- **Unit:** AF-03b — wetland + recreation binden — `IN_PROGRESS` (E2
+  gedelegeerd). AF-01 (`6b835c2`), AF-02a (`9c52015`), AF-02b (`cc65317`),
+  AF-03a (`abf50bd`) zijn `DONE`; AF-02c-hercontrole zonder codewijziging.
+- **Owner/route:** O orchestreert; AF-03b loopt als E2 (algemene agent,
+  Opus) met daarna onafhankelijke `reviewer`-pass; O-contract: wetland →
+  paint-only grass-route (veldtint); nieuwe categorie 'recreation'
+  (golf_course|dog_park|sports_centre|allotments) → parkgroen als eigen
+  subgroep in de Parks & green-band, subtract per complementregel uit
+  dezelfde voids als groen, maar búiten het ≥35%-open-land-signaal; alleen
+  bestaande presetkleuren; escalatie terug naar O als void/signaal niet te
+  scheiden is.
+- **Completed checkpoint:** AF-03a af: scrub/heath schildert veldtint via de
+  paint-only grass-route; `tests/area-binding.mjs` nieuw in smoke.sh.
+- **Next action:** AF-03b-oplevering reviewen (O + onafhankelijke reviewer),
+  checks herdraaien, committen; daarna AF-03c (bebouwd/verhard/werkland-
+  subgroepen, eveneens E2 + review).
+- **Changed for current unit:** (verwacht) engine-v2.js, ENGINE-V2.md,
+  tests/area-binding.mjs, CHANGELOG.md.
+- **Latest checks:** na AF-03a: `OFFLINE_ONLY=1 bash tests/smoke.sh` volledig
+  groen; `node --check engine-v2.js` groen.
 - **Decisions/blockers:** **Netwerkblokkade:** deze remote-omgeving blokkeert
   alle drie Overpass-endpoints (HTTP 403 via agent proxy; één sequentiële
   Erfurt-poging op 2026-07-17, conform geen-retry-beleid). Alle visuele

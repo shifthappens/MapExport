@@ -102,7 +102,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Herhaalde water-/parklabels | FIXED | AF-02a (2026-07-17); dedup op naam+afstand, `tests/feature-label-dedup.mjs`; visuele bevestiging in AF-08-sweep |
 | Pleinen als park én straat | FIXED | AF-02b (2026-07-17); eigen `square_labels`-groep, `tests/square-labels.mjs`; visuele bevestiging in AF-08-sweep |
 | Afgesneden randlabels/resterende botsingen | PASS | AF-02c-hercontrole: geen reproduceerbaar restgeval (svg-lint 0/0 op alle zeven exports); rest herleid naar AF-05/AF-06 |
-| Scrub/heath in fallback | OPEN | AF-03a |
+| Scrub/heath in fallback | FIXED | AF-03a (2026-07-17); paint-only binding, `tests/area-binding.mjs`; visuele bevestiging in AF-08-sweep |
 | Golf/allotments/dog park/sports centre/wetland | OPEN | AF-03b |
 | Residential/institutional/parking/rail/industrial fallback | OPEN | AF-03c; semantische groep zonder city-blockstijl te herontwerpen |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
@@ -221,9 +221,14 @@ cache. AF-02 blijft daarom als geheel open tot die gate gedraaid is.*
 Vóór deze unit `ENGINE-V2.md` volledig lezen. Coverage/complement is
 acceptatie-invariant, niet een reparatiemiddel achteraf.
 
-- [ ] **AF-03a — scrub/heath.** Bind de al gefetchte en door de renderer
+- [x] **AF-03a — scrub/heath.** Bind de al gefetchte en door de renderer
   ondersteunde `natural=scrub|heath` aan Landcover/Countryside. Baselines:
-  Ghent fallback 20/24 en Nièvre fallback 1.
+  Ghent fallback 20/24 en Nièvre fallback 1. *Af 2026-07-17 (commit
+  `abf50bd`): één AREA_FEATURES-rij via de paint-only grass-route (veldtint +
+  fallback-void-subtractie, bewust buiten het open-land-signaal — geen
+  classificatieflip mogelijk); regressietest `tests/area-binding.mjs`
+  (22 checks) in smoke.sh; ENGINE-V2.md §5 bijgewerkt. Visuele bevestiging op
+  echte steden volgt in de AF-08-sweep (netwerk hier geblokkeerd).*
 - [ ] **AF-03b — groen/open land.** Bind `wetland` aan Landcover/Countryside en
   `golf_course`, allotments, dog parks en sports centres aan een passende
   Parks & green-subgroep. Behoud named-green/open-landregels waar nodig om
