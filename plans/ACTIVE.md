@@ -5,7 +5,13 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, expliciet tussen
   maintenance Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-01 — documentbrede, deterministische SVG-ID's — `READY`.
+- **Unit:** AF-01 — documentbrede, deterministische SVG-ID's — `IN_PROGRESS`.
+  Namespace-contract (O, 2026-07-17): één documentbrede allocator per
+  `buildSVGContext` (`ctx.uid`), géén module-globale state; `makeUidGen`
+  reserveert base + companion-suffixen (`_casing`, `_sleepers`, `_green`,
+  `_halo`, …) atomair; alle dynamische id's lopen door de allocator, bestaande
+  leesbare bases blijven (straatnaam, `water_…`, `feat_…`), herhaling krijgt
+  deterministisch `_2`, `_3` in documentvolgorde.
 - **Owner/route:** O bepaalt namespace en reviewt; in Claude is
   `scoped-implementer` de E1-route en `reviewer` de onafhankelijke read-only
   controle. AF-01 vervult na acceptatie maintenance ME-06c.
