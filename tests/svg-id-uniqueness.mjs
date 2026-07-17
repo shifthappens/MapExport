@@ -92,6 +92,16 @@ const roadElements = [
   way({ highway: 'residential', name: 'Kerkstraat' }, [pt(0.40, 0.40), pt(0.42, 0.42)]),
   way({ highway: 'residential', name: 'Kerkstraat' }, [pt(0.70, 0.70), pt(0.72, 0.72)]),
 ];
+// (f) reserved structural names: roads literally named after ids the
+// builders emit as literal markup ("roads", "water", "greenblue_clip").
+// Road path ids are the naked safeName(name) — no prefix — so without the
+// allocator's reserved-id seeding these duplicate the structural group and
+// clipPath ids document-wide.
+const reservedNameRoadElements = [
+  way({ highway: 'residential', name: 'roads' }, [pt(0.25, 0.25), pt(0.27, 0.27)]),
+  way({ highway: 'residential', name: 'water' }, [pt(0.33, 0.55), pt(0.35, 0.57)]),
+  way({ highway: 'footway', name: 'greenblue_clip' }, [pt(0.62, 0.35), pt(0.64, 0.37)]),
+];
 // (e) rail sharing the street's name.
 const railElements = [
   way({ railway: 'rail', name: 'Kerkstraat' }, [pt(0.15, 0.60), pt(0.17, 0.62)]),
@@ -129,7 +139,7 @@ const fallbackBlocks = [
 const clone = x => JSON.parse(JSON.stringify(x));
 function buildV1Results() {
   return [
-    { layer: layerById('roads'), data: { elements: clone(roadElements) } },
+    { layer: layerById('roads'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
@@ -140,7 +150,7 @@ function buildV1Results() {
 const beachLayerStub = { id: 'beach', label: 'Sand' };
 function buildV2Results() {
   return [
-    { layer: layerById('roads'), data: { elements: clone(roadElements) } },
+    { layer: layerById('roads'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
@@ -215,6 +225,11 @@ check('v1 standard: exercised the metro cross-line collision (≥2 "Centraal" id
 check('v1 standard: exercised the repeated feature-label collision (≥2 "feat_Vijver" ids)',
   countStartingWith(ids1a, 'feat_Vijver') >= 2);
 
+check('v1 standard: a road named "roads" is suffixed away from the structural group id',
+  ids1a.some(it => it.id === 'roads_2') && ids1a.filter(it => it.id === 'roads').length === 1);
+check('v1 standard: a footway named "greenblue_clip" cannot shadow the clipPath id',
+  ids1a.some(it => it.id === 'greenblue_clip_2') && !ids1a.some(it => it.id === 'greenblue_clip' && it.tag === 'path'));
+
 check('v1 standard: deterministic id sequence across two identical builds',
   ids1a.length === ids1b.length && ids1a.every((it, i) => it.id === ids1b[i].id));
 
@@ -247,6 +262,10 @@ check('v2: also exercises the shared road/tram/rail/metro/label collisions',
   countStartingWith(ids2a, 'Kerkstraat') >= 5 &&
   countStartingWith(ids2a, 'Centraal') >= 2 &&
   countStartingWith(ids2a, 'feat_Vijver') >= 2);
+
+check('v2: reserved structural names ("roads", "water") are suffixed away from the group ids',
+  ids2a.some(it => it.id === 'roads_2') && ids2a.some(it => it.id === 'water_2') &&
+  ids2a.filter(it => it.id === 'roads').length === 1 && ids2a.filter(it => it.id === 'water').length <= 1);
 
 check('v2: deterministic id sequence across two identical builds',
   ids2a.length === ids2b.length && ids2a.every((it, i) => it.id === ids2b[i].id));

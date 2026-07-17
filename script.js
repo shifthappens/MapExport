@@ -1260,6 +1260,23 @@ function elementInBbox(el, b) {
 // ════════════════════════════════════════════════════════════════
 function safeName(s) { return (s||'').replace(/&/g,'and').replace(/[<>"']/g,'').replace(/\s+/g,'_').replace(/[^\w\-]/g,'_').slice(0,80); }
 function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Structural ids both pipelines emit as literal markup, outside the uid()
+// allocator: layer/group wrappers, style sub-groups and the clipPath. The
+// allocator seeds its used-set with these so a feature whose safeName
+// collides with one (a road literally named "roads", a canal named "water")
+// gets the "_2" suffix instead of duplicating a structural id. Keep this
+// list in sync when adding a literally-id'd group in script.js OR
+// engine-v2.js — tests/svg-id-uniqueness.mjs carries a reserved-name
+// fixture that catches the road/rail/tram/metro surfaces.
+const RESERVED_SVG_IDS = [
+  'background', 'beach', 'buildings', 'city_blocks', 'fallback_blocks',
+  'greenblue_clip', 'landcover', 'metro', 'parks', 'parks_green',
+  'parks_recreation', 'place_nodes', 'rail', 'rail_casing', 'rail_sleepers',
+  'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
+  'roads_junction_infill', 'roads_paths', 'roads_paths_green',
+  'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
+  'tram_fill', 'water', 'water_bodies', 'water_labels', 'waterways',
+];
 // Document-wide id allocator. uid(base, ...suffixes) reserves `base` AND
 // every `base+suffix` atomically: it walks base, base_2, base_3, … until it
 // finds a candidate where the candidate itself and every candidate+suffix
@@ -1268,9 +1285,10 @@ function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 // the fact — even against an adversarial name that literally IS "X casing" —
 // without a second collision check. One allocator per document (threaded via
 // ctx.uid from buildSVGContext), never a module-global: builds can interleave
-// across awaits with unrelated previews.
+// across awaits with unrelated previews. The set starts with the reserved
+// structural ids above, so allocated ids can never shadow a literal one.
 function makeUidGen() {
-  const used = new Set();
+  const used = new Set(RESERVED_SVG_IDS);
   return (base, ...suffixes) => {
     let candidate = base, n = 2;
     while (used.has(candidate) || suffixes.some(s => used.has(candidate + s))) {
@@ -2279,10 +2297,14 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
         const pts=el.geometry.map(g=>pr(g.lat,g.lon));
         cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
         cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
-        // Size metric: projected bounding-box area, so the largest polygon
-        // of a multi-polygon park wins the dedup below.
+        // Size metric: √(projected bounding-box area) — a characteristic
+        // extent in px, so the largest polygon of a multi-polygon park wins
+        // the dedup below (√ is monotonic, same winner as raw area) while
+        // staying COMPARABLE with the river length metric above in the
+        // global priority sort. Raw px² area is not: it let a modest park
+        // outrank a much longer river for grid space.
         const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
-        sizeMetric=(Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys));
+        sizeMetric=Math.sqrt((Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys)));
       } else if (el.type==='node') { [cx,cy]=pr(el.lat,el.lon); }
       else return;
       sz=natural==='water'?24*sf:22*sf; weight=400;
@@ -2295,9 +2317,15 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
     candidates.push({el,name,normName,cx,cy,sz,weight,color,waterway,sizeMetric});
   });
 
-  // Largest-first, id-ascending tiebreak: deterministic, and whichever
-  // candidate survives the same-name dedup below lands on the feature's
-  // dominant segment rather than on whatever way happened to iterate first.
+  // Largest-first, id-ascending tiebreak: deterministic AND independent of
+  // element input order (Overpass mirrors do not guarantee one), and
+  // whichever candidate survives the same-name dedup below lands on the
+  // feature's dominant segment rather than on whatever way happened to
+  // iterate first. The global sort also sets cross-name grid priority, so
+  // the metrics must be COMPARABLE across feature kinds: rivers measure
+  // polyline length in px and polygons measure √(bbox area) — a px-scale
+  // extent too — never raw px² area, which let a modest park outrank a long
+  // river for grid space it previously won and suppress its label.
   candidates.sort((a,b)=> b.sizeMetric-a.sizeMetric || (a.el.id<b.el.id?-1:a.el.id>b.el.id?1:0));
 
   // Same-name suppression, modeled on buildLabelsLayer's nearName/recordName

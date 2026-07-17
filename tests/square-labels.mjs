@@ -78,6 +78,10 @@ const closedSquare = (tags, cLat, cLon, half = 0.02) => way(tags, [
 
 const namedSquare = closedSquare({ highway: 'pedestrian', area: 'yes', name: 'Domplatz' }, 0.30, 0.30);
 const unnamedSquare = closedSquare({ highway: 'pedestrian', area: 'yes' }, 0.70, 0.70);
+// A plaza tagged ONLY place=square (no highway tag): never in the roads
+// fetch, so it arrives via the label-only area sweep → classified.labelOnly →
+// the fallback result's labelElements. Must still get its square label.
+const placeOnlySquare = closedSquare({ place: 'square', name: 'Rathausplatz' }, 0.55, 0.45);
 const namedPark = way({ leisure: 'park', name: 'Stadspark' }, [
   pt(0.10, 0.85), pt(0.10, 0.95), pt(0.20, 0.95), pt(0.20, 0.85), pt(0.10, 0.85),
 ]);
@@ -98,6 +102,11 @@ function buildResults() {
     { layer: layerById('street_labels'), data: { elements: clone(streetLabelElements) } },
     { layer: layerById('water_labels'), data: { elements: clone(waterLabelElements) } },
     { layer: X2.cityBlocksLayer, data: { blocks: clone(cityBlocks) } },
+    // labelElements carries the label-only sweep (classified.labelOnly).
+    // namedSquare rides here TOO — a plaza tagged both highway=pedestrian and
+    // place=square appears in the roads result and the sweep, and must still
+    // produce exactly one label (id-dedup in the square scan).
+    { layer: X2.fallbackBlocksLayer, data: { blocks: [], labelElements: clone([placeOnlySquare, namedSquare]) } },
   ];
 }
 
@@ -153,7 +162,15 @@ check('square_labels group contains the named square\'s label text',
 const squareLabelCount = (svg.match(/<g id="square_labels"/g) || []).length;
 check('exactly one square_labels group (unnamed square did not spawn its own)', squareLabelCount === 1);
 const squareLabelTextCount = squareGroup ? (squareGroup.match(/<text /g) || []).length : 0;
-check('square_labels group has exactly one label (the unnamed square got none)', squareLabelTextCount === 1);
+check('square_labels group has exactly two labels (unnamed square got none; Domplatz deduped across roads + sweep)',
+  squareLabelTextCount === 2);
+
+// (g) a place=square-only plaza (no highway tag, arrives via the label-only
+// sweep) still gets its square label — and only one, in the squares group.
+check('place=square-only plaza (Rathausplatz) gets a square label',
+  !!squareGroup && squareGroup.includes('>Rathausplatz<'));
+check('Domplatz appears exactly once in square_labels (roads/sweep duplicate deduped by element id)',
+  ((squareGroup.match(/>Domplatz</g) || []).length === 1));
 
 // (b) the plaza name is NOT duplicated into the street_labels group.
 const streetGroupBounded = extractBoundedGroup(svg, 'street_labels');

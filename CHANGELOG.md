@@ -11,6 +11,21 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Review fixes: reserved ids, paths over recreation green, place=square plazas, label priority
+- A street literally named after a structural SVG id ("roads", "water", …) no
+  longer duplicates that id: the id allocator now reserves all structural
+  group/clipPath ids up front, in both engines.
+- Dashed footpaths crossing a recreation ground (golf course, dog park, …)
+  now flip to the white "over parks/water" style, exactly as they do over
+  named parks and water.
+- Plazas tagged only `place=square` (without a highway tag) now get their
+  "Squares & plazas" label too; previously only squares that were also
+  pedestrian roads were found (v2).
+- Water/park label priority no longer compares river length (px) against raw
+  park area (px²): a long river can no longer lose its label to a small
+  overlapping park. Polygons now rank by their extent, keeping placement
+  independent of fetch order.
+
 ### 2026-07-17 — Engine v2: institutional land counts as city, worked land gets clear editor groups
 - Institutional built land (`landuse=institutional|education|religious` —
   campuses, school and civic grounds, e.g. Oulu's "Institutional" patch) now

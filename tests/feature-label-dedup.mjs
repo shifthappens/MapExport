@@ -128,6 +128,20 @@ const xyOf = t => {
     svg.includes('>Robert Hoozeepark<'), svg.slice(0, 200));
 }
 
+// (g) cross-name grid priority is by COMPARABLE px extent: a long river must
+// beat an unrelated small park whose label footprint sits on top of it.
+// Regression: the polygon metric used to be raw bbox area in px² against the
+// river's length in px, so a modest park (~9600 px²) outranked a ~1400 px
+// river and claimed the grid first, suppressing the river label that placed
+// fine before the dedup existed. With √area (~98 px) the river wins again.
+{
+  const river = riverWay('Ijzer', 0.50, 0.10, 0.80);            // ~1400 px long, midpoint lonFrac 0.45
+  const park = rectWay({ leisure: 'park', name: 'Parkje' }, 0.50, 0.45, 0.06, 0.02); // small, anchored ON the river midpoint
+  const svg = run([river, park]);
+  check('(g) the long river label survives the overlapping small park', svg.includes('>Ijzer<'));
+  check('(g) the small park loses the collision instead (footprints overlap)', !svg.includes('>Parkje<'));
+}
+
 // (f) determinism: two identical builds (candidates fed in different input
 // orders) yield byte-identical output.
 {

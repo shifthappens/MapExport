@@ -151,6 +151,14 @@ const EngineV2 = (() => {
       `wr["landuse"](${b});`,
       `wr["natural"~"^(scrub|shrubbery|heath|grassland|sand|beach|dune|wetland|shingle|bare_rock)$"](${b});`,
       `wr["amenity"="parking"](${b});`,
+      // place=square plazas that carry NO highway tag: the roads fetch
+      // requires highway=*, so a square tagged only place=square never
+      // arrives through it and would silently lose its map label. Fetched
+      // here label-only — no AREA_FEATURES row, so it never paints or cuts
+      // (a square is land inside its face, cream by classification, §2) —
+      // and scanned by buildSVG's square-label pass alongside the roads
+      // elements, deduped by element id.
+      `wr["place"="square"](${b});`,
       `wr["man_made"~"^(embankment|pier|breakwater)$"](${b});`,
       `wr["aeroway"~"^(aerodrome|apron|runway|taxiway|helipad)$"](${b});`,
       `wr["military"](${b});`,
@@ -2428,6 +2436,14 @@ self.onmessage = function(event) {
         d = d.trim();
       }
       if (!d) continue;
+      // Same contract as the parks/water renderers (script.js): every painted
+      // green/blue surface joins ctx.areaClipDs so dashed footpaths crossing
+      // it get their white "over parks/water" twin, clipped to exactly this
+      // shape. Recreation grounds paint the same opaque park green, so a path
+      // across a golf course must flip white exactly like one across a named
+      // park. Renders before the roads layer by paint order (§4), so the
+      // clip list is complete when buildRoadsLayer consumes it.
+      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
       const t = el.tags || {};
       // English label for the specific ground OSM records; a name wins.
       const kind = t.leisure === 'golf_course' ? 'Golf course'
@@ -2579,13 +2595,25 @@ self.onmessage = function(event) {
     // relabelSquareGroup) — NOT injected into the water_labels elements, so
     // the editor sees "Squares & plazas" as its own layer instead of a
     // synthetic entry inside "Water & park names".
+    // Squares arrive on two roads-independent paths: the roads fetch
+    // (highway=pedestrian + area=yes / place=square on a street way) and the
+    // label-only area sweep (place=square with NO highway tag — never in the
+    // roads result). A plaza tagged both ways appears in both lists, so the
+    // scan dedupes by element id; the label-only elements ride in the
+    // fallback result's labelElements (classified.labelOnly).
     const squareLabelNodes = [];
-    for (const el of (results.find(r => r.layer.type === 'roads')?.data?.elements || [])) {
-      if (!isSquareElement(el) || !el.tags?.name) continue;
-      const anchor = seaInteriorPoint({ members: [{ role: 'outer', geometry: el.geometry }] });
-      if (!anchor) continue;
-      squareLabelNodes.push({ type: 'node', id: `square_label_${el.id}`, lat: anchor.lat, lon: anchor.lon, tags: { leisure: 'park', name: el.tags.name } });
-    }
+    const squareSeen = new Set();
+    const scanSquares = (els) => {
+      for (const el of (els || [])) {
+        if (!isSquareElement(el) || !el.tags?.name || squareSeen.has(el.id)) continue;
+        const anchor = seaInteriorPoint({ members: [{ role: 'outer', geometry: el.geometry }] });
+        if (!anchor) continue;
+        squareSeen.add(el.id);
+        squareLabelNodes.push({ type: 'node', id: `square_label_${el.id}`, lat: anchor.lat, lon: anchor.lon, tags: { leisure: 'park', name: el.tags.name } });
+      }
+    };
+    scanSquares(results.find(r => r.layer.type === 'roads')?.data?.elements);
+    scanSquares(results.find(r => r.layer.id === fallbackBlocksLayer.id)?.data?.labelElements);
     let layersSVG = '';
     // Water bodies + Waterways are adjacent in the paint order, so they can
     // share one "Water" parent layer without moving a single paint — purely
