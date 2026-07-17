@@ -99,9 +99,9 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Geen magenta dekkingsgaten | PASS | Regressie-invariant; opnieuw bewijzen in AF-08 |
 | Crèmekleurige city blocks | ACCEPTED_STYLE | Bewuste abstractie; niet wijzigen |
 | Niet-unieke SVG-ID's | FIXED | AF-01 (2026-07-17); documentbrede allocator, regressietest `tests/svg-id-uniqueness.mjs`; ME-06c gesynchroniseerd |
-| Herhaalde water-/parklabels | OPEN | AF-02a |
-| Pleinen als park én straat | OPEN | AF-02b |
-| Afgesneden randlabels/resterende botsingen | OPEN | AF-02c |
+| Herhaalde water-/parklabels | FIXED | AF-02a (2026-07-17); dedup op naam+afstand, `tests/feature-label-dedup.mjs`; visuele bevestiging in AF-08-sweep |
+| Pleinen als park én straat | FIXED | AF-02b (2026-07-17); eigen `square_labels`-groep, `tests/square-labels.mjs`; visuele bevestiging in AF-08-sweep |
+| Afgesneden randlabels/resterende botsingen | PASS | AF-02c-hercontrole: geen reproduceerbaar restgeval (svg-lint 0/0 op alle zeven exports); rest herleid naar AF-05/AF-06 |
 | Scrub/heath in fallback | OPEN | AF-03a |
 | Golf/allotments/dog park/sports centre/wetland | OPEN | AF-03b |
 | Residential/institutional/parking/rail/industrial fallback | OPEN | AF-03c; semantische groep zonder city-blockstijl te herontwerpen |
@@ -183,14 +183,24 @@ Voer sequentieel uit; elke letter is een afzonderlijke diff.
   binnen 1000×sf px, grootste kandidaat eerst (waylengte/bbox-oppervlak),
   onderdrukte labels claimen geen gridruimte; regressietest
   `tests/feature-label-dedup.mjs` (10 checks) in smoke.sh.*
-- [ ] **AF-02b — Squares/Plazas.** Verwijder de synthetische parkhack voor
+- [x] **AF-02b — Squares/Plazas.** Verwijder de synthetische parkhack voor
   voetgangerspleinen. Maak één expliciete Squares/Plazas-groep en voorkom dat
   hetzelfde area nogmaals als straatlabel verschijnt. Baselines: Domplatz,
-  Peterstraße, Markthof en Willy-Brandt-Platz.
-- [ ] **AF-02c — rand en collision.** Hercontroleer de in de audit gevonden
+  Peterstraße, Markthof en Willy-Brandt-Platz. *Af 2026-07-17 (commit
+  `cc65317`): eigen `square_labels`-groep "Squares & plazas" direct na
+  water_labels (zelfde collision grid + id-allocator), street-labels filteren
+  squares; ENGINE-V2.md §2/§7 geamendeerd; regressietest
+  `tests/square-labels.mjs` (15 checks) in smoke.sh.*
+- [x] **AF-02c — rand en collision.** Hercontroleer de in de audit gevonden
   afgekapt geplaatste labels en echte botsingen tegen de bestaande unified
   collision-/canvas-clippingimplementatie. Repareer alleen reproduceerbare
-  restgevallen; geen brede font-/stijlwijziging.
+  restgevallen; geen brede font-/stijlwijziging. *Hercontrole 2026-07-17: geen
+  reproduceerbaar restgeval — `tests/svg-lint.mjs` meldt op alle zeven
+  audit-exports 0 overlaps en 0 buiten-/geclipte-canvaswaarschuwingen; het
+  genoemde Périphérique/Quai d'Ivry-paar ligt gemeten ~180 px uit elkaar; alle
+  concrete duplicaatgevallen zijn door AF-02a/b met tests gedekt. Resterende
+  visuele drukte herleidt naar rail/metro (AF-05) en paddichtheid (AF-06).
+  Geen codewijziging.*
 
 **Route:** E1 per letter; O stelt afstandsdrempel en plaza-editorstructuur vast.
 
@@ -199,6 +209,12 @@ Voer sequentieel uit; elke letter is een afzonderlijke diff.
 afstandherhaling blijft bestaan; unieke-ID-test blijft groen.
 
 **Gate:** offline fixtures plus één cached Ghent- of Erfurt-export na AF-02c.
+*Status 2026-07-17: offline fixtures groen; de exportgate is in de huidige
+remote-omgeving niet uitvoerbaar (netwerkpolicy blokkeert alle
+Overpass-endpoints met HTTP 403 via de agent proxy; geprobeerd met één
+sequentiële Erfurt-run, geen retry-loop). De visuele bevestiging schuift
+expliciet door naar de AF-08-sweep of een sessie met netwerktoegang/lokale
+cache. AF-02 blijft daarom als geheel open tot die gate gedraaid is.*
 
 ### [ ] AF-03 — Bekende fallbacksemantiek correct binden
 
