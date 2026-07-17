@@ -175,11 +175,14 @@ Return: diffsummary, gekozen namespacecontract, checkresultaten en open risico's
 
 Voer sequentieel uit; elke letter is een afzonderlijke diff.
 
-- [ ] **AF-02a — featurededuplicatie.** Dedupliceer named water/parkfeatures op
+- [x] **AF-02a — featurededuplicatie.** Dedupliceer named water/parkfeatures op
   genormaliseerde naam plus verbonden/geografische cluster. Houd nuttige, ver
   uit elkaar liggende herhaling mogelijk. Baselines: Ghent
   Nederschelde/Leie/Lieve/Robert Hoozeepark, Erfurt Bergstrom en Bremerhaven
-  Geeste.
+  Geeste. *Af 2026-07-17 (commit `9c52015`): dedup op genormaliseerde naam
+  binnen 1000×sf px, grootste kandidaat eerst (waylengte/bbox-oppervlak),
+  onderdrukte labels claimen geen gridruimte; regressietest
+  `tests/feature-label-dedup.mjs` (10 checks) in smoke.sh.*
 - [ ] **AF-02b — Squares/Plazas.** Verwijder de synthetische parkhack voor
   voetgangerspleinen. Maak één expliciete Squares/Plazas-groep en voorkom dat
   hetzelfde area nogmaals als straatlabel verschijnt. Baselines: Domplatz,
