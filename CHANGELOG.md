@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Engine v2: wetlands and recreation grounds no longer read as cream
+- `natural=wetland` (e.g. Oulu's marshes) now paints through the Countryside
+  layer as field tint like farmland, instead of showing as a crème
+  "Uncategorized" fallback patch.
+- Golf courses, dog parks, sports centres and (nameless) allotment gardens now
+  paint park green as their own "Recreation grounds" layer, nested with
+  "Named parks" under one "Parks & green" parent in the editor (Bremerhaven's
+  golf-course bite by the Bürgerpark, Oulu's dog park). They subtract from
+  city blocks exactly like named parks but never influence whether a face
+  counts as urban or countryside; unnamed pitches/stadiums stay label-only.
+
 ### 2026-07-17 — Engine v2: scrub/heath now paint as field tint, not cream
 - `natural=scrub|heath` land (e.g. Ghent's Dok-Zuid, Nièvre's countryside)
   now paints through the Countryside layer as field-tint like farmland,

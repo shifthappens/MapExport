@@ -130,9 +130,11 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr, countr
   //    emits for it. landcover is included because v2 subtracts it from the
   //    coverage fallback (a buildingless face over farmland shows landcover,
   //    not cream), so it must count as painted land; it also paints in v1's
-  //    countryside faces, so marking it there is correct too.
+  //    countryside faces, so marking it there is correct too. parks_recreation
+  //    (v2-only, AF-03b) subtracts from blocks/fallback exactly like parks, so
+  //    its paint must count as covered land the same way.
   for (const { layer, data: rdata } of results) {
-    if (layer.id !== 'water_bodies' && layer.id !== 'parks' && layer.id !== 'landcover') continue;
+    if (layer.id !== 'water_bodies' && layer.id !== 'parks' && layer.id !== 'parks_recreation' && layer.id !== 'landcover') continue;
     for (const el of rdata.elements) {
       // Green-remainder merge (engine-v2 doExportV2 / real-export): a landcover
       // element is grown to (element ∪ the green-open coverage remainder it lies

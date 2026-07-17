@@ -103,7 +103,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Pleinen als park én straat | FIXED | AF-02b (2026-07-17); eigen `square_labels`-groep, `tests/square-labels.mjs`; visuele bevestiging in AF-08-sweep |
 | Afgesneden randlabels/resterende botsingen | PASS | AF-02c-hercontrole: geen reproduceerbaar restgeval (svg-lint 0/0 op alle zeven exports); rest herleid naar AF-05/AF-06 |
 | Scrub/heath in fallback | FIXED | AF-03a (2026-07-17); paint-only binding, `tests/area-binding.mjs`; visuele bevestiging in AF-08-sweep |
-| Golf/allotments/dog park/sports centre/wetland | OPEN | AF-03b |
+| Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
 | Residential/institutional/parking/rail/industrial fallback | OPEN | AF-03c; semantische groep zonder city-blockstijl te herontwerpen |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
@@ -229,10 +229,22 @@ acceptatie-invariant, niet een reparatiemiddel achteraf.
   classificatieflip mogelijk); regressietest `tests/area-binding.mjs`
   (22 checks) in smoke.sh; ENGINE-V2.md §5 bijgewerkt. Visuele bevestiging op
   echte steden volgt in de AF-08-sweep (netwerk hier geblokkeerd).*
-- [ ] **AF-03b — groen/open land.** Bind `wetland` aan Landcover/Countryside en
+- [x] **AF-03b — groen/open land.** Bind `wetland` aan Landcover/Countryside en
   `golf_course`, allotments, dog parks en sports centres aan een passende
   Parks & green-subgroep. Behoud named-green/open-landregels waar nodig om
-  stedelijke vlakken niet ongecontroleerd groen te schilderen.
+  stedelijke vlakken niet ongecontroleerd groen te schilderen. *Af 2026-07-17:
+  wetland via de paint-only grass-route (veldtint, buiten het
+  open-land-signaal); nieuwe categorie 'recreation' → v2-only laag
+  `parks_recreation` ("Recreation grounds", preset.park) direct boven named
+  parks, samen genest onder één "Parks & green"-parent; recreatiepolygonen
+  subtracten per complementregel uit block- én fallback-void maar zitten in
+  géén classificatiesignaal; named allotments blijven via de green gate;
+  pitch/stadium/unnamed nature_reserve blijven label-only.
+  `tests/area-binding.mjs` 50 checks; coverage-lint telt `parks_recreation`
+  als verf; ENGINE-V2.md §4/§5/§7 geamendeerd. Gestart als E2-delegatie, door
+  O afgemaakt nadat de worker halverwege stilviel; onafhankelijke
+  reviewer-pass conform route. Visuele gate → AF-08-sweep (netwerk hier
+  geblokkeerd).*
 - [ ] **AF-03c — bebouwd/verhard/werkland.** Institutional en echte residential
   polygons mogen het city-blocksignaal voeden wanneer de bestaande
   overlapdrempel dat draagt. Parking, railway grounds en industrial blijven

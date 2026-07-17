@@ -200,6 +200,7 @@ fallback_blocks the Uncategorized coverage patches
 water_bodies    incl. the synthetic sea
 waterways       stroked rivers/canals/streams
 parks           named green
+parks_recreation recreation grounds — golf/dog park/sports centre/allotments (§5)
 roads → rail → tram → metro → labels
 ```
 
@@ -228,15 +229,18 @@ colour, never a new code path. Only render-DISTINCT categories get rows —
 anything that reads cream is neither painted nor rowed.
 
 - **Green paints only through v1's `parksNamedGate`** (named parks, gardens,
-  forests, cemeteries…). There is deliberately no nameless-green row: one
-  existed for sports pitches and it broke the rule inside cities.
+  forests, cemeteries…). There is deliberately no general nameless-green row:
+  one existed for sports pitches and it broke the rule inside cities. The
+  **recreation rows** below are the one bounded exception, limited to four
+  specific destination tags — never a blanket green.
 - **Landcover** (farmland/meadow/forest/wood) is nameless by design — it is
   countryside texture, kept invisible in cities by paint order (§4). The
   **grass display rows** — `landuse=grass|village_green`, *unnamed*
-  `leisure=park|garden`, and `natural=scrub|heath` (category `grass`) — paint
+  `leisure=park|garden`, and `natural=scrub|heath|wetland` (category `grass`;
+  wetland joined via AF-03b) — paint
   through the same landcover layer as a green tint (v1's ISLAND_GREEN, never
-  ported until now; scrub/heath instead render `renderLandcover`'s field tint,
-  same as farmland) and
+  ported until now; scrub/heath/wetland instead render `renderLandcover`'s
+  field tint, same as farmland) and
   subtract from the fallback void so grass shows through fallback holes instead
   of reading as an "Uncategorized › Grass" patch. They are a **paint** signal
   only: the grass rows are held OUT of the open-land classification signal
@@ -250,8 +254,8 @@ anything that reads cream is neither painted nor rowed.
   difference on a finer grid (SCALE=100) of the element minus the covering
   union, empty → dropped from the render. The covering set is the opaque upper
   layers — urban + hamlet **city blocks** (cream), **named parks** (green,
-  fillOpacity 1) and **water bodies** (opaque since everything went opaque,
-  2026-07-12). A wood fully inside a named forest/park was invisible yet
+  fillOpacity 1), **recreation grounds** (same opaque green, AF-03b) and
+  **water bodies** (opaque since everything went opaque, 2026-07-12). A wood fully inside a named forest/park was invisible yet
   survived the old city-blocks-only cull (Tilburg's "invisible forest"); parks
   in the covering set drop it. Deliberately **excluded**: fallback blocks (the
   fallback void already subtracts landcover, so a fallback patch is holed
@@ -265,6 +269,20 @@ anything that reads cream is neither painted nor rowed.
   subtraction void — so it removes only ink another opaque layer already covers
   and the coverage promise (§1) is unaffected by construction (measured: Tilburg
   drops 902 of 3082 paint elements, Erfurt 186 of 265, at 0.000% bare).
+- **Recreation grounds** (v2-only, AF-03b): `leisure=golf_course|dog_park|
+  sports_centre` plus nameless `landuse=allotments` (a properly named
+  allotments already passes the green gate row above) form category
+  `recreation` → the `parks_recreation` layer, painted `preset.park` directly
+  above named parks and nested with them under one "Parks & green" parent
+  (§7). These grounds are green *destinations* the audit found reading as
+  cream (Bremerhaven's golf-course bite by the Bürgerpark, Oulu's dog park),
+  regardless of whether OSM names them. They follow the complement rule (§3)
+  exactly like named green — the same polygons join the block and fallback
+  voids, so blocks lose precisely the shape painted — but they stay OUT of
+  every classification signal (`openLandVoid`, `landcoverVoid`): recreation
+  changes a face's paint, never its urban/countryside verdict. Unnamed
+  `pitch`/`stadium`/`nature_reserve` remain label-only; the recreation rows
+  must not widen back into the failed nameless-green rule.
 - **Label-only sweep**: a broad landuse/natural/parking/aeroway/military/
   leisure fetch that never paints. The table rows are tag-specific, so
   widening the fetch cannot widen what paints. It has two read-only jobs:
@@ -325,6 +343,15 @@ not tag at all.
 
 Named squares get their own "Squares & plazas" editor group, separate from
 "Water & park names" and from the street-label layers (§2 item 1).
+
+Adjacent-in-paint-order layers may share a parent layer group when that moves
+no paint — pure panel organization. Two exist: **"Water"** (water bodies +
+waterways) and, since AF-03b, **"Parks & green"** (`id="parks_green"`) holding
+**"Named parks"** (the v1 parks group, `id` stays `"parks"`, label rewritten
+v2-side so it doesn't repeat the parent's name) and **"Recreation grounds"**
+(`id="parks_recreation"`). "Countryside" (landcover) deliberately stays a
+separate top-level layer — four layers separate it from the parks band, so
+nesting it would reorder paint (Coen, 2026-07-14).
 
 ## 8. v1 parity quirks, kept deliberately
 

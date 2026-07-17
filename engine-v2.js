@@ -89,6 +89,13 @@ const EngineV2 = (() => {
   // (paint-only overlay, no subtraction void — see AREA_FEATURES below).
   const beachLayer = { id: 'beach', label: 'Sand' };
 
+  // Recreation grounds (golf/dog park/sports centre/allotments) are v2-only —
+  // v1 has no such layer. They paint preset.park in the "Parks & green" band
+  // above blocks (see renderRecreation), rendered as their own editor subgroup
+  // "Recreation grounds" nested under the "Parks & green" parent alongside the
+  // named-parks group (see buildSVG). Own id/label; NOT in LAYER_REGISTRY.
+  const recreationLayer = { id: 'parks_recreation', label: 'Recreation grounds' };
+
   // One combined fetch that brings back everything the AREA_FEATURES table can
   // paint (water surfaces, named green, sports/recreation green, countryside
   // land cover), plus the two coded exceptions (natural=coastline for the sea,
@@ -117,9 +124,11 @@ const EngineV2 = (() => {
       `wr["natural"="wood"]["name"](${b});`,
       `wr["amenity"="grave_yard"]["name"](${b});`,
       `wr["tourism"="zoo"]["name"](${b});`,
-      // Sports/recreation: label-only (no AREA_FEATURES row — nameless green
-      // in cities broke the named-parks rule; named nature reserves still
-      // paint via the gate row).
+      // Sports/recreation. golf_course/dog_park/sports_centre paint as
+      // recreation green (AREA_FEATURES 'recreation' row, AF-03b) regardless of
+      // name; pitch/stadium and unnamed nature_reserve stay label-only (nameless
+      // green in cities broke the named-parks rule; named nature reserves paint
+      // via the gate row). One fetch line covers both — the table rows decide.
       `wr["leisure"~"^(pitch|stadium|sports_centre|golf_course|dog_park|nature_reserve)$"](${b});`,
       // Countryside land cover (named forests classify as green above; the
       // nameless remainder is the countryside land the block cutter shows through).
@@ -184,6 +193,7 @@ const EngineV2 = (() => {
     'water_bodies',
     'waterways',
     'parks',
+    'parks_recreation',
     'beach',
     'roads',
     'rail',
@@ -230,6 +240,10 @@ const EngineV2 = (() => {
   //    green     → parks        (park green)
   //    landcover → landcover    (farmland=field tint, wood/forest=park green,
   //                              coloured by tag inside v1's landcover renderer)
+  //    grass     → landcover    (grass-display tint; kept OUT of the open-land
+  //                              signal — see the grass rows below)
+  //    recreation→ parks_recreation (park green in the Parks & green band,
+  //                              above blocks; OUT of the open-land signal — v2-only)
   //    beach     → beach        (Sand layer — natural=beach|sand|dune, v2-only)
   //
   //  Two deliberate coded exceptions live OUTSIDE this table, not as rows:
@@ -282,6 +296,32 @@ const EngineV2 = (() => {
     // scope for this row (sand/beach/dune already have their own row/layer;
     // the rest are a later unit).
     { match: (t) => /^(scrub|heath)$/.test(t.natural || ''), category: 'grass' },
+    // Wetland (AF-03b): same paint-only 'grass' route as scrub/heath above —
+    // already fetched by the label-only natural sweep, coloured by
+    // renderLandcover's coverFill as the quiet field tint (like farmland), but
+    // it had no row so it fell into the cream "Uncategorized" fallback (Oulu's
+    // 5× wetland). Kept in 'grass', NOT 'landcover': it paints and subtracts
+    // from the fallback void like any grass-display row and stays OUT of the
+    // ≥0.35 open-land signal. Like scrub/heath it DOES join the paint set, so
+    // the ≥0.60 green-dominance demotion can see it — the same deliberate
+    // tradeoff as the grass rows above, and a far higher bar than open-land.
+    { match: (t) => t.natural === 'wetland', category: 'grass' },
+    // Recreation grounds (AF-03b, category 'recreation', v2-only): golf courses,
+    // dog parks, sports centres and allotments read as green destinations, not
+    // cream land (Bremerhaven's golf-course "hap" by the Bürgerpark, its 2×
+    // allotments, Oulu's dog park + sports centre). They paint preset.park in
+    // the "Parks & green" band ABOVE city blocks as their own "Recreation
+    // grounds" editor subgroup (see renderRecreation / buildSVG), and their
+    // polygons subtract from the SAME block/fallback voids named parks do
+    // (complement rule, ENGINE-V2.md §3) — but they are a SEPARATE category so
+    // they are deliberately held OUT of every open-land classification signal
+    // (openLandVoid, landcoverVoid): recreation must never change a face's
+    // urban/countryside verdict, only its paint. A NAMED landuse=allotments has
+    // already matched the green gate row above (paints preset.park too), so this
+    // row catches golf/dog/sports of any name plus the nameless allotments the
+    // audit flagged.
+    { match: (t) => /^(golf_course|dog_park|sports_centre)$/.test(t.leisure || ''), category: 'recreation' },
+    { match: (t) => t.landuse === 'allotments', category: 'recreation' },
     // Sand: its own paint-only overlay layer, placed after landcover and
     // before the label-only fallthrough so it wins the patch instead of just
     // naming an Uncategorized one. Paints above blocks (like parks) but is
@@ -324,7 +364,7 @@ const EngineV2 = (() => {
   // farmland/wood/forest landcover are untouched.
   const GRASS_MIN_PAINT_M2 = 80;
   function classifyAreaFeatures(elements) {
-    const water = [], green = [], landcover = [], grass = [], beach = [], waterways = [], coastline = [], labelOnly = [];
+    const water = [], green = [], landcover = [], grass = [], recreation = [], beach = [], waterways = [], coastline = [], labelOnly = [];
     for (const el of (elements || [])) {
       if (el.type === 'node') continue;
       const tags = el.tags || {};
@@ -336,6 +376,7 @@ const EngineV2 = (() => {
       else if (category === 'green') green.push(el);
       else if (category === 'landcover') landcover.push(el);
       else if (category === 'grass') { if (elementAreaM2(el) >= GRASS_MIN_PAINT_M2) grass.push(el); }
+      else if (category === 'recreation') recreation.push(el);
       else if (category === 'beach') beach.push(el);
       // No row claims it → label-only: never painted, but its tags name the
       // land under an Uncategorized patch (see renderFallbackBlocks). Beach
@@ -343,7 +384,7 @@ const EngineV2 = (() => {
       // never surface as an "Uncategorized"/labelled patch underneath.
       else if (el.tags) labelOnly.push(el);
     }
-    return { water, green, landcover, grass, beach, waterways, coastline, labelOnly };
+    return { water, green, landcover, grass, recreation, beach, waterways, coastline, labelOnly };
   }
 
   // ── Coastline → sea ────────────────────────────────────────────────
@@ -733,6 +774,11 @@ const EngineV2 = (() => {
       { layer: waterBodiesLayer, data: { elements: classified.water } },
       { layer: waterwaysLayer, data: { elements: classified.waterways } },
       { layer: parksLayer, data: { elements: classified.green } },
+      // Recreation grounds paint park green in the same band as named parks but
+      // as their own editor subgroup (buildSVG nests both under a "Parks &
+      // green" parent). Own layer id so renderLayer dispatches renderRecreation
+      // and the group id never collides with 'parks'.
+      { layer: recreationLayer, data: { elements: classified.recreation } },
       { layer: beachLayer, data: { elements: classified.beach } },
     ];
     return { renderResults, classified, seaLabel };
@@ -864,6 +910,11 @@ self.onmessage = function(event) {
   // positive, inner negative) so lake islands / park courtyards union as holes.
   const waterPolys = data.waterPolys || [];
   const greenPolys = data.greenPolys || [];
+  // Recreation grounds (AF-03b): paint park green above blocks exactly like
+  // named parks, so they join the SAME block/fallback voids greenPolys feeds
+  // (complement rule) — but they are kept OUT of openLandVoid: recreation is
+  // paint, never an open-land classification signal.
+  const recreationPolys = data.recreationPolys || [];
   // landcoverPolys is the PAINT set (landcover + grass display rows) — it feeds
   // the fallback void so grass shows through fallback holes. openLandPolys is the
   // narrower open-land SIGNAL set (landcover only, no grass) for the ≥0.35 share
@@ -1096,8 +1147,8 @@ self.onmessage = function(event) {
   // Blocks lose water, green and waterway strokes (all paint above the block).
   // The coverage fallback additionally loses landcover (farmland/wood paints too),
   // so it only paints land that truly no layer covered.
-  const blockVoid = buildVoid([waterPolys, greenPolys], waterwayStrokePaths);
-  const fallbackVoid = buildVoid([waterPolys, greenPolys, landcoverPolys], waterwayStrokePaths);
+  const blockVoid = buildVoid([waterPolys, greenPolys, recreationPolys], waterwayStrokePaths);
+  const fallbackVoid = buildVoid([waterPolys, greenPolys, recreationPolys, landcoverPolys], waterwayStrokePaths);
 
   // Countryside threshold in scaled area units. A face at/above this is rural
   // (not filled curb-to-curb); below it and containing a building it becomes a
@@ -1137,7 +1188,10 @@ self.onmessage = function(event) {
   // across a real share of it; a big face without that cover is just a
   // coarsely-roaded urban face (dock peninsulas, industrial estates) and gets
   // the ordinary curb-to-curb treatment — hamlet blobs there invent hamlets
-  // inside the city (Bremerhaven M7 review).
+  // inside the city (Bremerhaven M7 review). recreationPolys is deliberately
+  // NOT in here (nor in landcoverVoid below): a golf course or sports centre
+  // paints green but must never flip a face's urban/countryside verdict
+  // (AF-03b O-contract — recreation changes paint, not classification).
   const openLandVoid = buildVoid([greenPolys, openLandPolys], null);
   const waterVoid = buildVoid([waterPolys], waterwayStrokePaths);
   // Urban-landuse signal (residential/commercial/retail cover). A buildingless
@@ -1627,12 +1681,15 @@ self.onmessage = function(event) {
       }
     }
     // Named parks + water bodies arrive as oriented rings (holes as negatives).
+    // Recreation grounds paint the same opaque park green above blocks, so
+    // they occlude landcover exactly like named parks do (AF-03b).
     const greenRegion = unionOrientedRings([greenPolys]);
     const waterRegion = unionOrientedRings([waterPolys]);
-    // Covering union of the three opaque regions.
+    const recreationRegion = unionOrientedRings([recreationPolys]);
+    // Covering union of the opaque regions.
     const coverClipper = new Clipper.Clipper();
     let hasCover = false;
-    for (const r of [blockRegion, greenRegion, waterRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
+    for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
     const covering = new Clipper.Paths();
     if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
     if (covering.length) {
@@ -1813,6 +1870,11 @@ self.onmessage = function(event) {
     // Area voids for subtraction (oriented rings, area_large eps — see above).
     const waterPolys = collectAreaPolys(area.water, pr);
     const greenPolys = collectAreaPolys(area.green, pr);
+    // Recreation grounds (AF-03b): same subtraction shape discipline as green
+    // (they paint park green above blocks via renderRecreation, so blocks and
+    // fallback must lose exactly that painted shape — complement rule). The
+    // worker keeps them out of every classification signal.
+    const recreationPolys = collectAreaPolys(area.recreation || [], pr);
     // Two landcover sets, deliberately split (see AREA_FEATURES grass rows):
     //  - paint set (landcover + grass display rows) → landcoverPolys, which
     //    feeds the FALLBACK void so every painted landcover (grass included)
@@ -1874,7 +1936,7 @@ self.onmessage = function(event) {
     const bigFacePx2 = COUNTRYSIDE_MIN_KM2 * 1e6 / (mPerPx * mPerPx);
 
     return {
-      cutterLines, waterwayLines, waterPolys, greenPolys, landcoverPolys, openLandPolys, urbanPolys, landcoverElements,
+      cutterLines, waterwayLines, waterPolys, greenPolys, recreationPolys, landcoverPolys, openLandPolys, urbanPolys, landcoverElements,
       buildingCenters, clusterRings, placeNodes, W, H, bigFacePx2, mPerPx,
       // Roads/rail cutters plus waterway strokes, in the {pts,halfW} shape the
       // coverage lint's markLine expects (it treats these as painted corridors).
@@ -2221,14 +2283,15 @@ self.onmessage = function(event) {
       return (n - s) * (e - w);
     };
     // The land-cover value + fill for a tag set, or null when nothing paints.
-    // farmland/meadow/orchard/vineyard/scrub/heath → quiet field tint; forest/
-    // wood and the grass display rows → park green.
+    // farmland/meadow/orchard/vineyard/scrub/heath/wetland → quiet field tint;
+    // forest/wood and the grass display rows → park green.
     const coverFill = (t) => {
       const lu = t?.landuse || '', nat = t?.natural || '', le = t?.leisure || '';
       if (/^(farmland|meadow|orchard|vineyard)$/.test(lu)) return { cover: lu, fill: preset.field };
       if (lu === 'forest') return { cover: 'forest', fill: preset.park };
       if (nat === 'wood') return { cover: 'wood', fill: preset.park };
       if (/^(scrub|heath)$/.test(nat)) return { cover: nat, fill: preset.field };
+      if (nat === 'wetland') return { cover: 'wetland', fill: preset.field };
       if (/^(grass|village_green)$/.test(lu)) return { cover: lu, fill: preset.park };
       if (/^(park|garden)$/.test(le)) return { cover: le, fill: preset.park };
       return null;
@@ -2299,6 +2362,47 @@ self.onmessage = function(event) {
     }
     if (!content) return '';
     return `  <g id="beach" inkscape:label="Sand" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
+  }
+
+  // Recreation grounds (AF-03b, v2-only): golf courses, dog parks, sports
+  // centres and allotments, painted preset.park in the "Parks & green" band
+  // directly above the named-parks group (layerOrder puts 'parks_recreation'
+  // right after 'parks'; buildSVG nests both under one "Parks & green" parent).
+  // UNLIKE beach this is NOT a paint-only overlay: the same polygons feed the
+  // worker's block/fallback voids (complement rule — blocks lose exactly the
+  // shape painted here), while staying out of every classification signal.
+  // Emission mirrors renderBeach: one named path per element, self-coloured
+  // seam stroke, evenodd, area_large eps (the SAME eps collectAreaPolys used
+  // for the void, so paint and subtraction stay the same shape).
+  function renderRecreation(result, ctx) {
+    const elements = result.data?.elements || [];
+    if (!elements.length) return '';
+    const uid = ctx.uid;
+    const fill = ctx.preset.park;
+    let content = '';
+    for (const el of elements) {
+      let d = '';
+      if (el.type === 'way') d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area_large, true);
+      else if (el.type === 'relation' && el.members) {
+        const { outer, inner } = stitchMultipolygonRings(el.members);
+        for (const ring of [...outer, ...inner]) d += geomToPathD(ring, ctx.pr, ctx.EPS.area_large, true) + ' ';
+        d = d.trim();
+      }
+      if (!d) continue;
+      const t = el.tags || {};
+      // English label for the specific ground OSM records; a name wins.
+      const kind = t.leisure === 'golf_course' ? 'Golf course'
+        : t.leisure === 'dog_park' ? 'Dog park'
+        : t.leisure === 'sports_centre' ? 'Sports centre'
+        : t.landuse === 'allotments' ? 'Allotments'
+        : 'Recreation ground';
+      const name = t.name;
+      const id = name ? uid(`recreation_${safeName(name)}`) : uid(`recreation_${el.id ?? 'x'}`);
+      const label = name || kind;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="1" stroke-linejoin="round"/>`;
+    }
+    if (!content) return '';
+    return `  <g id="parks_recreation" inkscape:label="Recreation grounds" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
 
   // ── Human-readable group labels for merged road/rail paths ────────
@@ -2380,6 +2484,7 @@ self.onmessage = function(event) {
     if (result.layer.id === 'waterways') return renderWaterways(result, ctx);
     if (result.layer.id === 'landcover') return renderLandcover(result, ctx);
     if (result.layer.id === 'beach') return renderBeach(result, ctx);
+    if (result.layer.id === 'parks_recreation') return renderRecreation(result, ctx);
     if (result.layer.id === 'roads') {
       const elements = result.data?.elements || [];
       // Squares are excluded from the road stroke passes (they are neither
@@ -2448,18 +2553,31 @@ self.onmessage = function(event) {
     // tree organization for the designer's layers panel. Buffered here and
     // flushed in place (either child may be absent on inland/dry areas).
     //
-    // The green layers are deliberately NOT grouped the same way. "Countryside"
-    // (landcover) sits at the bottom band so it hides under city blocks and
-    // shows only through rural faces; "Parks & green" sits near the top so
-    // named parks stay visible over blocks and water. Four layers separate
-    // them, and an SVG parent group needs contiguous children, so nesting the
-    // two would have to reorder paint. Coen's call (2026-07-14): leave them as
-    // separate top-level layers rather than change the render for panel tidiness.
+    // "Countryside" (landcover) is deliberately NOT pulled into that green
+    // parent: it sits at the bottom band so it hides under city blocks and
+    // shows only through rural faces, while "Parks & green" sits near the top.
+    // Four layers separate them, and an SVG parent group needs contiguous
+    // children, so nesting the two would have to reorder paint. Coen's call
+    // (2026-07-14): leave them as separate top-level layers rather than change
+    // the render for panel tidiness.
+    //
+    // Named parks + Recreation grounds (AF-03b) ARE adjacent in the paint
+    // order, so — exactly like Water above — they share one "Parks & green"
+    // parent without moving a single paint. The inner v1 parks group keeps
+    // id="parks" but its label (v1 calls the layer itself "Parks & green") is
+    // rewritten to "Named parks" so the panel reads Parks & green → Named
+    // parks / Recreation grounds instead of repeating the parent's name.
     let pendingWater = null;
     const flushWater = () => {
       if (pendingWater === null) return;
       if (pendingWater) layersSVG += `  <g id="water" inkscape:label="Water" inkscape:groupmode="layer">\n${pendingWater}  </g>\n`;
       pendingWater = null;
+    };
+    let pendingParks = null;
+    const flushParks = () => {
+      if (pendingParks === null) return;
+      if (pendingParks) layersSVG += `  <g id="parks_green" inkscape:label="Parks &amp; green" inkscape:groupmode="layer">\n${pendingParks}  </g>\n`;
+      pendingParks = null;
     };
     for (const result of sortResults(results)) {
       let layerSVG = renderLayer(result, ctx);
@@ -2471,6 +2589,14 @@ self.onmessage = function(event) {
         continue;
       }
       flushWater();
+      if (result.layer.id === parksLayer.id || result.layer.id === recreationLayer.id) {
+        if (result.layer.id === parksLayer.id) {
+          layerSVG = layerSVG.replace('<g id="parks" inkscape:label="Parks &amp; green"', '<g id="parks" inkscape:label="Named parks"');
+        }
+        pendingParks = (pendingParks || '') + layerSVG;
+        continue;
+      }
+      flushParks();
       layersSVG += layerSVG;
       // Square labels render as their own "Squares & plazas" group, placed
       // directly after water_labels in paint order (feature labels — water
@@ -2486,6 +2612,7 @@ self.onmessage = function(event) {
       }
     }
     flushWater();
+    flushParks();
     return ctx.illustratorCompatible
       ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
       : wrapSVG(layersSVG, ctx, physicalWidthMm);
