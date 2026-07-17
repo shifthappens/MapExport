@@ -274,7 +274,35 @@ ongetagde restvlakken blijven fallback; 0.000% bare; geen cream over water; geen
 green-dominanceflip in Erfurt/Oulu; paint-order blijft conform contract.
 
 **Gate:** offline face-/coveragefixtures plus cached Ghent, Bremerhaven en Oulu
-sequentieel; geen volledige zeven-steden-sweep.
+sequentieel; geen volledige zeven-steden-sweep. *Status 2026-07-17: het
+real-worker-deel van de offline fixtures (echte complement-geometrie van de
+AF-03b-recreatiesubtractie in de face worker) is in deze sandbox niet
+uitvoerbaar — ClipperLib-CDN én Overpass zijn door de netwerkpolicy
+geblokkeerd en er is geen warme cache. Expliciet open verificatiepunt,
+samen met de cached-exportgate op te pakken in AF-08 of een sessie met
+netwerk/cache (`tests/v2-cutterless-worker.mjs` draait daar wél).*
+
+### Reviewfixes 2026-07-17 (post-AF-03c, externe reviewronde)
+
+Vier bevestigde bevindingen op eerder afgeronde units, dezelfde dag verholpen
+(zie CHANGELOG "Review fixes"):
+
+1. **AF-01-rest:** structurele ids ("roads", "water", "greenblue_clip", …)
+   zaten niet in de uid-allocatornamespace; een straat met zo'n letterlijke
+   naam dupliceerde het structurele id. Fix: `RESERVED_SVG_IDS`-seed in
+   `makeUidGen`; reserved-name-fixtures in `tests/svg-id-uniqueness.mjs`.
+2. **AF-03b-rest:** `renderRecreation` voedde `ctx.areaClipDs` niet, dus
+   paden over recreatiegroen kregen geen witte overlay zoals over parken.
+   Fix: zelfde push als parks/water; checks in `tests/area-binding.mjs`.
+3. **AF-02b-rest:** pleinen met alléén `place=square` (zonder highway-tag)
+   werden nooit gefetcht (roads-query vereist highway). Fix: v2-only
+   label-only fetchregel + square-scan over roads én labelElements met
+   id-dedup; fixtures in `tests/square-labels.mjs`.
+4. **AF-02a-rest:** de globale prioriteitssort vergeleek rivierlengte (px)
+   met ruwe polygon-bbox-oppervlakte (px²); een klein park kon zo het label
+   van een lange rivier verdringen. Fix: polygonen ranken op √oppervlakte
+   (px-schaal, vergelijkbaar), input-orde-onafhankelijkheid behouden;
+   regressiecheck in `tests/feature-label-dedup.mjs`.
 
 ### [ ] AF-04 — Zichtbare landelijke place-labels
 

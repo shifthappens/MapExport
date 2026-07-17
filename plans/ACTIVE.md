@@ -23,11 +23,20 @@
   50→85 checks; ENGINE-V2.md §3/§5/§7.
 - **Next action:** AF-04 (zichtbare landelijke place-labels; O definieert
   hiërarchie, E1 implementeert labelbuilder + fixtures).
+- **Reviewronde 2026-07-17 (na AF-03c):** vier bevestigde restbevindingen op
+  AF-01/AF-02a/AF-02b/AF-03b dezelfde dag verholpen — reserved structurele
+  ids in de allocator, recreatie in areaClipDs (witte padoverlay),
+  place=square-only pleinlabels, vergelijkbare labelprioriteitsmetriek
+  (√oppervlakte). Zie roadmap "Reviewfixes 2026-07-17" en CHANGELOG. Het
+  real-worker-complementfixture voor AF-03b blijft een expliciet open
+  verificatiepunt (ClipperLib-CDN geblokkeerd, geen warme cache) → AF-08.
 - **Changed for current unit:** engine-v2.js, tests/area-binding.mjs,
   ENGINE-V2.md, CHANGELOG.md, plans/.
-- **Latest checks:** `node --check engine-v2.js` groen;
-  `node tests/area-binding.mjs` 85/85; `OFFLINE_ONLY=1 bash tests/smoke.sh`
-  volledig groen (2026-07-17, na AF-03c incl. review-nits).
+- **Latest checks:** `node --check` script.js + engine-v2.js groen;
+  `tests/area-binding.mjs` 87/87, `svg-id-uniqueness` 15/15,
+  `square-labels` 17/17, `feature-label-dedup` 12/12;
+  `OFFLINE_ONLY=1 bash tests/smoke.sh` en `pipeline-equivalence` volledig
+  groen (2026-07-17, na AF-03c + reviewfixes).
 - **Decisions/blockers:** **Netwerkblokkade:** deze remote-omgeving blokkeert
   alle drie Overpass-endpoints (HTTP 403 via agent proxy). Alle visuele
   cached/live-exportgates (AF-02 t/m AF-06, AF-08-sweep) schuiven door naar
