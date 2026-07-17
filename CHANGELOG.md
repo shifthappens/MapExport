@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Water/park names label once per feature, not per OSM segment
+- Rivers and parks made of multiple OSM ways or polygons (e.g. a river split
+  into several segments, a park split into several polygons) now get one
+  name label for the dominant part of the feature instead of one label per
+  segment. A genuinely long river or park may still repeat its name far away.
+
 ### 2026-07-17 — Exports: every SVG object id is now unique and stable
 - Every object id in an exported SVG (roads, rail, tram, metro, water/park/
   landcover fills, feature and street labels, POIs, and — in Engine v2 —

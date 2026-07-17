@@ -2254,9 +2254,16 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
   const grid=sharedGrid||makeFootprintGrid();
   let labels='';
 
+  // Phase 1: build placement candidates (anchor, style, size metric) for
+  // every named water/park feature without touching the grid yet. A real
+  // feature — a river split into many OSM ways, a park split into many
+  // polygons — produces one candidate per element here; phase 2 below
+  // dedupes same-named candidates by geographic distance so only the
+  // dominant segment ever reaches the grid.
+  const candidates=[];
   elements.forEach(el=>{
     const name=el.tags?.name; if (!name) return;
-    let cx,cy,sz,weight,color;
+    let cx,cy,sz,weight,color,sizeMetric=0;
     const natural=el.tags?.natural, leisure=el.tags?.leisure, waterway=el.tags?.waterway;
 
     if (waterway==='river'||waterway==='canal') {
@@ -2264,16 +2271,49 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const mid=pts[Math.floor(pts.length/2)]; [cx,cy]=mid;
       sz=26*sf; weight=400; color='#3a6a9a';
+      // Size metric: total projected polyline length, so the longest run of
+      // a multi-way river wins the dedup below.
+      for (let i=1;i<pts.length;i++) sizeMetric+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
     } else if (natural==='water'||leisure==='park'||leisure==='garden') {
       if (el.type==='way'&&el.geometry?.length) {
         const pts=el.geometry.map(g=>pr(g.lat,g.lon));
         cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
         cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
+        // Size metric: projected bounding-box area, so the largest polygon
+        // of a multi-polygon park wins the dedup below.
+        const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+        sizeMetric=(Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys));
       } else if (el.type==='node') { [cx,cy]=pr(el.lat,el.lon); }
       else return;
       sz=natural==='water'?24*sf:22*sf; weight=400;
       color=natural==='water'?'#3a6a9a':'#3a6a3a';
     } else return;
+
+    // Dedup key: normalized name. Display text and id base keep the
+    // original `name` untouched.
+    const normName=name.normalize('NFC').toLowerCase().replace(/\s+/g,' ').trim();
+    candidates.push({el,name,normName,cx,cy,sz,weight,color,waterway,sizeMetric});
+  });
+
+  // Largest-first, id-ascending tiebreak: deterministic, and whichever
+  // candidate survives the same-name dedup below lands on the feature's
+  // dominant segment rather than on whatever way happened to iterate first.
+  candidates.sort((a,b)=> b.sizeMetric-a.sizeMetric || (a.el.id<b.el.id?-1:a.el.id>b.el.id?1:0));
+
+  // Same-name suppression, modeled on buildLabelsLayer's nearName/recordName
+  // (script.js ~1802, local there too — this is its own local equivalent,
+  // nothing shared): a second label for the same normalized name within
+  // `gap` px of an already-placed one is dropped BEFORE it can claim grid
+  // space, so a nearby duplicate OSM segment never burns the spot a
+  // genuinely different label needs — while a long river/park may still
+  // repeat its name far away.
+  const gap=1000*sf;
+  const placedByName=new Map();
+  const nearName=(nm,x,y)=>{const a=placedByName.get(nm);if(!a)return false;for(const p of a)if(Math.hypot(x-p[0],y-p[1])<gap)return true;return false;};
+  const recordName=(nm,x,y)=>{const a=placedByName.get(nm);if(a)a.push([x,y]);else placedByName.set(nm,[[x,y]]);};
+
+  candidates.forEach(({name,normName,cx,cy,sz,weight,color,waterway})=>{
+    if (nearName(normName,cx,cy)) return;
 
     const tw=approxTextWidth(name,sz), r=fpR(sz);
     const fp=fpLine(cx-tw/2,cy,cx+tw/2,cy,r);
@@ -2284,6 +2324,7 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
     if (!fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r)) return;
     for (const p of fp) if (grid.hits(p[0],p[1],r)) return;
     for (const p of fp) grid.put(p[0],p[1],r);
+    recordName(normName,cx,cy);
 
     const haloSz=(sz*0.15+1.5).toFixed(1);
     const italicAttr=waterway?'font-style="italic"':'';
