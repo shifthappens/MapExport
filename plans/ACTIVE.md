@@ -1,42 +1,31 @@
-# Active maintenance checkpoint
+# Active checkpoint
 
-- **Updated:** 2026-07-14
-- **Roadmap:** `plans/2026-07-14_codebase-maintenance-priorities.md`
-- **Sprint:** Sprint 2 `COMPLETE` (eindpoort gehaald, reviewblok in de
-  roadmap; Sprint 1 eveneens `COMPLETE`). Sprint 3 — Correctheid aantoonbaar
-  maken — is de volgende, nog niet gestart (`PLANNED`).
-- **Unit:** geen actieve unit. Eerstvolgende: ME-06a (v2 place-node padding)
-  `READY`.
-- **Owner/route:** O voerde ME-04 en ME-05 rechtstreeks uit; Coen nam het
-  ME-04c-Beslispunt (browser writes + per-IP rate limit; 2 GiB cap
-  oudste-eerst).
-- **Completed checkpoint:** ME-05 af: alle Overpass-requests van beide engines
-  lopen door één contract in `script.js` — `overpassAttempt` (harde
-  per-poging-timeout, getypeerde fouten: timeout/rate-limited/http/network/
-  parse/aborted, envelopcheck zodat een 2xx-proxypagina geen lege tile kan
-  spelen), `overpassFetch` (rotatie + korte backoff na iedere mislukte
-  poging, begrensde Retry-After ≤15 s) en `overpassFetchRace` (verliezers
-  direct geabort). `runExportLifecycle` draagt een export-brede
-  AbortController: een definitieve fout annuleert alle nog lopende requests;
-  `sleep` is abort-aware. Foutmeldingen noemen soort uitval + mislukte tile;
-  cache-leesfouten worden één keer per export gemeld i.p.v. stil als miss.
-  `fetchTileCombined`/`fetchTileCombinedRace` zijn dunne wrappers; v2 deelt
-  alles via `fetchLayer`.
-- **Next action:** Sprint 3 starten met ME-06a: de 1000 m-padding van de v2
-  place-nodequery toetsen aan labelplaatsing/tilegrenzen en de marge
-  consistent maken (startpunt: place-nodequery in `engine-v2.js`).
-- **Changed for current unit:** `script.js` (fetch-contract, lifecycle-abort,
-  cache-diagnostiek), `tests/overpass-fetch.mjs` (nieuw, 17 gemockte checks),
-  `tests/smoke.sh`, `tests/README.md`, `AGENTS.md`, roadmap (ME-05 afgevinkt,
-  Sprint 2 COMPLETE + review), `CHANGELOG.md`, dit checkpoint.
-- **Latest checks:** `node tests/overpass-fetch.mjs` groen (17 checks);
-  `OFFLINE_ONLY=1 bash tests/smoke.sh` volledig groen (incl. export-failures,
-  preview-state, cache-php); `sea-sign`, `hamlet-grounding` groen;
-  `node --check script.js`/`engine-v2.js`, `php -l cache.php` groen. Geen
-  live export gedraaid (geen render-/SVG-gedrag gewijzigd; netwerkpaden met
-  gemockte fetch bewezen).
-- **Decisions/blockers:** backoff-op-elke-mislukte-poging (500 ms→4 s,
-  bestaand mechanisme) is de rotatiemotor — zonder die zou een hangend eerste
-  endpoint elke retry opnieuw gekozen worden. `AbortSignal.any` vereist een
-  2023+-browser, in lijn met het al gebruikte `AbortSignal.timeout`. Geen
-  blockers.
+- **Updated:** 2026-07-17
+- **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
+  bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
+- **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, expliciet tussen
+  maintenance Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
+- **Unit:** AF-01 — documentbrede, deterministische SVG-ID's — `READY`.
+- **Owner/route:** O bepaalt namespace en reviewt; in Claude is
+  `scoped-implementer` de E1-route en `reviewer` de onafhankelijke read-only
+  controle. AF-01 vervult na acceptatie maintenance ME-06c.
+- **Completed checkpoint:** alle zeven exports volledig visueel en structureel
+  geaudit; bewijsrapport en Ghent-reference staan in de repo. Geen kaart heeft
+  een magenta dekkingsgat. Bevindingen zijn getrieerd naar fix, bewuste stijl,
+  OSM-brondata of expliciet productbesluit. Crèmekleurige city blocks zijn
+  bevestigd als bedoelde cartografische abstractie, niet als defect.
+- **Next action:** voer uitsluitend AF-01 uit: herverifieer de ID-bronnen,
+  implementeer één deterministische documentbrede namespace, voeg een offline
+  uniqueness-regressietest toe en review de diff. Geen labelplaatsing, kleur of
+  geometrie wijzigen; geen live export vóór de offline checks groen zijn.
+- **Changed for current unit:** auditrapport + screenshots, geconverteerde
+  Ghent-reference, nieuw tussen-sprintplan, ouder cartografieplan/maintenance-
+  statusnotities en dit checkpoint. Geen appbron gewijzigd.
+- **Latest checks:** zeven SVG's visueel met magenta en fallback-overlay
+  gecontroleerd (0 zichtbare gaten); 36 lokale rapportlinks gevalideerd;
+  dubbele-ID-inventory: Bremerhaven 2, Erfurt 6, Ghent 205, Oulu 2, Paris 7,
+  Nièvre/Tilburg 0 verschillende dubbele ID-namen.
+- **Decisions/blockers:** offline-first en één exportproces tegelijk; bij 429,
+  timeout of cachemiss geen retry-matrix maar checkpoint/hervatting. Metro-
+  tunnelpresentatie en Countryside/Parks-merge blijven expliciete Coen-gates;
+  zij blokkeren AF-01 niet.

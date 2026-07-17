@@ -1,7 +1,8 @@
 # Roadmap: maintenance sprints
 
-**Status: IN PROGRESS (2026-07-14) — Sprint 1 en 2 COMPLETE, Sprint 3 is de
-volgende.** Geprioriteerde technische
+**Status: IN PROGRESS (2026-07-17) — Sprint 1 en 2 COMPLETE. De expliciet
+ingevoegde cartografische audit-tussen-sprint is nu ACTIVE; Sprint 3 blijft
+PLANNED en hervat daarna. Zie `plans/ACTIVE.md`.** Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
@@ -659,7 +660,9 @@ bbox/redraw-validatie bij de kaartselectie.
    wordt nu ten onrechte als fallback behandeld. Gebruik een expliciete
    `-1`-controle.
 - [ ] **ME-06c — Unieke feature-id's.** Voorkom dubbele SVG-id's bij herhaalde of
-   samengevoegde OSM-features; maak generatie deterministisch.
+   samengevoegde OSM-features; maak generatie deterministisch. Wordt uitgevoerd
+   als AF-01 in `plans/2026-07-17_cartographic-audit-followup.md`; hier pas
+   afvinken nadat die unit haar acceptatiecriteria haalt.
 - [ ] **ME-06d — Te kleine redraw.** Wis of herbereken de oude bbox/status wanneer een
    nieuwe selectie te klein is, zodat de UI niet verdergaat met verouderde
    grenzen.

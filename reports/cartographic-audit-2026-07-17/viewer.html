@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MapExport cartographic audit viewer</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #222; }
+    header {
+      position: absolute; z-index: 2; inset: 0 0 auto 0; min-height: 44px;
+      display: flex; align-items: center; gap: 18px; padding: 8px 14px;
+      background: rgba(15, 15, 15, .94); color: white; font-size: 13px;
+    }
+    #stage {
+      position: absolute; inset: 44px 0 0; display: grid; place-items: center;
+      background: #333;
+    }
+    #stage svg { display: block; width: 100%; height: 100%; }
+    #status { color: #ffd166; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong id="city">Loading map…</strong>
+    <span id="mode"></span>
+    <span id="status"></span>
+  </header>
+  <main id="stage" aria-label="Rendered SVG map"></main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const filename = params.get('file') || 'map-useit-ghent-v2-2026-07-14.svg';
+    const background = params.get('bg') || '#ff00ff';
+    const focusId = params.get('focus');
+    const highlight = params.get('highlight');
+    const requestedViewBox = params.get('viewBox');
+    const stage = document.querySelector('#stage');
+    const status = document.querySelector('#status');
+    document.querySelector('#city').textContent = filename;
+    document.querySelector('#mode').textContent = `audit background ${background}`;
+
+    async function render() {
+      if (!/^[a-z0-9._-]+\.svg$/i.test(filename)) throw new Error('Unsafe filename');
+      const response = await fetch(`../../exports/${filename}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const source = await response.text();
+      const documentSvg = new DOMParser().parseFromString(source, 'image/svg+xml');
+      const svg = documentSvg.documentElement;
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+      const backgroundRect = svg.querySelector('#background rect');
+      if (backgroundRect) backgroundRect.setAttribute('fill', background);
+
+      if (requestedViewBox) svg.setAttribute('viewBox', requestedViewBox.replaceAll(',', ' '));
+      stage.replaceChildren(document.importNode(svg, true));
+
+      if (highlight === 'fallback') {
+        const fallbackPaths = stage.querySelectorAll('#fallback_blocks path');
+        fallbackPaths.forEach(path => {
+          path.setAttribute('fill', '#ff00ff');
+          path.setAttribute('fill-opacity', '0.72');
+          path.setAttribute('stroke', '#ffe600');
+          path.setAttribute('stroke-width', '4');
+        });
+        status.textContent = `${fallbackPaths.length} fallback patches highlighted`;
+      }
+
+      if (focusId) {
+        const liveSvg = stage.querySelector('svg');
+        const focusIds = focusId.split(',');
+        const targets = focusIds.map(id => liveSvg.getElementById(id));
+        if (targets.some(target => !target)) throw new Error(`One of ${focusIds.join(', ')} was not found`);
+        const boxes = targets.map(target => {
+          const local = target.getBBox();
+          const matrix = target.getCTM();
+          const corners = [
+            [local.x, local.y], [local.x + local.width, local.y],
+            [local.x, local.y + local.height], [local.x + local.width, local.y + local.height]
+          ].map(([x, y]) => {
+            const point = liveSvg.createSVGPoint();
+            point.x = x; point.y = y;
+            return point.matrixTransform(matrix);
+          });
+          const xs = corners.map(point => point.x);
+          const ys = corners.map(point => point.y);
+          return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+        });
+        const box = {
+          x: Math.min(...boxes.map(value => value.x)),
+          y: Math.min(...boxes.map(value => value.y)),
+          width: Math.max(...boxes.map(value => value.x + value.width)) - Math.min(...boxes.map(value => value.x)),
+          height: Math.max(...boxes.map(value => value.y + value.height)) - Math.min(...boxes.map(value => value.y))
+        };
+        const pad = Math.max(box.width, box.height, 50) * 0.45;
+        liveSvg.setAttribute('viewBox', [box.x - pad, box.y - pad, box.width + 2 * pad, box.height + 2 * pad].join(' '));
+        boxes.forEach(value => {
+          const marker = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          marker.setAttribute('x', value.x - 6);
+          marker.setAttribute('y', value.y - 6);
+          marker.setAttribute('width', value.width + 12);
+          marker.setAttribute('height', value.height + 12);
+          marker.setAttribute('fill', 'none');
+          marker.setAttribute('stroke', '#ffe600');
+          marker.setAttribute('stroke-width', Math.max(3, pad / 80));
+          marker.setAttribute('stroke-dasharray', `${Math.max(8, pad / 15)} ${Math.max(5, pad / 28)}`);
+          liveSvg.append(marker);
+        });
+        status.textContent = `focus ${focusIds.map(id => `#${id}`).join(' + ')}`;
+      }
+      document.documentElement.dataset.ready = 'true';
+    }
+
+    render().catch(error => {
+      status.textContent = error.message;
+      document.documentElement.dataset.ready = 'error';
+    });
+  </script>
+</body>
+</html>

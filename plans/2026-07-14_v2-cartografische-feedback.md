@@ -1,12 +1,9 @@
 # Plan: v2 cartografische feedback (Coens sign-off-ronde)
 
-**Status: ACTIVE (2026-07-14).** Kleine, zelfstandige cartografische
-verfijningen die volgen uit Coens visuele sign-off op de zeven-area v2-sweep
-(zie Sprint 1 van `plans/2026-07-14_codebase-maintenance-priorities.md`,
-afgesloten met deze feedback). Dit plan staat **naast** de maintenance-roadmap:
-die roadmap voegt bewust geen features toe, terwijl dit product-/kaartwerk is.
-Coen heeft dit expliciet gevraagd. `plans/ACTIVE.md` wijst tijdens dit werk naar
-dít plan als de actieve unit.
+**Status: COMPLETE (2026-07-17).** CF-01 en CF-02 zijn uitgevoerd.
+Het open ontwerpbesluit CF-03 is overgenomen door AF-07c in
+`plans/2026-07-17_cartographic-audit-followup.md`; dat plan bevat ook de nieuwe
+zeven-steden-audit. Dit bestand is niet langer het actieve checkpoint.
 
 ## Context voor een nieuwe uitvoerder
 
