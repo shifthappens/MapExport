@@ -662,9 +662,9 @@ bbox/redraw-validatie bij de kaartselectie.
 - [x] **ME-06c — Unieke feature-id's.** Voorkom dubbele SVG-id's bij herhaalde of
    samengevoegde OSM-features; maak generatie deterministisch. *Vervuld door
    AF-01 in de cartografische tussen-sprint (2026-07-17): documentbrede
-   allocator + `tests/svg-id-uniqueness.mjs`.* Wordt uitgevoerd
-   als AF-01 in `plans/2026-07-17_cartographic-audit-followup.md`; hier pas
-   afvinken nadat die unit haar acceptatiecriteria haalt.
+   allocator + `tests/svg-id-uniqueness.mjs`.* Uitgevoerd als AF-01 in
+   `plans/2026-07-17_cartographic-audit-followup.md`; acceptatie (incl.
+   onafhankelijke review) gehaald op 2026-07-17.
 - [ ] **ME-06d — Te kleine redraw.** Wis of herbereken de oude bbox/status wanneer een
    nieuwe selectie te klein is, zodat de UI niet verdergaat met verouderde
    grenzen.
