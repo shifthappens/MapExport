@@ -1194,10 +1194,12 @@ self.onmessage = function(event) {
   // (AF-03b O-contract — recreation changes paint, not classification).
   const openLandVoid = buildVoid([greenPolys, openLandPolys], null);
   const waterVoid = buildVoid([waterPolys], waterwayStrokePaths);
-  // Urban-landuse signal (residential/commercial/retail cover). A buildingless
-  // face this covers ≥ URBAN_LANDUSE_MIN_SHARE of (over its land area) is city,
-  // not open land — much of OSM maps a district by its landuse polygon and never
-  // its individual buildings. Classification only: never subtracted, never painted.
+  // Urban-landuse signal (the isUrbanSignalElement set: residential/commercial/
+  // retail/institutional/education/religious landuse + amenity=parking). A
+  // buildingless face this covers ≥ URBAN_LANDUSE_MIN_SHARE of (over its land
+  // area) is city, not open land — much of OSM maps a district by its landuse
+  // polygon and never its individual buildings. Classification only: never
+  // subtracted, never painted.
   const urbanVoid = buildVoid([urbanPolys], null);
   // Hidden-green cover: the landcover paint rows ALONE (grass + landcover,
   // parks/water/waterways excluded). Named green needs no equivalent — it is
@@ -1297,9 +1299,11 @@ self.onmessage = function(event) {
     if (builtUp && !gateBuildings) return true;
     if (intersectArea(subjectPaths, openLandVoid) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return false;
     if (builtUp) return true;
-    // A landuse=residential/commercial polygon promotes a buildingless-but-covered
-    // face to a city block (much of OSM maps a district by its landuse and never
-    // its buildings). Green that OSM would paint here is already protected above:
+    // An urban-signal polygon (residential/commercial/retail/institutional/
+    // education/religious landuse, or parking — see isUrbanSignalElement)
+    // promotes a buildingless-but-covered face to a city block (much of OSM
+    // maps a district by its landuse and never its buildings). Green that OSM
+    // would paint here is already protected above:
     // named parks show through block holes, and landcover-dominant ground was
     // demoted by the green-dominance rule; nothing green survives to this point.
     return intersectArea(subjectPaths, urbanVoid) / landArea >= URBAN_LANDUSE_MIN_SHARE;
@@ -1816,6 +1820,30 @@ self.onmessage = function(event) {
     return polys;
   }
 
+  // ── Urban-landuse classification signal ────────────────────────────
+  // landuse=residential/commercial/retail polygons carry no building footprints
+  // in much of OSM (dominant in Erfurt: 37/43 above-floor Uncategorized patches
+  // were residential/commercial), yet the land is plainly city — they promote a
+  // buildingless-but-covered face/mass/piece to a cream block at the existing
+  // ≥50% share threshold. amenity=parking counts as city fabric too (Coen,
+  // 2026-07-13): a parking lot is paved block-land and reads as cream on a
+  // USE-IT map. Institutional built land joined via AF-03c —
+  // landuse=institutional|education|religious (Oulu's "Institutional" fallback
+  // patch): campuses and civic grounds are city fabric the same way, already
+  // arriving through the blanket label-only landuse sweep. No thresholds moved:
+  // the ≥50% overlap test and the open-land veto apply unchanged, so a green
+  // campus cannot flip a countryside face. INDUSTRIAL — and the rest of the
+  // working-land family (brownfield, construction, depot, landfill, quarry,
+  // railway grounds) — is excluded on purpose: Bremerhaven's industrial-tagged
+  // open quays would wrongly read as cream city blocks, and industry is never
+  // silently promoted to residential (AF-03c contract); those patches stay
+  // labelled fallback under their semantic editor family (see
+  // fallbackSemanticGroup). Same discipline as building centres throughout:
+  // this signal classifies only — it never paints or cuts.
+  const URBAN_SIGNAL_LANDUSE = new Set(['residential', 'commercial', 'retail', 'institutional', 'education', 'religious']);
+  const isUrbanSignalElement = (el) =>
+    URBAN_SIGNAL_LANDUSE.has(el.tags?.landuse) || el.tags?.amenity === 'parking';
+
   // Build the face-worker payload from the cutter results (roads + rail), the
   // fetched building elements, and the classified area features (water / green /
   // landcover / linear waterways). Projects + simplifies the cutter polylines
@@ -1885,22 +1913,12 @@ self.onmessage = function(event) {
     const paintLandcover = [...(area.landcover || []), ...(area.grass || [])];
     const landcoverPolys = collectAreaPolys(paintLandcover, pr);
     const openLandPolys = collectAreaPolys(area.landcover, pr);
-    // Urban-landuse classification signal: landuse=residential/commercial/retail
-    // polygons carry no building footprints in much of OSM (dominant in Erfurt:
-    // 37/43 above-floor Uncategorized patches are residential/commercial), yet
-    // the land is plainly city. Projected exactly like the void polys above and
-    // unioned into the worker's urbanVoid, they let a buildingless-but-covered
-    // face still classify urban. INDUSTRIAL is excluded on purpose (Bremerhaven's
-    // industrial-tagged open quays would wrongly read as cream city blocks). Like
-    // buildingCenters, these only classify — they never paint or cut.
-    const urbanLanduse = new Set(['residential', 'commercial', 'retail']);
-    // amenity=parking counts as city fabric too (Coen, 2026-07-13): a parking
-    // lot is paved block-land and reads as cream on a USE-IT map, so a piece
-    // it covers promotes like residential/commercial instead of surfacing as
-    // an "Uncategorized/Parking" patch. Same discipline as the landuse set:
-    // classification only, never painted or cut.
-    const urbanElements = (area.labelOnly || []).filter(el =>
-      urbanLanduse.has(el.tags?.landuse) || el.tags?.amenity === 'parking');
+    // Urban-landuse classification signal (see isUrbanSignalElement above
+    // prepareFaceData for the tag set and its rationale). Projected exactly
+    // like the void polys above and unioned into the worker's urbanVoid, these
+    // let a buildingless-but-covered face still classify urban. Like
+    // buildingCenters, they only classify — they never paint or cut.
+    const urbanElements = (area.labelOnly || []).filter(isUrbanSignalElement);
     const urbanPolys = collectAreaPolys(urbanElements, pr);
     // The paint set kept per-element (index into the landcover render array =
     // [...landcover, ...grass]) so the worker's occlusion cull reports exactly
@@ -2055,6 +2073,22 @@ self.onmessage = function(event) {
     return value ? value + (tags.name ? ` “${tags.name}”` : '') : null;
   }
 
+  // Semantic editor FAMILY for known built/paved/worked land (AF-03c). The
+  // audit's decision: industry, railway grounds and parking are neither green
+  // nor generic "Uncategorized" — they stay cream fallback paint (city-block
+  // style is not redesigned), but the designer panel groups them under
+  // recognizable family names instead of one raw tag value per group, so a
+  // designer can grab all working land or all paved lots at once. Per-patch
+  // labels keep the specific tag value + OSM name ("Parking “Autoranta”" under
+  // "Paved areas"). Returns null when a tag has no family; the subgroup then
+  // keeps the raw capitalized value (existing behaviour, e.g. "Residential").
+  function fallbackSemanticGroup(tags) {
+    if (/^(industrial|brownfield|construction|depot|landfill|quarry)$/.test(tags.landuse || '')) return 'Working land';
+    if (tags.landuse === 'railway' || tags.railway) return 'Railway grounds';
+    if (tags.amenity === 'parking' || tags.landuse === 'garages') return 'Paved areas';
+    return null;
+  }
+
   // Representative interior point of a patch outer ring: the vertex mean when
   // it lands inside the ring, else a coarsening grid probe over the ring bbox.
   // Label-grade only — a rare miss labels one patch generically, nothing more.
@@ -2130,19 +2164,24 @@ self.onmessage = function(event) {
       if (outerRing.length >= 3) {
         const [x, y] = patchLabelPoint(outerRing);
         const cats = [];
-        let firstValue = null;
+        let firstValue = null, firstGroup = null;
         for (const a of areas) {
           if (x < a.minX || x > a.maxX || y < a.minY || y > a.maxY) continue;
           if (!inPts(a.pts, x, y)) continue;
           const cat = fallbackCategoryLabel(a.tags);
           if (cat && !cats.includes(cat)) {
             cats.push(cat);
-            if (firstValue === null) firstValue = fallbackCategoryValue(a.tags);
+            if (firstValue === null) {
+              firstValue = fallbackCategoryValue(a.tags);
+              firstGroup = fallbackSemanticGroup(a.tags);
+            }
           }
         }
         // Categorized patches read as their category ("Railway", "Parking
         // “Autoranta”"); "Uncategorized" is reserved for truly untagged land.
-        if (cats.length) { label = cats.slice(0, 2).join(' + '); category = firstValue || 'Uncategorized'; }
+        // The sub-group is the semantic family where one exists (AF-03c:
+        // "Working land" / "Railway grounds" / "Paved areas"), else the value.
+        if (cats.length) { label = cats.slice(0, 2).join(' + '); category = firstGroup || firstValue || 'Uncategorized'; }
       }
       // Self-coloured seam stroke (as on water bodies): fallback patches
       // often abut hamlet blobs and each other edge-to-edge, and the
@@ -2858,5 +2897,7 @@ self.onmessage = function(event) {
     padBboxMeters, BUILDING_FETCH_PAD_M,
     // Hamlet grounding (pure; exercised by tests/hamlet-grounding.mjs).
     pointToPolygonDistancePx, groundHamletContour, HAMLET_GROUND_SETTLEMENT_M, HAMLET_GROUND_LOCALITY_M,
+    // Urban-signal predicate (AF-03c; exercised by tests/area-binding.mjs).
+    isUrbanSignalElement, URBAN_SIGNAL_LANDUSE,
   };
 })();

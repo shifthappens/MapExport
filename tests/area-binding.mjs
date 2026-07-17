@@ -156,6 +156,26 @@ check('a mini wetland patch under the 80 m² declutter floor is dropped too (sam
   !regression.grass.includes(miniWetland) && !regression.labelOnly.includes(miniWetland) &&
   !regression.landcover.includes(miniWetland));
 
+// (f) AF-03c — urban-landuse classification signal. Institutional built land
+// (landuse=institutional|education|religious) now promotes a
+// buildingless-but-covered face like residential/commercial/retail and
+// amenity=parking already did, at the SAME thresholds (no numbers moved).
+// Industry and the working-land family must never feed the signal ("industry
+// is never silently promoted to residential").
+for (const lu of ['residential', 'commercial', 'retail', 'institutional', 'education', 'religious']) {
+  check(`landuse=${lu} feeds the urban signal`, X2.isUrbanSignalElement({ tags: { landuse: lu } }));
+}
+check('amenity=parking feeds the urban signal (Coen, 2026-07-13)',
+  X2.isUrbanSignalElement({ tags: { amenity: 'parking' } }));
+for (const lu of ['industrial', 'brownfield', 'construction', 'depot', 'landfill', 'quarry', 'railway', 'garages', 'grass', 'farmland']) {
+  check(`landuse=${lu} does NOT feed the urban signal`, !X2.isUrbanSignalElement({ tags: { landuse: lu } }));
+}
+check('a tagless element does not feed the urban signal', !X2.isUrbanSignalElement({}));
+check('institutional/education/religious have NO AREA_FEATURES row (classification only, never painted)',
+  classifyTags({ landuse: 'institutional' }) === null &&
+  classifyTags({ landuse: 'education' }) === null &&
+  classifyTags({ landuse: 'religious' }) === null);
+
 // (e) determinism: re-running classification on the same elements yields the
 // same bucketing (same ids in the same buckets), run to run.
 const determinismSet = [scrubWay, heathWay, wetlandWay, golfWay, dogParkWay, sportsWay, allotmentsWay, namedPark, farmland, miniScrub];
@@ -196,7 +216,7 @@ vm.createContext(heavySandbox);
 // test process, never written back.
 const returnMarker = 'return {\n    layers, layerOrder, buildSVG, doExport,';
 if (!engineSrc.includes(returnMarker)) throw new Error('area-binding.mjs: EngineV2 return statement shape changed — update the renderLandcover exposure patch');
-const patchedEngineSrc = engineSrc.replace(returnMarker, 'return {\n    layers, layerOrder, buildSVG, doExport, renderLandcover, renderRecreation,');
+const patchedEngineSrc = engineSrc.replace(returnMarker, 'return {\n    layers, layerOrder, buildSVG, doExport, renderLandcover, renderRecreation, renderFallbackBlocks,');
 
 const heavyTail = '\n;globalThis.__x2 = EngineV2;\nglobalThis.__x1 = { makeProjector, makeUidGen, getAreaLargeEps, getEps, getLineEps, PRESETS, LAYER_REGISTRY };';
 vm.runInContext(scriptSrc + '\n;\n' + patchedEngineSrc + heavyTail, heavySandbox);
@@ -265,5 +285,61 @@ check('no double "Parks & green" label survives inside the parent',
 const namedScrub = closedWay(3001, { natural: 'scrub', name: 'Dok-Zuid' });
 const namedScrubSvg = V2.renderLandcover({ data: { elements: [namedScrub] } }, ctx);
 check('a named scrub patch labels by its name', namedScrubSvg.includes('inkscape:label="Dok-Zuid"'));
+
+// ── renderFallbackBlocks: semantic editor families (AF-03c) ─────────
+// Known built/paved/worked land stays cream fallback paint but groups under
+// recognizable family names ("Working land" / "Railway grounds" / "Paved
+// areas") instead of one raw tag-value group each; unknown tags keep their raw
+// value group and untagged land stays "Uncategorized". Pure panel
+// organization — the emitted paths (paint) are unchanged.
+const [cx, cy] = ctx.pr(51.0, 5.0); // centre of the test bbox, in export px
+const patchAt = (px, py) => ({
+  kind: 'fallback',
+  outer: `M ${px - 20},${py - 20} L ${px + 20},${py - 20} L ${px + 20},${py + 20} L ${px - 20},${py + 20} Z`,
+  holes: [],
+});
+// closedWay's default footprint (±0.0005°) covers the bbox centre, so a patch
+// at (cx, cy) sits under any default-placed label element; (cx + 300, cy) is
+// outside that footprint, so a patch there matches nothing → Uncategorized.
+const centrePatch = () => patchAt(cx, cy);
+const fbSvg = (tags, blocks = [centrePatch()], els = [closedWay(4001, tags)]) =>
+  V2.renderFallbackBlocks(blocks, tags ? els : [], { ...ctx, uid: V1.makeUidGen() });
+
+const industrialFb = fbSvg({ landuse: 'industrial' });
+check('an industrial fallback patch groups under "Working land"',
+  industrialFb.includes('inkscape:label="Working land"'));
+check('the industrial patch itself keeps its specific "Industrial" label',
+  industrialFb.includes('inkscape:label="Industrial"'));
+for (const lu of ['brownfield', 'construction', 'depot', 'landfill', 'quarry']) {
+  check(`landuse=${lu} groups under "Working land" too`,
+    fbSvg({ landuse: lu }).includes('inkscape:label="Working land"'));
+}
+check('landuse=railway groups under "Railway grounds"',
+  fbSvg({ landuse: 'railway' }).includes('inkscape:label="Railway grounds"'));
+check('a railway=* area tag groups under "Railway grounds" too',
+  fbSvg({ railway: 'yard' }).includes('inkscape:label="Railway grounds"'));
+const parkingFb = fbSvg({ amenity: 'parking', name: 'Autoranta' });
+check('amenity=parking groups under "Paved areas"',
+  parkingFb.includes('inkscape:label="Paved areas"'));
+check('the parking patch label keeps value + OSM name (Parking “Autoranta”)',
+  parkingFb.includes('inkscape:label="Parking “Autoranta”"'));
+check('landuse=garages groups under "Paved areas" too',
+  fbSvg({ landuse: 'garages' }).includes('inkscape:label="Paved areas"'));
+check('a residential remnant keeps its raw "Residential" group (no family)',
+  fbSvg({ landuse: 'residential' }).includes('inkscape:label="Residential"'));
+check('an untagged patch stays "Uncategorized"',
+  fbSvg(null).includes('inkscape:label="Uncategorized"'));
+// Ordering: family groups sort alphabetically with the other categories and
+// the Uncategorized catch-all stays last.
+const mixedFb = V2.renderFallbackBlocks(
+  [centrePatch(), patchAt(cx + 300, cy)],
+  [closedWay(4002, { landuse: 'industrial' })],
+  { ...ctx, uid: V1.makeUidGen() });
+const workIdx = mixedFb.indexOf('inkscape:label="Working land"');
+const uncatIdx = mixedFb.indexOf('inkscape:label="Uncategorized"', mixedFb.indexOf('inkscape:groupmode="layer"') + 1);
+check('mixed export: Working land group exists and the Uncategorized catch-all comes last',
+  workIdx !== -1 && uncatIdx > workIdx);
+check('family grouping changes no paint: both patches still emit cream paths',
+  (mixedFb.match(/<path /g) || []).length === 2);
 
 process.exit(failures ? 1 : 0);

@@ -98,8 +98,8 @@ classification + subtraction + paint order.
      subtracts the KEPT blobs only.
    - otherwise it runs the **urban test**: a face is **urban** (curb-to-curb
      cream block) iff it contains a building, **or** it is **not** open land
-     **and** `landuse=residential|commercial|retail` covers ≥ 50% of its land
-     area. Anything else is **fallback** (cream remainder after subtracting
+     **and** the urban-signal landuse set (see the urban-landuse signal bullet
+     below) covers ≥ 50% of its land area. Anything else is **fallback** (cream remainder after subtracting
      everything any layer paints — this is how river islands and OSM data gaps
      render). The signals beyond building presence:
      - **Urban-landuse signal.** Much of OSM maps a district by a
@@ -107,9 +107,18 @@ classification + subtraction + paint order.
        buildings (Erfurt: 37 of 43 above-floor Uncategorized patches were
        residential/commercial). Those polygons are projected from the label-only
        sweep (§5) into a classification void (`urbanVoid`); like building
-       centres they classify but **never paint or cut**. `industrial` is
-       excluded deliberately — Bremerhaven's industrial-tagged open quays are
-       open land, not cream city blocks.
+       centres they classify but **never paint or cut**. The signal set
+       (`isUrbanSignalElement`) is `landuse=residential|commercial|retail`,
+       `amenity=parking` (paved block-land, Coen 2026-07-13) and — since
+       AF-03c — the institutional built-land tags
+       `landuse=institutional|education|religious` (Oulu's "Institutional"
+       fallback patch); institutional joined at the SAME ≥ 50% share threshold
+       and under the same open-land veto, no numbers moved. `industrial` — and
+       the whole working-land family (brownfield, construction, depot,
+       landfill, quarry, railway grounds) — is excluded deliberately:
+       Bremerhaven's industrial-tagged open quays are open land, not cream city
+       blocks, and industry is never silently promoted to residential; those
+       patches stay labelled fallback under their semantic editor family (§7).
      - **Open-land gate, promotions only.** The same green+landcover ≥ 35%
        signal (`COUNTRYSIDE_MIN_OPEN_SHARE`, water excluded) that picks
        countryside vetoes the urban-landuse *promotion* (and the remainder
@@ -287,7 +296,8 @@ anything that reads cream is neither painted nor rowed.
   leisure fetch that never paints. The table rows are tag-specific, so
   widening the fetch cannot widen what paints. It has two read-only jobs:
   naming Uncategorized patches, and supplying the **urban-landuse
-  classification signal** (`landuse=residential|commercial|retail` →
+  classification signal** (`isUrbanSignalElement` — residential/commercial/
+  retail/institutional/education/religious landuse plus `amenity=parking` →
   `urbanVoid`, §3). Both are read-only over the sweep — exactly like building
   centres, the sweep classifies and labels but never paints or cuts, so this
   keeps §5 intact.
@@ -339,7 +349,16 @@ selectable, deletable path.
 
 Uncategorized labels read the OSM tag **value** ("Railway", "Parking
 “Autoranta”", "Pitch"); plain "Uncategorized" is reserved for land OSM does
-not tag at all.
+not tag at all. Within the Uncategorized layer, patches from known
+built/paved/worked land group under three semantic **families** (AF-03c):
+"Working land" (`landuse=industrial|brownfield|construction|depot|landfill|
+quarry`), "Railway grounds" (`landuse=railway` or any `railway=*` area tag)
+and "Paved areas" (`amenity=parking`, `landuse=garages`) — pure panel
+organization (`fallbackSemanticGroup`): the patches keep their cream fallback
+paint and their specific per-path labels, the audit's decision being that this
+land is neither green nor generic Uncategorized, while city-block styling is
+not redesigned. Tags with no family keep their raw value group (e.g.
+"Residential").
 
 Named squares get their own "Squares & plazas" editor group, separate from
 "Water & park names" and from the street-label layers (§2 item 1).

@@ -11,6 +11,20 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Engine v2: institutional land counts as city, worked land gets clear editor groups
+- Institutional built land (`landuse=institutional|education|religious` —
+  campuses, school and civic grounds, e.g. Oulu's "Institutional" patch) now
+  counts toward the city-block signal exactly like residential/commercial/
+  retail land, at the same unchanged overlap threshold — so such land paints
+  as a normal cream block instead of an "Uncategorized" fallback patch.
+  Industrial land is deliberately still excluded: industry is never silently
+  promoted to a city block.
+- In the editor, fallback patches from known worked/paved land now group under
+  three recognizable families — "Working land" (industrial, brownfield,
+  construction, depot, landfill, quarry), "Railway grounds" and "Paved areas"
+  (parking, garages) — instead of one raw tag-value group each. Purely panel
+  organization: the patches keep their cream paint and per-patch labels.
+
 ### 2026-07-17 — Engine v2: wetlands and recreation grounds no longer read as cream
 - `natural=wetland` (e.g. Oulu's marshes) now paints through the Countryside
   layer as field tint like farmland, instead of showing as a crème
