@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Exports: every SVG object id is now unique and stable
+- Every object id in an exported SVG (roads, rail, tram, metro, water/park/
+  landcover fills, feature and street labels, POIs, and — in Engine v2 —
+  waterways/landcover/beach/city blocks/fallback patches) is now guaranteed
+  unique across the whole document, so editors like Illustrator or Inkscape
+  never silently collapse two same-named objects (e.g. a repeated street or
+  river name) into one. Repeated names get a deterministic `_2`, `_3`, …
+  suffix in document order, so the same input always produces the same ids.
+
 ### 2026-07-16 — Exports: no races, frozen bbox, empty frames render
 - Double-clicking Export can no longer start two exports at once, and a slower
   superseded run can no longer overwrite a newer export — the map you can

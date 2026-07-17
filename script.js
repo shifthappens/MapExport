@@ -1260,7 +1260,27 @@ function elementInBbox(el, b) {
 // ════════════════════════════════════════════════════════════════
 function safeName(s) { return (s||'').replace(/&/g,'and').replace(/[<>"']/g,'').replace(/\s+/g,'_').replace(/[^\w\-]/g,'_').slice(0,80); }
 function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function makeUidGen() { const used=new Set(); return base=>{ if(!used.has(base)){used.add(base);return base;} let n=2; while(used.has(`${base}_${n}`))n++; const id=`${base}_${n}`;used.add(id);return id;}; }
+// Document-wide id allocator. uid(base, ...suffixes) reserves `base` AND
+// every `base+suffix` atomically: it walks base, base_2, base_3, … until it
+// finds a candidate where the candidate itself and every candidate+suffix
+// are all still free, registers all of them, and returns the candidate. This
+// is what lets a caller safely emit derived ids like `${pid}_casing` after
+// the fact — even against an adversarial name that literally IS "X casing" —
+// without a second collision check. One allocator per document (threaded via
+// ctx.uid from buildSVGContext), never a module-global: builds can interleave
+// across awaits with unrelated previews.
+function makeUidGen() {
+  const used = new Set();
+  return (base, ...suffixes) => {
+    let candidate = base, n = 2;
+    while (used.has(candidate) || suffixes.some(s => used.has(candidate + s))) {
+      candidate = `${base}_${n}`; n++;
+    }
+    used.add(candidate);
+    for (const s of suffixes) used.add(candidate + s);
+    return candidate;
+  };
+}
 
 // ════════════════════════════════════════════════════════════════
 //  SCALE FACTOR — stroke widths scale with output size
@@ -1385,7 +1405,7 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   // named street fast. Casings and fills mirror the same class+alpha order.
   let casingGroups='', fillGroups='', pathGroups='', pathOverGroups='';
   const clipDs = ctx?.areaClipDs || [];
-  const uid=makeUidGen();
+  const uid=ctx?.uid || makeUidGen();
   types.forEach(hw => {
     const ways=byType.get(hw);
     const w=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
@@ -1413,9 +1433,13 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       let d=`M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
       for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
       const name=el.tags?.name||'', ref=el.tags?.ref||'';
-      const pid=uid(name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`);
+      const base=name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`;
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
       if (ps) {
+        // Reserve the companion "_green" id up front (only actually emitted
+        // when clipDs.length), so the allocator can never hand out that
+        // suffixed id to something else.
+        const pid=clipDs.length?uid(base,'_green'):uid(base);
         // Single dashed stroke; butt caps keep the dash rhythm crisp. Paint
         // attributes live on the class group below — every path in a class
         // shares them, and SVG 1.1 inheritance is safe in every consumer
@@ -1426,6 +1450,7 @@ function buildRoadsLayer(elements, pr, W, ctx) {
         if (clipDs.length) pathsOver+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}"/>`;
         return;
       }
+      const pid=uid(base,'_casing');
       casings+=`\n        <path id="${pid}_casing" inkscape:label="${lbl}" d="${d}"/>`;
       fills+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
     });
@@ -1459,8 +1484,8 @@ function buildRoadsLayer(elements, pr, W, ctx) {
 // ════════════════════════════════════════════════════════════════
 //  RAIL BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildRailLayer(elements, pr, W) {
-  const sf=getScaleFactor(W), eps=getEps(), uid=makeUidGen();
+function buildRailLayer(elements, pr, W, uid=makeUidGen()) {
+  const sf=getScaleFactor(W), eps=getEps();
   let casings='',sleepers='',rails='';
   elements.forEach((el,i) => {
     if (el.type!=='way'||!el.geometry?.length) return;
@@ -1469,7 +1494,7 @@ function buildRailLayer(elements, pr, W) {
     let d=`M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
     for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
     const name=el.tags?.name||el.tags?.ref||'';
-    const pid=uid(name?safeName(name):`rail_${el.id||i}`);
+    const pid=uid(name?safeName(name):`rail_${el.id||i}`,'_casing','_sleepers');
     const lbl=escXml(name||`Railway (${el.id||i})`);
     // Paint attributes are hoisted onto the sub-groups below (plain SVG 1.1
     // inheritance, safe everywhere incl. Illustrator). `opacity` stays on
@@ -1487,7 +1512,7 @@ function buildRailLayer(elements, pr, W) {
 // ════════════════════════════════════════════════════════════════
 //  METRO BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildMetroLayer(elements, pr, W) {
+function buildMetroLayer(elements, pr, W, uid=makeUidGen()) {
   const sf=getScaleFactor(W), eps=getEps();
   const lineMap=new Map();
   elements.forEach(el => {
@@ -1503,7 +1528,9 @@ function buildMetroLayer(elements, pr, W) {
   lineMap.forEach(line=>{ if(!line.color) line.color=METRO_PALETTE[pi++%METRO_PALETTE.length]; });
   let lineGroups='';
   lineMap.forEach((line,key)=>{
-    const uid=makeUidGen();
+    // One allocator instance for the WHOLE layer (passed in), not one per
+    // line: two metro lines sharing a member name used to collide silently
+    // (each line's own generator started fresh at the same base id).
     let casings='',fills='';
     line.ways.forEach((el,i)=>{
       const s=dpSimplify(el.geometry.map(g=>pr(g.lat,g.lon)),eps);
@@ -1511,7 +1538,7 @@ function buildMetroLayer(elements, pr, W) {
       let d=`M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
       for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
       const name=el.tags?.name||el.tags?.ref||key;
-      const pid=uid(safeName(name!=='_default'?name:`metro_${el.id||i}`));
+      const pid=uid(safeName(name!=='_default'?name:`metro_${el.id||i}`),'_casing');
       const lbl=escXml(name!=='_default'?name:`Metro (${el.id||i})`);
       // Shared paint attributes live on the casing/fill groups below;
       // per-path opacity stays put (not inherited — see rail builder).
@@ -1519,9 +1546,10 @@ function buildMetroLayer(elements, pr, W) {
       fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.82"/>`;
     });
     if (!fills) return;
-    const lid=safeName(key!=='_default'?key:'metro_default');
+    const lidBase=safeName(key!=='_default'?key:'metro_default');
+    const gid=uid(`metro_${lidBase}`,'_casing','_fill');
     const llbl=escXml(key!=='_default'?key:'Metro line');
-    lineGroups+=`\n  <g id="metro_${lid}" inkscape:label="Metro — ${llbl}" inkscape:groupmode="layer">\n    <g id="metro_${lid}_casing" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="metro_${lid}_fill" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>`;
+    lineGroups+=`\n  <g id="${gid}" inkscape:label="Metro — ${llbl}" inkscape:groupmode="layer">\n    <g id="${gid}_casing" fill="none" stroke="white" stroke-width="${(24*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="${gid}_fill" fill="none" stroke="${line.color}" stroke-width="${(16.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>`;
   });
   return lineGroups?`  <g id="metro" inkscape:label="Metro / subway" inkscape:groupmode="layer">${lineGroups}\n  </g>\n`:'';
 }
@@ -1529,8 +1557,8 @@ function buildMetroLayer(elements, pr, W) {
 // ════════════════════════════════════════════════════════════════
 //  TRAM BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildTramLayer(elements, pr, W) {
-  const sf=getScaleFactor(W), eps=getEps(), uid=makeUidGen();
+function buildTramLayer(elements, pr, W, uid=makeUidGen()) {
+  const sf=getScaleFactor(W), eps=getEps();
   let casings='',fills='';
   elements.forEach((el,i)=>{
     if (el.type!=='way'||!el.geometry?.length) return;
@@ -1539,7 +1567,7 @@ function buildTramLayer(elements, pr, W) {
     let d=`M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
     for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
     const name=el.tags?.name||el.tags?.ref||'';
-    const pid=uid(name?safeName(name):`tram_${el.id||i}`);
+    const pid=uid(name?safeName(name):`tram_${el.id||i}`,'_casing');
     const lbl=escXml(name||`Tram (${el.id||i})`);
     // Shared paint attributes live on the casing/fill groups below;
     // per-path opacity stays put (not inherited — see rail builder).
@@ -1745,7 +1773,7 @@ function abbreviateName(name){
   return s;
 }
 
-function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
+function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), options = {}) {
   // Illustrator pipeline: identical label PLACEMENT, different EMISSION
   // (per-glyph point text instead of <textPath>, single font name, snapped
   // weights). Everything Illustrator-specific below checks this one flag.
@@ -1759,7 +1787,14 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
   // direct unit-test calls.
   const grid=sharedGrid||makeFootprintGrid();
   const defs=[],texts=[];
-  let pid=0;
+  // Internal textPath baseline defs (never surfaced as a designer-facing
+  // object — only referenced by <textPath href>) keep their own numeric
+  // counter rather than the document-wide uid: they must stay `lp<N>` for
+  // svg-lint.mjs's `id="lp\d+"` baseline-path matcher, and — unlike every
+  // OTHER id in this file — collide with nothing else by construction (fixed
+  // literal prefix + monotonically increasing counter, scoped to one
+  // buildLabelsLayer call per document).
+  let lpN=0;
   // Suppress same-name labels that land close together (e.g. the two
   // carriageways of a divided road) while still allowing a long street to
   // repeat its name far apart. Keyed by name → already-placed [x,y] centres.
@@ -1953,7 +1988,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
       glyphTexts.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" transform="rotate(${angle.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})">${escXml(character)}</text>`);
     }
     // Font attributes, anchor and fill inherit from the group to every glyph.
-    texts.push({hw,name,svg:`<g id="lbl_${safeName(name)}_${pid++}" ${attributesWithoutSpacing} text-anchor="middle" fill="${preset.labelColor}">${glyphTexts.join('')}</g>`});
+    texts.push({hw,name,svg:`<g id="${uid(`lbl_${safeName(name)}`)}" ${attributesWithoutSpacing} text-anchor="middle" fill="${preset.labelColor}">${glyphTexts.join('')}</g>`});
   };
   // Emit one path-following label centred on its own oriented sub-path (the
   // sub-path itself is shifted perpendicular by capHeight/2). Used only for
@@ -1969,14 +2004,14 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
     const oa=off[0],ob=off[off.length-1];
     if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
     if (illustratorCompatible) { emitCurvedLabelAsGlyphs(hw,name,attrs,label,off,fs); return; }
-    const id=`lp${pid++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
+    const id=`lp${lpN++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
   // one object per letter). (cx,cy) is the centroid of the span's fitted
   // baseline, rotated to the fitted angle (averages a gentle bend instead of
   // inheriting one segment's heading); the baseline offset is baked into y
   // and rotates with the anchor, so it stays perpendicular at any angle.
-  const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
+  const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
   // A chosen stretch is emitted as a single rotated <text> (one editable
@@ -2056,7 +2091,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
       if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
       fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
       const attrs=`font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${labelFontWeight(style.weight)}" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push({hw:best.hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
+      texts.push({hw:best.hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
     }
 
@@ -2097,7 +2132,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
         const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
         if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
         fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
-        texts.push({hw,name,svg:`<text id="lbl_${safeName(name)}_${pid++}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
+        texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
         continue;
       }
 
@@ -2204,7 +2239,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
 // ════════════════════════════════════════════════════════════════
 //  FEATURE LABELS — water bodies, parks, neighbourhoods
 // ════════════════════════════════════════════════════════════════
-function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
+function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), options = {}) {
   // Same flag as buildLabelsLayer: identical placement, Illustrator-safe
   // emission (two-element halo, single font name, snapped weights).
   const illustratorCompatible = !!options.illustratorCompatible;
@@ -2252,7 +2287,10 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, options = {}) {
 
     const haloSz=(sz*0.15+1.5).toFixed(1);
     const italicAttr=waterway?'font-style="italic"':'';
-    const fid=`feat_${safeName(name)}`;
+    // Companion "_halo" id reserved up front even in standards mode (where it
+    // is unused): keeps the allocation stable regardless of which pipeline
+    // renders, so the same input yields the same base id either way.
+    const fid=uid(`feat_${safeName(name)}`,'_halo');
     const eName=escXml(name);
     // Vertical centring baked into y (mixed-case optical centre ≈ 0.35em
     // below the middle) instead of dominant-baseline, which QuickLook and
@@ -2970,7 +3008,7 @@ function renderLayerSVG({ layer, data }, ctx) {
     const paths = blocks.map(blk => {
       const d = blk.outer + (blk.holes.length ? ' ' + blk.holes.join(' ') : '');
       const isHamlet = blk.kind === 'hamlet';
-      const [id, label] = isHamlet ? [`hamlet_${++nh}`, `Hamlet ${nh}`] : [`block_${++nb}`, `Block ${nb}`];
+      const [id, label] = isHamlet ? [ctx.uid(`hamlet_${++nh}`), `Hamlet ${nh}`] : [ctx.uid(`block_${++nb}`), `Block ${nb}`];
       return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${preset.building}" fill-opacity="${fo}" fill-rule="evenodd"${isHamlet ? hamletStroke : ' stroke="none"'}/>`;
     }).join('\n    ');
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
@@ -2980,7 +3018,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   if (!elements.length) return '';
   if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W,ctx);
   if (layer.type==='rail') {
-    const svg=buildRailLayer(elements,pr,W);
+    const svg=buildRailLayer(elements,pr,W,ctx.uid);
     // The hatched rail bed must stay label-free: claim its corridor in the
     // shared label grid (rail builds before both label layers, see
     // LAYER_ORDER). Radius = half the casing width + a small clearance;
@@ -2994,10 +3032,10 @@ function renderLayerSVG({ layer, data }, ctx) {
     }
     return svg;
   }
-  if (layer.type==='metro')          return buildMetroLayer(elements,pr,W);
-  if (layer.type==='tram')           return buildTramLayer(elements,pr,W);
-  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
-  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid,{illustratorCompatible:ctx.illustratorCompatible});
+  if (layer.type==='metro')          return buildMetroLayer(elements,pr,W,ctx.uid);
+  if (layer.type==='tram')           return buildTramLayer(elements,pr,W,ctx.uid);
+  if (layer.type==='labels')         return buildLabelsLayer(elements,pr,W,H,ctx.labelGrid,ctx.uid,{illustratorCompatible:ctx.illustratorCompatible});
+  if (layer.type==='feature_labels') return buildFeatureLabelsLayer(elements,pr,W,H,ctx.labelGrid,ctx.uid,{illustratorCompatible:ctx.illustratorCompatible});
 
   const large=['landuse_residential','landuse_industrial','water_bodies','parks','landcover'];
   const eps=layer.type==='line'?EPS.line:large.includes(layer.id)?EPS.area_large:EPS.area;
@@ -3011,7 +3049,7 @@ function renderLayerSVG({ layer, data }, ctx) {
     // layer), mirroring the parks pattern below — so a lake can be selected,
     // recoloured, or hidden by name in Illustrator/Inkscape.
     let content = '';
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     const sw = layer.strokeWidth ?? 0.5;
     elements.forEach(el => {
       let d = '';
@@ -3034,7 +3072,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   }
   if (layer.id==='landcover') {
     let content = '';
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     // Paint big polygons first, small ones on top. CORINE-import meadows can
     // span the whole bbox as ONE multipolygon; in fetch order it painted over
     // every forest patch inside it (visible only when hiding the meadow path).
@@ -3071,7 +3109,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   if (layer.id==='parks') {
     fillColor=preset.park;
     let content = '';
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     elements.forEach(el => {
       const name = el.tags?.name;
       let d = '';
@@ -3102,7 +3140,7 @@ function renderLayerSVG({ layer, data }, ctx) {
     if (layer.type==='point'&&el.type==='node'&&el.lat!=null) {
       const [x,y]=pr(el.lat,el.lon);
       const poiName=el.tags?.name||el.tags?.amenity||el.tags?.tourism||el.tags?.shop||layer.label;
-      const poiId=`poi_${safeName(poiName)}_${el.id||Math.round(x)}`;
+      const poiId=ctx.uid(`poi_${safeName(poiName)}_${el.id||Math.round(x)}`);
       circles+=`<circle id="${poiId}" inkscape:label="${escXml(poiName)}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${layer.radius||2}"/>`;
       return;
     }
@@ -3160,6 +3198,12 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
     // One collision grid for the whole export: rail corridors stamp it,
     // then feature labels, then street labels — nothing can overlap.
     labelGrid: makeFootprintGrid(),
+    // One document-wide id allocator, shared by every builder below (roads,
+    // rail, metro, tram, labels, water/landcover/parks, POIs, and v2's
+    // waterways/landcover/beach/city_blocks/fallback_blocks) so every emitted
+    // SVG id is unique across the whole document, not just within one
+    // builder's own call. See makeUidGen for the allocation contract.
+    uid: makeUidGen(),
   };
 }
 

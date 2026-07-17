@@ -36,6 +36,10 @@ echo "== overpass-fetch (offline, shared timeout/failover/abort fetch contract) 
 node tests/overpass-fetch.mjs
 
 echo
+echo "== svg-id-uniqueness (offline, document-wide unique + deterministic ids) =="
+node tests/svg-id-uniqueness.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

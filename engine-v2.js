@@ -1942,10 +1942,10 @@ self.onmessage = function(event) {
     const paths = (blocks || []).filter(blk => blk.kind === 'urban' || blk.kind === 'hamlet' || blk.kind === 'building').map(blk => {
       const outlined = blk.kind !== 'urban';
       const [id, label] = blk.kind === 'hamlet'
-        ? [`hamlet_${++hamletCount}`, blk.name ? `Hamlet “${escXml(blk.name)}”` : `Hamlet ${hamletCount}`]
+        ? [ctx.uid(`hamlet_${++hamletCount}`), blk.name ? `Hamlet “${escXml(blk.name)}”` : `Hamlet ${hamletCount}`]
         : blk.kind === 'building'
-          ? [`building_${++buildingCount}`, `Building ${buildingCount}`]
-          : [`block_${++urbanCount}`, `Block ${urbanCount}`];
+          ? [ctx.uid(`building_${++buildingCount}`), `Building ${buildingCount}`]
+          : [ctx.uid(`block_${++urbanCount}`), `Block ${urbanCount}`];
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
       return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${CREAM}" fill-rule="evenodd"${outlined ? hamletStroke : ' stroke="none"'}/>`;
     }).join('\n    ');
@@ -2072,9 +2072,14 @@ self.onmessage = function(event) {
       // often abut hamlet blobs and each other edge-to-edge, and the
       // sub-pixel gap between two unstroked fills renders as a hairline of
       // page background.
-      const path = `<path id="fallback_${++n}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
+      const path = `<path id="${ctx.uid(`fallback_${++n}`)}" inkscape:label="${escXml(label)}" d="${d}" fill="${CREAM}" fill-rule="evenodd" stroke="${CREAM}" stroke-width="1" stroke-linejoin="round"/>`;
+      // Sub-group key: raw (unallocated) so every patch of the same category
+      // maps back to the SAME group across the whole loop. Only the emitted
+      // <g> id is allocated, and only once per category (below) — allocating
+      // per patch here would burn a fresh "_2", "_3", … suffix on every patch
+      // instead of reusing the one group id.
       const subId = `uncat_${safeName(category).toLowerCase()}`;
-      if (!groups.has(subId)) groups.set(subId, { label: category, paths: [] });
+      if (!groups.has(subId)) groups.set(subId, { gid: ctx.uid(subId), label: category, paths: [] });
       groups.get(subId).paths.push(path);
     }
     if (!groups.size) return '';
@@ -2086,7 +2091,7 @@ self.onmessage = function(event) {
     if (groups.has('uncat_uncategorized')) ids.push('uncat_uncategorized');
     const subgroups = ids.map(id => {
       const g = groups.get(id);
-      return `    <g id="${id}" inkscape:label="${escXml(g.label)}">\n      ${g.paths.join('\n      ')}\n    </g>`;
+      return `    <g id="${g.gid}" inkscape:label="${escXml(g.label)}">\n      ${g.paths.join('\n      ')}\n    </g>`;
     }).join('\n');
     return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
   }
@@ -2155,7 +2160,7 @@ self.onmessage = function(event) {
     if (!elements.length) return '';
     const water = ctx.preset.water;
     const strokeWidth = (12 * getScaleFactor(ctx.W)).toFixed(2);
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     const groups = new Map();
     for (const el of elements) {
       const key = el.tags?.name ? `n:${el.tags.name}` : `a:${el.id}`;
@@ -2191,7 +2196,7 @@ self.onmessage = function(event) {
     const elements = result.data?.elements || [];
     if (!elements.length) return '';
     const preset = ctx.preset;
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     const approxDeg2 = (el) => {
       const b = el.bounds;
       if (b) return (b.maxlat - b.minlat) * (b.maxlon - b.minlon);
@@ -2254,7 +2259,7 @@ self.onmessage = function(event) {
   function renderBeach(result, ctx) {
     const elements = result.data?.elements || [];
     if (!elements.length) return '';
-    const uid = makeUidGen();
+    const uid = ctx.uid;
     let content = '';
     for (const el of elements) {
       let d = '';
