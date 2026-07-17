@@ -104,7 +104,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Afgesneden randlabels/resterende botsingen | PASS | AF-02c-hercontrole: geen reproduceerbaar restgeval (svg-lint 0/0 op alle zeven exports); rest herleid naar AF-05/AF-06 |
 | Scrub/heath in fallback | FIXED | AF-03a (2026-07-17); paint-only binding, `tests/area-binding.mjs`; visuele bevestiging in AF-08-sweep |
 | Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
-| Residential/institutional/parking/rail/industrial fallback | OPEN | AF-03c; semantische groep zonder city-blockstijl te herontwerpen |
+| Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
 | Overdominante rail yards/roundhouse | OPEN | AF-05a–b |
@@ -245,12 +245,26 @@ acceptatie-invariant, niet een reparatiemiddel achteraf.
   O afgemaakt nadat de worker halverwege stilviel; onafhankelijke
   reviewer-pass conform route. Visuele gate → AF-08-sweep (netwerk hier
   geblokkeerd).*
-- [ ] **AF-03c — bebouwd/verhard/werkland.** Institutional en echte residential
+- [x] **AF-03c — bebouwd/verhard/werkland.** Institutional en echte residential
   polygons mogen het city-blocksignaal voeden wanneer de bestaande
   overlapdrempel dat draagt. Parking, railway grounds en industrial blijven
   desgewenst crème, maar krijgen herkenbare semantische subgroepen in plaats
   van `Uncategorized`; industrie wordt niet stilzwijgend tot residential
-  gepromoveerd.
+  gepromoveerd. *Af 2026-07-17: urban-signaal gehesen naar benoemd
+  `isUrbanSignalElement`-predicaat en uitgebreid met
+  `landuse=institutional|education|religious` (zelfde ≥50%-overlapdrempel,
+  zelfde open-land-veto — geen drempel gewijzigd; residential/commercial/
+  retail/parking ongewijzigd); industrial + werkland-familie expliciet
+  uitgesloten en met tests geborgd. Fallback-patches van bekend
+  bebouwd/verhard/werkland groeperen in de editor onder drie semantische
+  families — "Working land" (industrial/brownfield/construction/depot/
+  landfill/quarry), "Railway grounds" (landuse=railway of railway=*-area) en
+  "Paved areas" (parking/garages) — pure paneelorganisatie: verf, geometrie
+  en per-patch-labels ongewijzigd. `tests/area-binding.mjs` 50→85 checks;
+  ENGINE-V2.md §3/§5/§7 geamendeerd. Door O geïmplementeerd conform het
+  vastgelegde O-contract; onafhankelijke reviewer-pass: ACCEPT-WITH-NITS
+  (twee verouderde comments, direct verwerkt). Visuele gate → AF-08-sweep
+  (netwerk hier geblokkeerd).*
 
 **Route:** AF-03a is E1 na O-contractcheck; AF-03b/c zijn E2 met onafhankelijke
 review. O beslist exacte binding en drempels vóór implementatie.
