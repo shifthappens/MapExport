@@ -98,7 +98,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 |---|---|---|
 | Geen magenta dekkingsgaten | PASS | Regressie-invariant; opnieuw bewijzen in AF-08 |
 | Crèmekleurige city blocks | ACCEPTED_STYLE | Bewuste abstractie; niet wijzigen |
-| Niet-unieke SVG-ID's | OPEN | AF-01; vervult maintenance ME-06c |
+| Niet-unieke SVG-ID's | FIXED | AF-01 (2026-07-17); documentbrede allocator, regressietest `tests/svg-id-uniqueness.mjs`; ME-06c gesynchroniseerd |
 | Herhaalde water-/parklabels | OPEN | AF-02a |
 | Pleinen als park én straat | OPEN | AF-02b |
 | Afgesneden randlabels/resterende botsingen | OPEN | AF-02c |
@@ -120,7 +120,17 @@ Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
 
 ## Units
 
-### [ ] AF-01 — Documentbrede, deterministische SVG-ID's
+### [x] AF-01 — Documentbrede, deterministische SVG-ID's
+
+**Afgerond 2026-07-17.** Eén documentbrede allocator per `buildSVGContext`
+(`ctx.uid`); `makeUidGen` reserveert companion-suffixen (`_casing`,
+`_sleepers`, `_green`, `_halo`, `_fill`) atomair; metro-per-lijn-reset en
+ongededuplicieerde `feat_`-labels gerepareerd. Offline bewijs:
+`tests/svg-id-uniqueness.mjs` (12 checks, beide engines, beide modi) +
+volledige offline suite groen; onafhankelijke reviewer-pass: ACCEPT zonder
+defects. Bekende bewuste uitzondering: `lp<N>`-textPath-baseline-defs blijven
+een lokale teller (svg-lint-contract), botsingsklasse verwaarloosbaar en
+gedocumenteerd.
 
 **Route:** O bepaalt namespace; E1 implementeert; onafhankelijke reviewer
 controleert selectors/editorcontract. **Maintenance-overlap:** dit vervult

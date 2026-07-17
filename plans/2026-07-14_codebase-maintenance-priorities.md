@@ -659,8 +659,10 @@ bbox/redraw-validatie bij de kaartselectie.
 - [ ] **ME-06b — Road sort fallback.** Vervang het patroon `indexOf(...) || 50`; index `0`
    wordt nu ten onrechte als fallback behandeld. Gebruik een expliciete
    `-1`-controle.
-- [ ] **ME-06c — Unieke feature-id's.** Voorkom dubbele SVG-id's bij herhaalde of
-   samengevoegde OSM-features; maak generatie deterministisch. Wordt uitgevoerd
+- [x] **ME-06c — Unieke feature-id's.** Voorkom dubbele SVG-id's bij herhaalde of
+   samengevoegde OSM-features; maak generatie deterministisch. *Vervuld door
+   AF-01 in de cartografische tussen-sprint (2026-07-17): documentbrede
+   allocator + `tests/svg-id-uniqueness.mjs`.* Wordt uitgevoerd
    als AF-01 in `plans/2026-07-17_cartographic-audit-followup.md`; hier pas
    afvinken nadat die unit haar acceptatiecriteria haalt.
 - [ ] **ME-06d — Te kleine redraw.** Wis of herbereken de oude bbox/status wanneer een
