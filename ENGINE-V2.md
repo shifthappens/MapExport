@@ -67,7 +67,10 @@ classification + subtraction + paint order.
    either — a square is land inside its face and paints cream via normal
    classification (see §3); a NAMED square still gets a map label through
    v1's feature-label engine (a synthetic node at the square's interior
-   point, park styling for now). Tunnels (`tunnel=yes|culvert`) never cut and
+   point, park styling for now), rendered as its own "Squares & plazas"
+   editor group right after water/park names — not folded into the water
+   labels — and dropped from street labels so the same plaza never carries
+   two names. Tunnels (`tunnel=yes|culvert`) never cut and
    never draw as surface; bridges and `building_passage`/`covered` stay.
 2. **Faces** = frame rectangle minus the cutter union. No face is dropped:
    pieces under the 400 px² block floor are junction pockets (sub-3×3 mm
@@ -317,6 +320,9 @@ selectable, deletable path.
 Uncategorized labels read the OSM tag **value** ("Railway", "Parking
 “Autoranta”", "Pitch"); plain "Uncategorized" is reserved for land OSM does
 not tag at all.
+
+Named squares get their own "Squares & plazas" editor group, separate from
+"Water & park names" and from the street-label layers (§2 item 1).
 
 ## 8. v1 parity quirks, kept deliberately
 

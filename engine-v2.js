@@ -2317,6 +2317,20 @@ self.onmessage = function(event) {
     return v.charAt(0).toUpperCase() + v.slice(1);
   }
 
+  // Rewrite v1's water_labels group's opening tag (id + inkscape:label) into
+  // the square-labels group. buildFeatureLabelsLayer is called a second time
+  // for the synthetic square-label nodes, reusing the shared collision grid
+  // and uid sequence so collision-avoidance and document-wide id uniqueness
+  // both stay one mechanism — only the group identity needs rewriting so the
+  // editor's layers panel shows "Squares & plazas", not a second "Water &
+  // park names". Same string-transform idiom as relabelRoadGroups/
+  // relabelRailGroups: v1's own markup, only the group-open tag changes.
+  function relabelSquareGroup(svg) {
+    return svg
+      .replace('<g id="water_labels" inkscape:label="Water &amp; park names"',
+        '<g id="square_labels" inkscape:label="Squares &amp; plazas"');
+  }
+
   // Rewrite the roads_casings_<hw>/roads_fills_<hw> group inkscape:labels to
   // the display-name scheme above, with " (outline)"/" (surface)" appended
   // per pass — the SVG the browser's layer panel shows should read as human
@@ -2366,7 +2380,12 @@ self.onmessage = function(event) {
       return relabelRoadGroups(renderLayerSVG({ layer: result.layer, data: { elements: streets } }, ctx));
     }
     if (result.layer.type === 'rail' || result.layer.type === 'tram' || result.layer.id === streetLabelsLayer.id) {
-      const surfaceElements = (result.data?.elements || []).filter(el => !isTunnelElement(el));
+      // Street labels additionally drop squares (rail/tram do not): a named
+      // square already gets its own label in the square_labels group (see
+      // buildSVG), so leaving it in street_labels would duplicate the name —
+      // once as a plaza label, once as if it were a named street.
+      const surfaceElements = (result.data?.elements || []).filter(el =>
+        !isTunnelElement(el) && (result.layer.id !== streetLabelsLayer.id || !isSquareElement(el)));
       const svg = renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
       // v1's rail_casing/rail_sleepers/rail_tracks groups carry no
       // inkscape:label at all — relabelRailGroups adds one (v2-only).
@@ -2388,17 +2407,20 @@ self.onmessage = function(event) {
     // renderJunctionInfill / ENGINE-V2.md §2).
     const infillBlocks = results.find(r => r.layer.id === cityBlocksLayer.id)?.data?.blocks || [];
     const junctionInfill = renderJunctionInfill(infillBlocks, ctx);
-    // Named squares get a map label through the same feature-label path parks
-    // use: a synthetic leisure=park node anchored at the square's interior
-    // point, appended to the water_labels elements so it inherits that layer's
-    // styling, halo and shared collision grid. Built here (not in doExport) so
-    // every buildSVG caller — browser and test harness alike — gets the same
-    // labels; appended non-mutatingly, so a second buildSVG call (e.g. the
-    // Illustrator variant) cannot duplicate them. The interior point reuses
-    // seaInteriorPoint's pole-of-inaccessibility walk (fed the square's single
-    // outer ring), which stays inside concave plazas where a centroid would
-    // not. Styling matches park labels for now — provisional; squares may earn
-    // their own colour.
+    // Named squares get a map label through the same feature-label engine
+    // parks use: a synthetic leisure=park node anchored at the square's
+    // interior point. Built here (not in doExport) so every buildSVG caller —
+    // browser and test harness alike — gets the same labels; the array is
+    // only ever read below, never mutated across calls, so a second buildSVG
+    // call (e.g. the Illustrator variant) cannot duplicate them. The interior
+    // point reuses seaInteriorPoint's pole-of-inaccessibility walk (fed the
+    // square's single outer ring), which stays inside concave plazas where a
+    // centroid would not. Styling matches park labels for now — provisional;
+    // squares may earn their own colour. Rendered as its own "square_labels"
+    // group right after water_labels in the assembly loop below (see
+    // relabelSquareGroup) — NOT injected into the water_labels elements, so
+    // the editor sees "Squares & plazas" as its own layer instead of a
+    // synthetic entry inside "Water & park names".
     const squareLabelNodes = [];
     for (const el of (results.find(r => r.layer.type === 'roads')?.data?.elements || [])) {
       if (!isSquareElement(el) || !el.tags?.name) continue;
@@ -2426,11 +2448,7 @@ self.onmessage = function(event) {
       pendingWater = null;
     };
     for (const result of sortResults(results)) {
-      let renderResult = result;
-      if (result.layer.id === waterLabelsLayer.id && squareLabelNodes.length) {
-        renderResult = { layer: result.layer, data: { ...result.data, elements: [...(result.data?.elements || []), ...squareLabelNodes] } };
-      }
-      let layerSVG = renderLayer(renderResult, ctx);
+      let layerSVG = renderLayer(result, ctx);
       if (result.layer.id === 'roads' && junctionInfill) {
         layerSVG = layerSVG.replace(ROADS_GROUP_OPEN, ROADS_GROUP_OPEN + junctionInfill);
       }
@@ -2440,6 +2458,18 @@ self.onmessage = function(event) {
       }
       flushWater();
       layersSVG += layerSVG;
+      // Square labels render as their own "Squares & plazas" group, placed
+      // directly after water_labels in paint order (feature labels — water
+      // and named parks — claim the shared collision grid first, squares
+      // second, street labels dodge both — see renderLayer's streetLabels
+      // branch). Built via v1's buildFeatureLabelsLayer, the same engine
+      // water/park labels use, then its group-open tag is rewritten (see
+      // relabelSquareGroup) so the editor sees a distinct, correctly named
+      // layer instead of a second "Water & park names" group.
+      if (result.layer.id === waterLabelsLayer.id && squareLabelNodes.length) {
+        const squareSVG = buildFeatureLabelsLayer(squareLabelNodes, ctx.pr, ctx.W, ctx.H, ctx.labelGrid, ctx.uid, { illustratorCompatible: ctx.illustratorCompatible });
+        if (squareSVG) layersSVG += relabelSquareGroup(squareSVG);
+      }
     }
     flushWater();
     return ctx.illustratorCompatible
@@ -2582,8 +2612,9 @@ self.onmessage = function(event) {
       const waterLabelsResult = results.find(r => r.layer.id === waterLabelsLayer.id);
       if (waterLabelsResult) waterLabelsResult.data.elements = [...(waterLabelsResult.data.elements || []), seaLabel];
     }
-    // (Named-square feature labels are injected in buildSVG, so the test
-    // harness path gets them too.)
+    // (Named-square feature labels are built and rendered as their own
+    // "square_labels" group inside buildSVG, so the test harness path gets
+    // them too — see the squareLabelNodes construction there.)
 
     // Faces stage. The cutter reads roads + rail/tram/metro; buildings classify
     // faces and seed hamlet blobs; water/green/landcover/waterways feed the

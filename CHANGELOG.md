@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Engine v2: named squares get their own "Squares & plazas" layer
+- Named pedestrian squares/plazas (Domplatz, Willy-Brandt-Platz, …) now get
+  their own "Squares & plazas" layer in the editor instead of being folded
+  into "Water & park names", and no longer also show up as a street label on
+  the same plaza.
+
 ### 2026-07-17 — Water/park names label once per feature, not per OSM segment
 - Rivers and parks made of multiple OSM ways or polygons (e.g. a river split
   into several segments, a park split into several polygons) now get one

@@ -44,6 +44,10 @@ echo "== feature-label-dedup (offline, water/park name dedup unit test) =="
 node tests/feature-label-dedup.mjs
 
 echo
+echo "== square-labels (offline, engine v2 'Squares & plazas' label group) =="
+node tests/square-labels.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 
