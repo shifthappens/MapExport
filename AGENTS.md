@@ -221,3 +221,12 @@ rule is restated at the top of `CHANGELOG.md` itself.
   ordered alphabetically. Do not pair casing+fill per street.
 - Don't auto-deploy — see the Deploy section above. `minify.sh` (root) is
   gitignored.
+
+## Communicating with Coen
+
+- **Standing preference (Coen, 2026-07-17): explain in plain English by
+  default.** When summarizing work, answering a question, or walking through a
+  change, prefer everyday language over jargon; when a technical term is
+  unavoidable, say what it means in a few words. Keep this out of code comments
+  and commit messages (those stay precise/technical) — it is about how work is
+  explained back to Coen in chat.
