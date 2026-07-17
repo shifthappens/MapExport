@@ -232,9 +232,11 @@ anything that reads cream is neither painted nor rowed.
   existed for sports pitches and it broke the rule inside cities.
 - **Landcover** (farmland/meadow/forest/wood) is nameless by design — it is
   countryside texture, kept invisible in cities by paint order (§4). The
-  **grass display rows** — `landuse=grass|village_green` and *unnamed*
-  `leisure=park|garden` (category `grass`) — paint through the same landcover
-  layer as a green tint (v1's ISLAND_GREEN, never ported until now) and
+  **grass display rows** — `landuse=grass|village_green`, *unnamed*
+  `leisure=park|garden`, and `natural=scrub|heath` (category `grass`) — paint
+  through the same landcover layer as a green tint (v1's ISLAND_GREEN, never
+  ported until now; scrub/heath instead render `renderLandcover`'s field tint,
+  same as farmland) and
   subtract from the fallback void so grass shows through fallback holes instead
   of reading as an "Uncategorized › Grass" patch. They are a **paint** signal
   only: the grass rows are held OUT of the open-land classification signal

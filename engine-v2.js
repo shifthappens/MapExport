@@ -268,6 +268,20 @@ const EngineV2 = (() => {
     // !name guard here keeps this to the nameless remainder.
     { match: (t) => /^(grass|village_green)$/.test(t.landuse || ''), category: 'grass' },
     { match: (t) => /^(park|garden)$/.test(t.leisure || '') && !t.name, category: 'grass' },
+    // Scrub/heath: same paint-only route as the grass rows above — already
+    // fetched (label-only sweep) and already coloured by renderLandcover's
+    // coverFill (field tint, like farmland), but had no AREA_FEATURES row so
+    // it fell into the cream "Uncategorized" fallback instead of painting.
+    // Deliberately kept in category 'grass', NOT 'landcover': it paints and
+    // subtracts from the fallback void like any grass-display row, but must
+    // stay OUT of the open-land classification signal (the ≥0.35 share test)
+    // — putting it in 'landcover' would feed that signal and risks flipping a
+    // face's classification (urban block → countryside/fallback) as a side
+    // effect of this binding, unverified here (no live sweep in this sandbox).
+    // shrubbery/grassland/wetland/sand/beach/dune/shingle/bare_rock are out of
+    // scope for this row (sand/beach/dune already have their own row/layer;
+    // the rest are a later unit).
+    { match: (t) => /^(scrub|heath)$/.test(t.natural || ''), category: 'grass' },
     // Sand: its own paint-only overlay layer, placed after landcover and
     // before the label-only fallthrough so it wins the patch instead of just
     // naming an Uncategorized one. Paints above blocks (like parks) but is

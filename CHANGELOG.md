@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Engine v2: scrub/heath now paint as field tint, not cream
+- `natural=scrub|heath` land (e.g. Ghent's Dok-Zuid, Nièvre's countryside)
+  now paints through the Countryside layer as field-tint like farmland,
+  instead of showing as a crème "Uncategorized" fallback patch.
+
 ### 2026-07-17 — Engine v2: named squares get their own "Squares & plazas" layer
 - Named pedestrian squares/plazas (Domplatz, Willy-Brandt-Platz, …) now get
   their own "Squares & plazas" layer in the editor instead of being folded

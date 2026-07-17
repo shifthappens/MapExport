@@ -102,6 +102,7 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 - `sea-sign.mjs` — offline check of engine v2's coastline→sea geometry (stitching, perimeter walk, island holes).
 - `hamlet-grounding.mjs` — offline check of engine v2's hamlet place-node grounding predicate (tier radii, point-to-polygon distance, nearest-name).
 - `v2-cutterless-coverage.mjs` — offline guard that a v2 frame with no block-cutting roads (no roads, paths only, tunnels only) still reaches the face worker instead of short-circuiting to an empty, page-baring export.
+- `area-binding.mjs` — offline check of engine v2's `AREA_FEATURES` table: tag → category classification, `classifyAreaFeatures` bucketing (incl. the grass-display declutter floor), `buildAreaResults`'s landcover paint set, and `renderLandcover`'s emitted fill/label per row — grown to cover new AREA_FEATURES rows as they're bound (AF-03: `natural=scrub|heath` → the paint-only `grass` route).
 - `coverage-lint.mjs` / `render-coverage.mjs` — engine v2 coverage promise: geometric lint on the worker model, and rendered-ink check on the finished SVG (headless Chrome over magenta; the authority).
 - `time-queries.mjs` — per-layer and combined Overpass timing (optional endpoint arg).
 - `expectations.json` — per-area layer/label floors + coverage allowances for real-export (write with `--record`, a human-approval act).
