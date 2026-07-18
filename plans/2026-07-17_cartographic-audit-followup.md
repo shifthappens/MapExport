@@ -322,6 +322,28 @@ binnen het kader, botsen niet met hoofdwegen en zijn editorselecteerbaar met
 unieke IDs.
 
 **Gate:** offline placefixture plus één cached Nièvre-export en menselijke crop.
+*Status 2026-07-17: offline af. Nieuwe v2-laag "Place names"
+(`buildPlaceLabelsLayer`) met tier-subgroepen Villages/Hamlets/Farms &
+dwellings/Localities uit dezelfde place_nodes-fetch die hamletblobs grondt;
+O-hiërarchie village > hamlet > isolated_dwelling/farm > locality;
+locality-declutter via minimale afstand (`PLACE_LOCALITY_SPACING`, 600×sf px)
+tot elk ander place-label plus laagste rang; gelijknamige node-duplicaten
+dedupen binnen `PLACE_NAME_GAP` (1000×sf px, settlement-tier wint); gedeeld
+collision-grid (claimvolgorde water/parks → squares → places → streets) plus
+een lokale hoofdwegen-korridorcheck (motorway/trunk/primary/secondary, alleen
+place-labels raadplegen die); vaste ankers — geheel binnen het kader of
+overgeslagen. Blob-`inkscape:label` blijft editor-only, dus één zichtbare naam
+per nederzetting. Fixture `tests/place-labels.mjs` in smoke.sh; ENGINE-V2.md
+§2/§7. Door O geïmplementeerd (E1-route; ontwerp was het merendeel van de
+unit), onafhankelijke reviewer-pass vóór commit: ACCEPT zonder defects.
+Reviewer-aandachtspunten voor de Nièvre-crop (AF-08): (1) locality-selectie
+binnen een cluster is id-volgorde, geen prominentiemaat — beoordeel of de
+overlevende selectie leesbaar/representatief is; (2) `PLACE_NAME_GAP`
+(1000×sf) kan veel voorkomende Franse toponiemen (La Croix, Le Moulin, …)
+oversuppresseren wanneer twee échte gehuchten dezelfde naam dragen;
+(3) stijl-/afstandsconstanten zijn bewust provisorisch. De cached
+Nièvre-export + menselijke crop schuift net als bij AF-02/AF-03 door naar
+AF-08/netwerksessie; AF-04 blijft open tot die gate.*
 
 ### [ ] AF-05 — Rail- en metro-overbelasting reduceren
 

@@ -5,44 +5,41 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-03c — bebouwd/verhard/werkland — `DONE` (2026-07-17). Daarmee
-  is AF-03 offline compleet (a+b+c); de cached-exportgate van AF-03 schuift
-  net als bij AF-02 door naar AF-08/netwerksessie. AF-01 (`6b835c2`), AF-02a
-  (`9c52015`), AF-02b (`cc65317`), AF-03a (`abf50bd`), AF-03b (`2cbcdca`)
-  waren al `DONE`.
-- **Owner/route:** AF-03c door O geïmplementeerd (E2-route; O-contract vooraf
-  vastgelegd: signaal-tags, drempels ongewijzigd, drie fallback-families);
-  onafhankelijke reviewer-pass vóór commit: ACCEPT-WITH-NITS, beide nits
-  (verouderde comments) direct verwerkt.
-- **Completed checkpoint:** AF-03c af: urban-signaal → benoemd
-  `isUrbanSignalElement`-predicaat, uitgebreid met
-  `landuse=institutional|education|religious` (drempels/veto's ongewijzigd;
-  industrial + werkland-familie uitgesloten, testgeborgd); fallback-editor-
-  families "Working land"/"Railway grounds"/"Paved areas" (pure
-  paneelorganisatie, verf/labels ongewijzigd); `tests/area-binding.mjs`
-  50→85 checks; ENGINE-V2.md §3/§5/§7.
-- **Next action:** AF-04 (zichtbare landelijke place-labels; O definieert
-  hiërarchie, E1 implementeert labelbuilder + fixtures).
-- **Reviewronde 2026-07-17 (na AF-03c):** vier bevestigde restbevindingen op
-  AF-01/AF-02a/AF-02b/AF-03b dezelfde dag verholpen — reserved structurele
-  ids in de allocator, recreatie in areaClipDs (witte padoverlay),
-  place=square-only pleinlabels, vergelijkbare labelprioriteitsmetriek
-  (√oppervlakte). Zie roadmap "Reviewfixes 2026-07-17" en CHANGELOG. Het
-  real-worker-complementfixture voor AF-03b blijft een expliciet open
-  verificatiepunt (ClipperLib-CDN geblokkeerd, geen warme cache) → AF-08.
-- **Changed for current unit:** engine-v2.js, tests/area-binding.mjs,
+- **Unit:** AF-04 — zichtbare landelijke place-labels — offline `DONE`
+  (2026-07-17); de cached Nièvre-export + menselijke crop → AF-08. AF-01
+  (`6b835c2`), AF-02a (`9c52015`), AF-02b (`cc65317`), AF-03a (`abf50bd`),
+  AF-03b (`2cbcdca`), AF-03c (`c58d51c`) en de reviewfixes (`1c1d92e`) waren
+  al `DONE`.
+- **Owner/route:** AF-04 door O geïmplementeerd (E1-route; de vorige sessie
+  viel vóór commit stil met de implementatie compleet in de working tree —
+  deze sessie heeft de diff geverifieerd, alle suites gedraaid en de
+  onafhankelijke reviewer-pass alsnog uitgevoerd: ACCEPT zonder defects).
+- **Completed checkpoint:** AF-04 offline af: `buildPlaceLabelsLayer` →
+  "Place names"-laag met tier-subgroepen (Villages/Hamlets/Farms &
+  dwellings/Localities) uit de bestaande place_nodes-fetch; hiërarchie
+  village > hamlet > dwelling/farm > locality; locality-declutter 600×sf px;
+  naamdedup 1000×sf px (settlement wint); hoofdwegen-korridorcheck alleen
+  voor place-labels; gedeeld collision-grid vóór street labels; beide
+  pipelines; `tests/place-labels.mjs` 27 checks in smoke.sh; ENGINE-V2.md
+  §2/§7; RESERVED_SVG_IDS aangevuld.
+- **Next action:** AF-05a (railontwerp vastleggen — read-only spike over
+  raildichtheid Oulu/Paris; O kiest één generale regel). NB: de spike heeft
+  cached/live exports nodig — in deze omgeving geblokkeerd; zonder
+  netwerk/cache is AF-06 (paddichtheid) of AF-07a/b het beste alternatieve
+  vervolg, óf overdracht aan een sessie met netwerktoegang.
+- **Changed for current unit:** engine-v2.js, script.js (alleen
+  RESERVED_SVG_IDS), tests/place-labels.mjs (nieuw), tests/smoke.sh,
   ENGINE-V2.md, CHANGELOG.md, plans/.
-- **Latest checks:** `node --check` script.js + engine-v2.js groen;
-  `tests/area-binding.mjs` 87/87, `svg-id-uniqueness` 15/15,
-  `square-labels` 17/17, `feature-label-dedup` 12/12;
-  `OFFLINE_ONLY=1 bash tests/smoke.sh` en `pipeline-equivalence` volledig
-  groen (2026-07-17, na AF-03c + reviewfixes).
+- **Latest checks:** `node --check` beide bestanden groen;
+  `tests/place-labels.mjs` 27/27; `svg-id-uniqueness`, `square-labels`,
+  `pipeline-equivalence` en `OFFLINE_ONLY=1 bash tests/smoke.sh` volledig
+  groen (2026-07-17, na AF-04).
 - **Decisions/blockers:** **Netwerkblokkade:** deze remote-omgeving blokkeert
-  alle drie Overpass-endpoints (HTTP 403 via agent proxy). Alle visuele
-  cached/live-exportgates (AF-02 t/m AF-06, AF-08-sweep) schuiven door naar
-  een sessie met netwerktoegang of lokale cache; offline tests blijven de
-  primaire lus. Reviewer-restrisico AF-03c (groene campussen bij
-  education/religious) is begrensd door het ongewijzigde open-land-veto en de
-  green-dominance-demotie, maar alleen kwantificeerbaar in de
-  real-export-sweep — expliciet meenemen in AF-08. Metro-tunnel (AF-05d) en
-  Countryside/Parks (AF-07c) blijven Coen-gates.
+  Overpass én de ClipperLib-CDN (HTTP 403/geen route via agent proxy). Alle
+  visuele cached/live-exportgates (AF-02 t/m AF-06, AF-08-sweep) en het
+  real-worker-complementfixture voor AF-03b schuiven door naar een sessie met
+  netwerktoegang of lokale cache. Reviewer-aandachtspunten AF-04 voor de
+  Nièvre-crop: willekeurige locality-selectie binnen clusters; mogelijke
+  naamdedup-oversuppressie bij veel voorkomende Franse toponiemen; stijl-/
+  afstandsconstanten provisorisch (zie roadmapnotitie AF-04). Metro-tunnel
+  (AF-05d) en Countryside/Parks (AF-07c) blijven Coen-gates.
