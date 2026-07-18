@@ -17,7 +17,8 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   rider-facing Metro layer while leaving railway grounds available to editors.
 - Ref-less member ways with an unambiguous line name now join that line's
   existing subgroup instead of becoming a second, differently coloured
-  fragment. Ambiguous names are left separate, metro tunnels remain unchanged,
+  fragment. Existing public-line colours stay stable when technical groups
+  disappear; ambiguous names are left separate, metro tunnels remain unchanged,
   and v1 output is unchanged.
 
 ### 2026-07-18 — Engine v2: rail yards stop reading as black moiré

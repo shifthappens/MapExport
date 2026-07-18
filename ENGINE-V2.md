@@ -251,8 +251,11 @@ Load-bearing relations, do not reorder casually:
   surviving ways. This rejoins loose relation-member geometry such as Paris'
   ref-less `name=Métro 5` ways to the existing `metro_5` line group instead of
   painting a second palette-coloured fragment group. Names shared by multiple
-  refs are deliberately not guessed. Main metro tunnels remain visible pending
-  AF-05d; v1 is unchanged. Guarded offline by `tests/metro-dedup.mjs`.
+  refs are deliberately not guessed. The fallback palette is assigned against
+  the original group keys before filtering, so removing a service/fragment
+  group never recolours unrelated surviving public lines. Main metro tunnels
+  remain visible pending AF-05d; v1 is unchanged. Guarded offline by
+  `tests/metro-dedup.mjs`.
 
 ## 5. AREA_FEATURES and the named-green rule
 

@@ -401,11 +401,19 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   `name=Métro 5`-fragmenten voegen zo bij de bestaande `metro_5`-groep;
   meervoudige refs blijven bewust gescheiden. Brondata wordt niet gemuteerd,
   bestaande schone output blijft byte-identiek, tunnels blijven conform AF-05d
-  zichtbaar en v1 blijft bevroren. `tests/metro-dedup.mjs` (25 checks) in
+  zichtbaar en v1 blijft bevroren. De palettoewijzing wordt vóór filtering op
+  de originele groepssleutels vastgezet, zodat overlevende publiekslijnen niet
+  van kleur verschuiven. `tests/metro-dedup.mjs` (26 checks) in
   smoke.sh; syntax, volledige offline suite (cache-php buiten sandbox wegens
   localhostbinding) groen; ENGINE-V2.md §4/§7; onafhankelijke reviewer-pass:
-  ACCEPT zonder defects. Cached Paris/Oulu-exportgate blijft gebundeld met
-  AF-05b en is de volgende actie.*
+  ACCEPT zonder defects. De eerste cached Paris-before/after toonde dat
+  verwijderde groepen de sequentiële fallbackkleuren opschoven; opgelost met
+  de stabiele palettoewijzing hierboven en opnieuw onafhankelijk gereviewd:
+  ACCEPT. Focused real-data replay: 167 ways → 63 service-ways weg, één
+  naamfragment samengevoegd, 11→7 groepen, nul kleurwijzigingen bij de zeven
+  overlevende groepen; visueel verdwijnen de depotblobs. De volledige
+  Paris-export stopte later bij `street_labels` op 429/504/timeout; geen Oulu-
+  retry conform beleid. Volledige contextgate hervat na cooldown uit cache.*
 - [ ] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
   (a) tunnels in de zichtbare Metro-laag behouden maar veel subtieler maken,
   (b) tunnels standaard verbergen en als editorlaag bewaren, of (c) alleen

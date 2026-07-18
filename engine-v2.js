@@ -2776,6 +2776,22 @@ self.onmessage = function(event) {
     // no-op — output stays byte-identical to v1's own renderLayerSVG call.
     if (result.layer.type === 'metro') {
       const elements = result.data?.elements || [];
+      // Preserve the colour v1 assigned each original line key before any
+      // service-only/fragment groups disappear. buildMetroLayer otherwise
+      // advances METRO_PALETTE only across the filtered groups, shifting the
+      // colours of unrelated public lines after every removed key.
+      const stableColors = new Map();
+      elements.forEach(el => {
+        if (el.type !== 'way' || !el.geometry?.length) return;
+        const key = el.tags?.ref || el.tags?.name || el.tags?.colour || el.tags?.color || '_default';
+        if (!stableColors.has(key)) stableColors.set(key, null);
+        if (el.tags?.colour && !stableColors.get(key)) stableColors.set(key, el.tags.colour);
+        if (el.tags?.color && !stableColors.get(key)) stableColors.set(key, el.tags.color);
+      });
+      let paletteIndex = 0;
+      stableColors.forEach((color, key) => {
+        if (!color) stableColors.set(key, METRO_PALETTE[paletteIndex++ % METRO_PALETTE.length]);
+      });
       const publicWays = elements.filter(el => !isServiceTrack(el));
       const nameRefs = new Map();
       publicWays.forEach(el => {
@@ -2787,10 +2803,18 @@ self.onmessage = function(event) {
       const nameToRef = new Map();
       nameRefs.forEach((refs, name) => { if (refs.size === 1) nameToRef.set(name, [...refs][0]); });
       const processed = publicWays.map(el => {
-        if (el.tags?.ref || !el.tags?.name) return el;
-        const mappedRef = nameToRef.get(el.tags.name);
-        if (!mappedRef) return el;
-        return { ...el, tags: { ...el.tags, ref: mappedRef } };
+        const mappedRef = !el.tags?.ref && el.tags?.name ? nameToRef.get(el.tags.name) : null;
+        const tags = mappedRef ? { ...el.tags, ref: mappedRef } : el.tags;
+        const key = tags?.ref || tags?.name || tags?.colour || tags?.color || '_default';
+        const stableColor = stableColors.get(key);
+        if (!stableColor) return mappedRef ? { ...el, tags } : el;
+        // ref/name keep the grouping key ahead of colour. For a truly unnamed
+        // main way, the synthetic _default ref preserves buildMetroLayer's
+        // existing special-case group id and per-path label byte-for-byte.
+        const stableTags = key === '_default'
+          ? { ...tags, ref: '_default', colour: stableColor }
+          : { ...tags, colour: stableColor };
+        return { ...el, tags: stableTags };
       });
       return renderLayerSVG({ layer: result.layer, data: { elements: processed } }, ctx);
     }

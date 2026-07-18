@@ -164,6 +164,8 @@ const check = (name, cond) => {
 // ── (a) all flavors of service ways absent from output ───────────────────
 const mixedFixture = [mainA, mainB, straggler5, yardUnnamed, sidingUnnamed, namedSpur, crossoverRefCarrying, tunnelMain];
 const svg = X2.buildSVG(buildResults(mixedFixture), bbox, W, null, { illustratorCompatible: false });
+const ctxMixed = X.buildSVGContext(bbox, W, null, { illustratorCompatible: false });
+const v1MixedSvg = X.renderLayerSVG({ layer: metroLayer, data: { elements: clone(mixedFixture) } }, ctxMixed);
 
 check('metro layer group present', svg.includes('<g id="metro" inkscape:label="Metro / subway"'));
 check('unnamed service=yard way absent from output', !svg.includes(`rail_service_${yardUnnamed.id}`) && !new RegExp(`"[^"]*${yardUnnamed.id}[^"]*"`).test(svg.replace(mainA.id, '').replace(mainB.id, '')));
@@ -224,6 +226,11 @@ check('v1 builder: crossover way keeps rendering', v1Metro.includes('Métro 6'))
 
 // ── (g) tunnel main ways still render in v2 ───────────────────────────────
 check('tunnel main way (ref 7) still renders in v2', svg.includes('metro_7') && svg.includes('Métro 7'));
+const v1Metro7 = extractGroup(v1MixedSvg, 'metro_7');
+const v2Metro7 = extractGroup(svg, 'metro_7');
+const strokeColor = group => group.match(/_fill"[^>]*stroke="([^"]+)"/)?.[1];
+check('surviving public-line palette colour stays stable after service groups drop',
+  strokeColor(v2Metro7) === strokeColor(v1Metro7) && !!strokeColor(v2Metro7));
 
 // ── (h) no duplicate SVG ids ──────────────────────────────────────────────
 check('no duplicate SVG ids (mixed fixture)', findDuplicates(extractIds(svg)).length === 0);
