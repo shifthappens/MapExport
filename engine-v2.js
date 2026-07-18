@@ -2504,6 +2504,144 @@ self.onmessage = function(event) {
         '<g id="square_labels" inkscape:label="Squares &amp; plazas"');
   }
 
+  // ── Place labels (AF-04) ──────────────────────────────────────────────
+  // Visible names for rural settlements, from the SAME place_nodes fetch that
+  // grounds hamlet blobs (§2) — the node is the settlement point, so it is
+  // also the label anchor. The blob keeps its editor-only inkscape:label
+  // ("Hamlet “name”"); the visible text lives here, once, so node and blob
+  // never show the same name twice on the map.
+  //
+  // Hierarchy (rank asc = places the grid first): village > hamlet >
+  // isolated_dwelling/farm > locality. Locality (place=locality — named but
+  // formally unpopulated land, e.g. French lieux-dits) is deliberately the
+  // decluttered tier: lowest rank, smallest/lightest italic style, and an
+  // extra spacing rule below so a lieu-dit-dense frame (Nièvre has dozens)
+  // shows a readable selection instead of 50 labels at once. Styling is
+  // provisional in the same way square labels are: neutral warm-ink text,
+  // white halo, no preset coupling yet.
+  const PLACE_LABEL_TIERS = {
+    village:           { rank: 0, size: 32, weight: 600, color: '#4a4238', italic: false, group: 'village', groupLabel: 'Villages' },
+    hamlet:            { rank: 1, size: 26, weight: 600, color: '#4a4238', italic: false, group: 'hamlet', groupLabel: 'Hamlets' },
+    isolated_dwelling: { rank: 2, size: 20, weight: 400, color: '#5a5148', italic: false, group: 'dwelling', groupLabel: 'Farms &amp; dwellings' },
+    farm:              { rank: 2, size: 20, weight: 400, color: '#5a5148', italic: false, group: 'dwelling', groupLabel: 'Farms &amp; dwellings' },
+    locality:          { rank: 3, size: 18, weight: 400, color: '#8a8178', italic: true,  group: 'locality', groupLabel: 'Localities' },
+  };
+  // A locality label needs this much clear distance (×sf px) from EVERY
+  // already-placed place label, any tier — the declutter that keeps lieu-dit
+  // country readable. Settlement tiers rely on the collision grid plus the
+  // same-name gap alone: real hamlets are distinct destinations and all
+  // deserve their name when they fit.
+  const PLACE_LOCALITY_SPACING = 600;
+  // Same-name suppression radius (×sf px), matching buildFeatureLabelsLayer's
+  // gap: a hamlet node and a locality node carrying the same name (common
+  // OSM double-tagging) yield one label — the settlement tier, which sorts
+  // first, wins the spot.
+  const PLACE_NAME_GAP = 1000;
+  // Corridor radius (×sf px) stamped along major roads so no place name
+  // prints across the through-road network — same clearance rationale (and
+  // value) as the rail-bed stamp in renderLayerSVG. Local to this builder:
+  // water/park/street labels keep their existing behaviour.
+  const PLACE_ROAD_AVOID_R = 8;
+  const PLACE_MAJOR_ROAD_RE = /^(motorway|trunk|primary|secondary)(_link)?$/;
+
+  // Build the "Place names" layer group. Mirrors buildFeatureLabelsLayer's
+  // mechanics (footprint ribbon, shared ctx.labelGrid claim, halo emission in
+  // both pipelines) but with the tier table above instead of feature styling.
+  // Called from buildSVG between the square labels and street labels, so
+  // place names claim the shared grid after water/parks/squares and street
+  // labels — many candidate spots — dodge them.
+  function buildPlaceLabelsLayer(placeEls, roadEls, ctx) {
+    const { pr, W, H } = ctx;
+    const sf = getScaleFactor(W);
+    const grid = ctx.labelGrid || makeFootprintGrid();
+    const illustratorCompatible = !!ctx.illustratorCompatible;
+    const labelFontFamily = illustratorCompatible ? ILLUSTRATOR_FONT_FAMILY : STANDARD_FONT_FAMILY;
+
+    // Major-road corridors, in a grid of their own: consulted (never stamped
+    // into ctx.labelGrid) so only place labels avoid roads — street labels
+    // must still be allowed to sit ON these ways.
+    const roadAvoid = makeFootprintGrid();
+    for (const el of (roadEls || [])) {
+      if (el.type !== 'way' || !el.geometry?.length) continue;
+      if (!PLACE_MAJOR_ROAD_RE.test(el.tags?.highway || '')) continue;
+      stampPolyline(roadAvoid, el.geometry.map(g => pr(g.lat, g.lon)), PLACE_ROAD_AVOID_R * sf);
+    }
+
+    // Candidates: named nodes with a known tier. Ways/relations never arrive
+    // (the fetch is node-only), but guard anyway — a place=* polygon is a
+    // boundary, not a settlement point.
+    const candidates = [];
+    for (const el of (placeEls || [])) {
+      if (el.type !== 'node' || el.lat == null || el.lon == null) continue;
+      const name = el.tags?.name; if (!name) continue;
+      const tier = PLACE_LABEL_TIERS[el.tags?.place]; if (!tier) continue;
+      const [cx, cy] = pr(el.lat, el.lon);
+      const normName = name.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+      candidates.push({ el, name, normName, cx, cy, tier });
+    }
+    // Rank first (village outranks hamlet outranks farm outranks locality for
+    // grid space), id-ascending tiebreak: deterministic and independent of
+    // Overpass element order, same convention as the feature-label sort.
+    candidates.sort((a, b) => a.tier.rank - b.tier.rank || (a.el.id < b.el.id ? -1 : a.el.id > b.el.id ? 1 : 0));
+
+    const nameGap = PLACE_NAME_GAP * sf;
+    const localitySpacing = PLACE_LOCALITY_SPACING * sf;
+    const placedByName = new Map();
+    const nearName = (nm, x, y) => { const a = placedByName.get(nm); if (!a) return false; for (const p of a) if (Math.hypot(x - p[0], y - p[1]) < nameGap) return true; return false; };
+    const recordName = (nm, x, y) => { const a = placedByName.get(nm); if (a) a.push([x, y]); else placedByName.set(nm, [[x, y]]); };
+    const placedPts = [];
+
+    const byGroup = new Map(); // group key → [{name, svg}]
+    for (const { name, normName, cx, cy, tier } of candidates) {
+      if (nearName(normName, cx, cy)) continue;
+      if (tier.group === 'locality' && placedPts.some(p => Math.hypot(cx - p[0], cy - p[1]) < localitySpacing)) continue;
+      const sz = tier.size * sf, tw = approxTextWidth(name, sz), r = fpR(sz);
+      const fp = fpLine(cx - tw / 2, cy, cx + tw / 2, cy, r);
+      // Fixed anchor, so fully on-canvas or skipped — same canvas policy as
+      // feature labels (a settlement straddling the frame edge loses its
+      // name in this export).
+      if (!fp.every(p => p[0] >= r && p[0] <= W - r && p[1] >= r && p[1] <= H - r)) continue;
+      if (fp.some(p => grid.hits(p[0], p[1], r) || roadAvoid.hits(p[0], p[1], r))) continue;
+      for (const p of fp) grid.put(p[0], p[1], r);
+      recordName(normName, cx, cy);
+      placedPts.push([cx, cy]);
+
+      const haloSz = (sz * 0.15 + 1.5).toFixed(1);
+      const italicAttr = tier.italic ? 'font-style="italic" ' : '';
+      // Companion "_halo" id reserved in both pipelines so the same input
+      // yields the same base id either way — same idiom as feature labels.
+      const fid = ctx.uid(`place_${safeName(name)}`, '_halo');
+      const eName = escXml(name);
+      const by = (cy + sz * 0.35).toFixed(1);
+      let svg;
+      if (illustratorCompatible) {
+        const illustratorWeight = illustratorFontWeight(tier.weight);
+        svg = `<text id="${fid}_halo" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr}text-anchor="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none">${eName}</text>`
+          + `<text id="${fid}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr}text-anchor="middle" fill="${tier.color}" opacity="0.9">${eName}</text>`;
+      } else {
+        svg = `<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${tier.weight}" ${italicAttr}text-anchor="middle" fill="${tier.color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
+      }
+      if (!byGroup.has(tier.group)) byGroup.set(tier.group, []);
+      byGroup.get(tier.group).push({ name, svg });
+    }
+
+    if (!byGroup.size) return '';
+    // One sub-group per tier in hierarchy order, names alphabetical within —
+    // placement already happened, so this reordering is purely for the
+    // designer's panel (collision engine guarantees no overlap regardless).
+    let groups = '';
+    const seenGroups = new Set();
+    for (const tier of Object.values(PLACE_LABEL_TIERS)) {
+      if (seenGroups.has(tier.group)) continue;
+      seenGroups.add(tier.group);
+      const arr = byGroup.get(tier.group);
+      if (!arr) continue;
+      arr.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      groups += `\n    <g id="place_labels_${tier.group}" inkscape:label="${tier.groupLabel}">${arr.map(t => t.svg).join('')}</g>`;
+    }
+    return `  <g id="place_labels" inkscape:label="Place names" inkscape:groupmode="layer">${groups}\n  </g>\n`;
+  }
+
   // Rewrite the roads_casings_<hw>/roads_fills_<hw> group inkscape:labels to
   // the display-name scheme above, with " (outline)"/" (surface)" appended
   // per pass — the SVG the browser's layer panel shows should read as human
@@ -2614,6 +2752,13 @@ self.onmessage = function(event) {
     };
     scanSquares(results.find(r => r.layer.type === 'roads')?.data?.elements);
     scanSquares(results.find(r => r.layer.id === fallbackBlocksLayer.id)?.data?.labelElements);
+    // Place labels (AF-04): the place_nodes result rides through the results
+    // list purely as a data vehicle (renderLayer paints nothing for fetch-only
+    // ids); roads feed the major-road avoidance grid. Emitted right after the
+    // square labels below, before street_labels renders, so the grid-claim
+    // order is water/parks → squares → places → streets.
+    const placeNodeEls = results.find(r => r.layer.id === placeNodesLayer.id)?.data?.elements || [];
+    const placeRoadEls = results.find(r => r.layer.type === 'roads')?.data?.elements || [];
     let layersSVG = '';
     // Water bodies + Waterways are adjacent in the paint order, so they can
     // share one "Water" parent layer without moving a single paint — purely
@@ -2676,6 +2821,12 @@ self.onmessage = function(event) {
       if (result.layer.id === waterLabelsLayer.id && squareLabelNodes.length) {
         const squareSVG = buildFeatureLabelsLayer(squareLabelNodes, ctx.pr, ctx.W, ctx.H, ctx.labelGrid, ctx.uid, { illustratorCompatible: ctx.illustratorCompatible });
         if (squareSVG) layersSVG += relabelSquareGroup(squareSVG);
+      }
+      // Place labels follow the squares in the same hook: settlements claim
+      // the shared grid after every feature label but before street labels
+      // (which render later in layerOrder and dodge whatever is stamped).
+      if (result.layer.id === waterLabelsLayer.id && placeNodeEls.length) {
+        layersSVG += buildPlaceLabelsLayer(placeNodeEls, placeRoadEls, ctx);
       }
     }
     flushWater();
@@ -2881,6 +3032,11 @@ self.onmessage = function(event) {
     renderableResults.push(...areaRenderResults);
     renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
     renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
+    // place_nodes rides along as a pure data vehicle for the AF-04 place
+    // labels (fetch-only, so renderLayer paints nothing for it): buildSVG
+    // reads its elements the same way it reads the fallback result's
+    // labelElements for squares.
+    renderableResults.push({ layer: placeNodesLayer, data: { elements: placeNodeElements } });
 
     // Render stage.
     progress.setStage('render', 'active', { detail: 'Assembling SVG…' });
@@ -2927,5 +3083,7 @@ self.onmessage = function(event) {
     pointToPolygonDistancePx, groundHamletContour, HAMLET_GROUND_SETTLEMENT_M, HAMLET_GROUND_LOCALITY_M,
     // Urban-signal predicate (AF-03c; exercised by tests/area-binding.mjs).
     isUrbanSignalElement, URBAN_SIGNAL_LANDUSE,
+    // Place labels (AF-04; exercised by tests/place-labels.mjs).
+    buildPlaceLabelsLayer, PLACE_LABEL_TIERS, PLACE_LOCALITY_SPACING, PLACE_NAME_GAP,
   };
 })();

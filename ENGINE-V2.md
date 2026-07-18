@@ -95,7 +95,9 @@ classification + subtraction + paint order.
      no rural node in range). The grounded blob takes the name of its nearest
      in-range node (`inkscape:label="Hamlet “<name>”"`). Grounding is applied
      to the emitted contours after subtraction, so the complement rule (§3)
-     subtracts the KEPT blobs only.
+     subtracts the KEPT blobs only. The same place nodes also feed the
+     visible "Place names" label layer (AF-04, see §7) — the blob's label
+     stays editor-only, so a settlement's name appears on the map once.
    - otherwise it runs the **urban test**: a face is **urban** (curb-to-curb
      cream block) iff it contains a building, **or** it is **not** open land
      **and** the urban-signal landuse set (see the urban-landuse signal bullet
@@ -362,6 +364,21 @@ not redesigned. Tags with no family keep their raw value group (e.g.
 
 Named squares get their own "Squares & plazas" editor group, separate from
 "Water & park names" and from the street-label layers (§2 item 1).
+
+Rural settlement names render as their own **"Place names"** layer
+(`id="place_labels"`, AF-04), built from the place_nodes fetch that also
+grounds hamlet blobs (§2). Tier sub-groups in hierarchy order — "Villages",
+"Hamlets", "Farms & dwellings", "Localities" — with per-tier styling; the
+locality tier (lieux-dits: named, formally unpopulated) is deliberately
+decluttered: lowest grid priority, lightest italic style, and a minimum
+spacing from every other place label (`PLACE_LOCALITY_SPACING`), so a
+lieu-dit-dense frame shows a readable selection rather than every name.
+Same-name node duplicates dedupe within `PLACE_NAME_GAP` (the settlement
+tier wins); labels share the one collision grid (claim order water/parks →
+squares → places → street labels) and additionally avoid the major-road
+network (`motorway|trunk|primary|secondary(_link)`) through a local
+corridor grid that no other label family consults. Fixed anchors: a label
+is fully on-canvas or skipped, like feature labels.
 
 Adjacent-in-paint-order layers may share a parent layer group when that moves
 no paint — pure panel organization. Two exist: **"Water"** (water bodies +

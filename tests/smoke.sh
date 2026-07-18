@@ -48,6 +48,10 @@ echo "== square-labels (offline, engine v2 'Squares & plazas' label group) =="
 node tests/square-labels.mjs
 
 echo
+echo "== place-labels (offline, engine v2 'Place names' label group) =="
+node tests/place-labels.mjs
+
+echo
 echo "== area-binding (offline, engine v2 AREA_FEATURES classify/bucket/render) =="
 node tests/area-binding.mjs
 

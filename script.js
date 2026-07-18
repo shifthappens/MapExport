@@ -1271,7 +1271,9 @@ function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 const RESERVED_SVG_IDS = [
   'background', 'beach', 'buildings', 'city_blocks', 'fallback_blocks',
   'greenblue_clip', 'landcover', 'metro', 'parks', 'parks_green',
-  'parks_recreation', 'place_nodes', 'rail', 'rail_casing', 'rail_sleepers',
+  'parks_recreation', 'place_labels', 'place_labels_dwelling',
+  'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',
+  'place_nodes', 'rail', 'rail_casing', 'rail_sleepers',
   'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
   'roads_junction_infill', 'roads_paths', 'roads_paths_green',
   'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',

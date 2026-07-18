@@ -11,6 +11,22 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-17 — Engine v2: rural place names become visible map labels
+- Villages, hamlets, farms and lieux-dits now show their name on the map (v2):
+  a new "Place names" layer with tier sub-groups (Villages, Hamlets, Farms &
+  dwellings, Localities), built from the same place nodes that already ground
+  hamlet blobs. Previously those names existed only as invisible editor labels
+  on the blobs, so rural frames (e.g. Nièvre) showed no destination names.
+- Labels follow the OSM place hierarchy: villages outrank hamlets outrank
+  farms/dwellings outrank localities for label space. Localities (named but
+  formally unpopulated spots, often dozens per rural frame) are strongly
+  decluttered — smallest, lightest, italic, and kept at a minimum distance
+  from every other place label — so a readable selection shows instead of
+  all of them at once.
+- Place labels share the export-wide collision grid (street labels dodge
+  them), avoid the major-road network, dedupe duplicate same-name nodes, and
+  are editor-selectable with unique ids per name.
+
 ### 2026-07-17 — Review fixes: reserved ids, paths over recreation green, place=square plazas, label priority
 - A street literally named after a structural SVG id ("roads", "water", …) no
   longer duplicates that id: the id allocator now reserves all structural
