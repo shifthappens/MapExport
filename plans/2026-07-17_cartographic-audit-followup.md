@@ -107,7 +107,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
-| Overdominante rail yards/roundhouse | OPEN | AF-05a–b |
+| Overdominante rail yards/roundhouse | IN_PROGRESS | AF-05a besluit vastgelegd (2026-07-18): tweeklassenregel op `service=*`; implementatie in AF-05b |
 | Metro member/service-duplicatie | OPEN | AF-05c |
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
 | Te dichte park-/cemeterypaden | OPEN | AF-06 |
@@ -347,10 +347,33 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
 
 ### [ ] AF-05 — Rail- en metro-overbelasting reduceren
 
-- [ ] **AF-05a — railontwerp vastleggen.** Read-only spike: meet raildichtheid
+- [x] **AF-05a — railontwerp vastleggen.** Read-only spike: meet raildichtheid
   en vergelijk drie begrensde strategieën op Oulu en Paris (servicefilter,
   schaalafhankelijke vereenvoudiging/bundeling, lichtere sleeper/casingstijl).
   O kiest één algemene regel; geen stadsspecifieke uitzonderingen.
+  *Af 2026-07-18. Meting op de gecachte Overpass-raillagen (tunnels
+  uitgesloten, zoals v2 rendert): Oulu 236 ways/53 km waarvan 89% van de ways
+  en 90% van de lengte `service=yard|siding`; Paris 744 ways/137 km waarvan
+  61% van de lengte `service=yard|crossover|siding`. Parallelle-dichtheid
+  (25m-cellen met ≥4 ways): Oulu 117 (max 20 parallel), Paris 500 (max 22).
+  Alleen service-ways weglaten reduceert dat tot Oulu 1 en Paris 153 — de
+  Oulu-moiré en de roundhouse-waaier zijn dus vrijwel volledig service-spoor;
+  het Paris-restant is het stationsemplacement (tot 19 parallelle
+  `usage=main`-sporen), echte hoofdinfrastructuur. **Besluit (O): één
+  algemene tweeklassenregel op OSM-semantiek — ways mét `service=*`
+  (yard/siding/spur/crossover) verliezen casing én sleepers en renderen als
+  één dunne, gedempte track-stroke in een eigen editorsubgroep
+  (`rail_service`, geschilderd vóór/onder de main-casings); ways zonder
+  `service` behouden de volledige casing+sleepers+track-signatuur
+  ongewijzigd.** Volledig verbergen is afgewezen (yards moeten als
+  infrastructuur leesbaar blijven), bundeling afgewezen (geometrie-chirurgie
+  zonder algemene OSM-regel, hoog risico), alleen-lichtere-stijl afgewezen
+  (lost de waaier niet op en degradeert normaal spoor overal). Het zware
+  Paris-hoofdsporenbundel blijft bewust staan als principal infrastructure;
+  AF-08-sweep herbeoordeelt visueel. Cutter-/coveragegedrag wijzigt niet
+  (service-ways blijven gewoon cutter-input). Exacte stijlwaarden (breedte/
+  kleur/opacity van de service-stroke) stelt O vast bij AF-05b op de
+  fixtures.*
 - [ ] **AF-05b — railregel implementeren.** E2-implementatie met fixtures voor
   normaal dubbelspoor, yard en roundhouse. Casing-vóór-fills blijft intact.
 - [ ] **AF-05c — metroduplicatie en servicegeometrie.** Voorkom dubbele
