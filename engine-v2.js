@@ -2750,6 +2750,50 @@ self.onmessage = function(event) {
       }
       return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
     }
+    // ── Metro service filter + ref normalization (AF-05c) ─────────────────
+    // Two v2-only, v1-frozen rules over the metro fetch, both measured on the
+    // Paris bbox (167 subway ways):
+    //  1. Service filter: any service=* way (yard/spur/crossover/siding) is a
+    //     depot track, not a rider-facing line, so it is dropped from the
+    //     metro layer entirely — no muted group like rail's (§4), because a
+    //     schematic line map has no use for depot geometry; the depot AREA
+    //     still shows via the landuse=railway fallback patch. Unlike rail/tram
+    //     above, tunnels are NOT filtered here — metro tunnel main ways render
+    //     deliberately (pending AF-05d), so this branch must not touch
+    //     isTunnelElement.
+    //  2. Ref normalization: v1's buildMetroLayer groups by
+    //     ref||name||colour||color, so a way carrying `name` but no `ref`
+    //     fragments its line into a second, differently-coloured group
+    //     (Paris: name="Métro 5" with no ref made group `metro_M_tro_5`
+    //     beside `metro_5`). Fixed by a pre-pass: build a name→ref map from
+    //     the surviving public ways that carry BOTH tags, then stamp the
+    //     mapped ref onto ref-less ways sharing that name — via a shallow
+    //     `{...el, tags:{...}}` copy, never mutating the cached element. A
+    //     name mapping to more than one distinct ref is ambiguous and is
+    //     dropped from the map (conservative: never merge on a guess), so
+    //     that fragment keeps rendering as its own group under its raw key.
+    // For input with no service ways and no ref-less named ways this is a
+    // no-op — output stays byte-identical to v1's own renderLayerSVG call.
+    if (result.layer.type === 'metro') {
+      const elements = result.data?.elements || [];
+      const publicWays = elements.filter(el => !isServiceTrack(el));
+      const nameRefs = new Map();
+      publicWays.forEach(el => {
+        const name = el.tags?.name, ref = el.tags?.ref;
+        if (!name || !ref) return;
+        if (!nameRefs.has(name)) nameRefs.set(name, new Set());
+        nameRefs.get(name).add(ref);
+      });
+      const nameToRef = new Map();
+      nameRefs.forEach((refs, name) => { if (refs.size === 1) nameToRef.set(name, [...refs][0]); });
+      const processed = publicWays.map(el => {
+        if (el.tags?.ref || !el.tags?.name) return el;
+        const mappedRef = nameToRef.get(el.tags.name);
+        if (!mappedRef) return el;
+        return { ...el, tags: { ...el.tags, ref: mappedRef } };
+      });
+      return renderLayerSVG({ layer: result.layer, data: { elements: processed } }, ctx);
+    }
     return renderLayerSVG(result, ctx);
   }
 

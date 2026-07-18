@@ -242,6 +242,17 @@ Load-bearing relations, do not reorder casually:
   texture, not an obstacle) and, like all rail since 2026-07-12, never cut —
   coverage is unaffected. v1 keeps rendering every rail way full-signature
   (§9); guarded offline by `tests/rail-service.mjs`.
+- **Public metro geometry** (AF-05c, v2-only): ways carrying any `service=*`
+  are depot, siding, spur or crossover geometry and do not paint in the Metro
+  layer. Unlike rail, they get no muted stroke: Metro is a schematic
+  rider-facing overlay, while the depot area remains available through the
+  `landuse=railway` fallback patch. Surviving ways without `ref` inherit one
+  only when their exact `name` maps to one unambiguous `ref` among the other
+  surviving ways. This rejoins loose relation-member geometry such as Paris'
+  ref-less `name=Métro 5` ways to the existing `metro_5` line group instead of
+  painting a second palette-coloured fragment group. Names shared by multiple
+  refs are deliberately not guessed. Main metro tunnels remain visible pending
+  AF-05d; v1 is unchanged. Guarded offline by `tests/metro-dedup.mjs`.
 
 ## 5. AREA_FEATURES and the named-green rule
 
@@ -380,6 +391,11 @@ Inside the Railways layer, service tracks live in their own selectable
 "Service tracks" group (`rail_service`, §4) — a designer can restyle or
 delete a whole yard without touching the main lines. Named service ways keep
 their name as id/label; unnamed ones read "Service track (<osm id>)".
+
+Inside the Metro layer, AF-05c keeps the existing ref-based line subgroup IDs
+stable and folds an unambiguously named ref-less member into that same group.
+Technical `service=*` geometry gets no SVG object at all; an ambiguous name
+keeps its own subgroup rather than being merged into the wrong public line.
 
 Rural settlement names render as their own **"Place names"** layer
 (`id="place_labels"`, AF-04), built from the place_nodes fetch that also

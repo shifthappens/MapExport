@@ -98,6 +98,11 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 - `svg-id-uniqueness.mjs` — offline check that every generated SVG (v1 + v2, standard + Illustrator) carries document-wide unique, deterministic object ids: same-name streets/tram/rail/metro members, repeated feature labels (incl. `_halo` companions) and v2's waterways/landcover/beach/blocks/fallback patches cannot collide, and identical input yields identical ids.
 - `feature-label-dedup.mjs` — offline unit test for `buildFeatureLabelsLayer`'s same-name water/park label dedup: same-name anchors within the gap collapse to one label, far-apart repeats still both place, name normalization (case/whitespace) is applied, the largest candidate wins the anchor, a suppressed label claims no grid space, and output is deterministic.
 - `square-labels.mjs` — offline check that engine v2's named squares get their own "Squares & plazas" editor group (not folded into "Water & park names") and are dropped from `street_labels` so the same plaza never carries two names; also checks unnamed squares stay unlabeled, park labels are unaffected, ids stay unique, output is deterministic, and the Illustrator pipeline still emits the label with its `_halo` companion.
+- `metro-dedup.mjs` — offline check that engine v2 drops non-public
+  `service=*` subway geometry, folds an unambiguously named ref-less member
+  into the existing public line subgroup without mutating source data, leaves
+  ambiguous names and tunnels alone, preserves v1, and keeps IDs deterministic
+  and unique.
 - `cache-php.mjs` — offline request tests for `cache.php` (spawns its own `php -S` instances on localhost with throwaway docroots): payload bounds (8 MiB received / 80 MiB decompressed), method/key/content-type/gzip/JSON-structure rejection, atomic temp-file+rename writes, per-IP write rate limiting (429), the size-cap/TTL sweep, and GET/`?exists=`/legacy compatibility. Tight-limit instances use the `MAPEXPORT_CACHE_*` env overrides.
 - `sea-sign.mjs` — offline check of engine v2's coastline→sea geometry (stitching, perimeter walk, island holes).
 - `hamlet-grounding.mjs` — offline check of engine v2's hamlet place-node grounding predicate (tier radii, point-to-polygon distance, nearest-name).

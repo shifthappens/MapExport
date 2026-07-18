@@ -60,6 +60,10 @@ echo "== rail-service (offline, engine v2 two-class rail rule) =="
 node tests/rail-service.mjs
 
 echo
+echo "== metro-dedup (offline, engine v2 public-line grouping + service filter) =="
+node tests/metro-dedup.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-19 — Engine v2: metro lines lose depot blobs and duplicate fragments
+- Metro depot, siding, spur and crossover tracks no longer paint as thick
+  passenger lines (v2), removing technical connection blobs from the
+  rider-facing Metro layer while leaving railway grounds available to editors.
+- Ref-less member ways with an unambiguous line name now join that line's
+  existing subgroup instead of becoming a second, differently coloured
+  fragment. Ambiguous names are left separate, metro tunnels remain unchanged,
+  and v1 output is unchanged.
+
 ### 2026-07-18 — Engine v2: rail yards stop reading as black moiré
 - Rail ways tagged as service track (`service=yard|siding|spur|crossover`)
   now render as thin, muted single strokes under the main lines instead of

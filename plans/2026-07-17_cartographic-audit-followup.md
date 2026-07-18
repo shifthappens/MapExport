@@ -108,7 +108,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
-| Metro member/service-duplicatie | OPEN | AF-05c |
+| Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
 | Te dichte park-/cemeterypaden | OPEN | AF-06 |
 | Tram-/city-blocksubgroepen en labels | OPEN | AF-07a |
@@ -391,9 +391,21 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   Onafhankelijke reviewer-pass: ACCEPT zonder defects. Cached
   Oulu/Paris-exportgate → na AF-05c (één gebundelde run; live Overpass gaf
   hier 429/504 op een cache-miss, geen retry conform beleid).*
-- [ ] **AF-05c — metroduplicatie en servicegeometrie.** Voorkom dubbele
+- [x] **AF-05c — metroduplicatie en servicegeometrie.** Voorkom dubbele
   relation/member-wayweergave en filter niet-publieksgerichte depot-/service-
   verbindingen met een algemene OSM-regel. Houd lijnsubgroepen en IDs stabiel.
+  *Af 2026-07-19. v2 filtert metro-ways met elk `service=*` vóór rendering;
+  yard/siding/spur/crossover krijgen dus geen dikke publiekslijn en geen eigen
+  technische blob. Onder de overlevende ways bouwt een conservatieve exacte
+  name→ref-pass alleen bij precies één ref een shallow copy: Paris' ref-loze
+  `name=Métro 5`-fragmenten voegen zo bij de bestaande `metro_5`-groep;
+  meervoudige refs blijven bewust gescheiden. Brondata wordt niet gemuteerd,
+  bestaande schone output blijft byte-identiek, tunnels blijven conform AF-05d
+  zichtbaar en v1 blijft bevroren. `tests/metro-dedup.mjs` (25 checks) in
+  smoke.sh; syntax, volledige offline suite (cache-php buiten sandbox wegens
+  localhostbinding) groen; ENGINE-V2.md §4/§7; onafhankelijke reviewer-pass:
+  ACCEPT zonder defects. Cached Paris/Oulu-exportgate blijft gebundeld met
+  AF-05b en is de volgende actie.*
 - [ ] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
   (a) tunnels in de zichtbare Metro-laag behouden maar veel subtieler maken,
   (b) tunnels standaard verbergen en als editorlaag bewaren, of (c) alleen
