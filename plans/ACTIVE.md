@@ -27,7 +27,11 @@
 - **Latest checks:** `node --check` beide engines groen;
   `tests/rail-service.mjs` 20/20; `OFFLINE_ONLY=1 bash tests/smoke.sh`
   exit 0 (2026-07-18, na AF-05b).
-- **Decisions/blockers:** Lokale lamp-stack + cache aanwezig, maar de
+- **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
+  2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
+  gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
+  sweep/expiry; herstel na TTL-verval: `cp cache/pinned/*.json.gz cache/`
+  (zie `cache/pinned/README.md`). Lokale lamp-stack + cache aanwezig, maar de
   cachekeys van vóór de sprint dekken de huidige queries niet overal meer:
   één Oulu-exportpoging (2026-07-18) raakte live Overpass en kreeg
   429/504/timeout over de failoverketen — gestopt zonder retry conform
