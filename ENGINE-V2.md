@@ -231,6 +231,17 @@ Load-bearing relations, do not reorder casually:
   fills stroke over it.
 - Roads render **all casings, then all fills** (v1 convention) so junctions
   stay seamless.
+- **Two-class rail** (AF-05b, v2-only): within the rail layer, ways carrying
+  any `service=*` (yard/siding/spur/crossover) render as one thin muted
+  stroke each in a "Service tracks" group (`rail_service`) painted FIRST, so
+  the main lines' casing+sleepers+track signature strokes over them. Main
+  ways (no `service`) keep v1's full signature untouched. Rationale: drawn
+  full-signature, service ways stack into the audit's black yard moiré —
+  89% of Oulu's rail ways and 61% of Paris's rail length are service track.
+  Service ways skip the label-grid corridor stamp (a hairline is ground
+  texture, not an obstacle) and, like all rail since 2026-07-12, never cut —
+  coverage is unaffected. v1 keeps rendering every rail way full-signature
+  (§9); guarded offline by `tests/rail-service.mjs`.
 
 ## 5. AREA_FEATURES and the named-green rule
 
@@ -364,6 +375,11 @@ not redesigned. Tags with no family keep their raw value group (e.g.
 
 Named squares get their own "Squares & plazas" editor group, separate from
 "Water & park names" and from the street-label layers (§2 item 1).
+
+Inside the Railways layer, service tracks live in their own selectable
+"Service tracks" group (`rail_service`, §4) — a designer can restyle or
+delete a whole yard without touching the main lines. Named service ways keep
+their name as id/label; unnamed ones read "Service track (<osm id>)".
 
 Rural settlement names render as their own **"Place names"** layer
 (`id="place_labels"`, AF-04), built from the place_nodes fetch that also

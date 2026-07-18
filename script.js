@@ -1273,7 +1273,7 @@ const RESERVED_SVG_IDS = [
   'greenblue_clip', 'landcover', 'metro', 'parks', 'parks_green',
   'parks_recreation', 'place_labels', 'place_labels_dwelling',
   'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',
-  'place_nodes', 'rail', 'rail_casing', 'rail_sleepers',
+  'place_nodes', 'rail', 'rail_casing', 'rail_service', 'rail_sleepers',
   'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
   'roads_junction_infill', 'roads_paths', 'roads_paths_green',
   'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',

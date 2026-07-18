@@ -107,7 +107,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
-| Overdominante rail yards/roundhouse | IN_PROGRESS | AF-05a besluit vastgelegd (2026-07-18): tweeklassenregel op `service=*`; implementatie in AF-05b |
+| Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
 | Metro member/service-duplicatie | OPEN | AF-05c |
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
 | Te dichte park-/cemeterypaden | OPEN | AF-06 |
@@ -374,8 +374,23 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   (service-ways blijven gewoon cutter-input). Exacte stijlwaarden (breedte/
   kleur/opacity van de service-stroke) stelt O vast bij AF-05b op de
   fixtures.*
-- [ ] **AF-05b — railregel implementeren.** E2-implementatie met fixtures voor
+- [x] **AF-05b — railregel implementeren.** E2-implementatie met fixtures voor
   normaal dubbelspoor, yard en roundhouse. Casing-vóór-fills blijft intact.
+  *Af 2026-07-18. v2-only conform §9: engine-v2.js splitst railways op
+  `service=*`; alleen main-ways gaan door v1's `buildRailLayer` (signatuur en
+  labelgrid-stamp ongewijzigd), service-ways renderen als één dunne gedempte
+  stroke (1.8×sf, #555555, opacity 0.5 per pad) in een eigen
+  `rail_service`-groep ("Service tracks"), gesplitst als eerste kind van de
+  raillaag; yard-only frames krijgen een gesynthetiseerde laagwrapper.
+  Service-ways stampen het labelgrid bewust niet meer (hairline is
+  grondtextuur). `rail_service` in RESERVED_SVG_IDS; v1 bevroren
+  (regressiecheck in de fixture). `tests/rail-service.mjs` 20 checks in
+  smoke.sh; volledige offline suite groen; ENGINE-V2.md §4/§7 geamendeerd;
+  stijlwaarden door O vastgesteld op een before/after-render van de gecachte
+  Oulu-raillaag (moiréwand → leesbare waaier, hoofdlijn onaangetast).
+  Onafhankelijke reviewer-pass: ACCEPT zonder defects. Cached
+  Oulu/Paris-exportgate → na AF-05c (één gebundelde run; live Overpass gaf
+  hier 429/504 op een cache-miss, geen retry conform beleid).*
 - [ ] **AF-05c — metroduplicatie en servicegeometrie.** Voorkom dubbele
   relation/member-wayweergave en filter niet-publieksgerichte depot-/service-
   verbindingen met een algemene OSM-regel. Houd lijnsubgroepen en IDs stabiel.

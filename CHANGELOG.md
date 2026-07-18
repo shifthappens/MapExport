@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-18 — Engine v2: rail yards stop reading as black moiré
+- Rail ways tagged as service track (`service=yard|siding|spur|crossover`)
+  now render as thin, muted single strokes under the main lines instead of
+  each getting the full casing+sleepers+track signature (v2). Yards and the
+  Oulu roundhouse fan read as rail infrastructure again; a normal double
+  track is untouched. Almost all of the audit's "black moiré" rail ink was
+  service track (89% of Oulu's rail ways, 61% of Paris's rail length).
+- The service strokes form their own editor-selectable "Service tracks"
+  group inside the Railways layer, so a designer can restyle or delete a
+  whole yard in one click. v1 output is unchanged.
+
 ### 2026-07-17 — Engine v2: rural place names become visible map labels
 - Villages, hamlets, farms and lieux-dits now show their name on the map (v2):
   a new "Place names" layer with tier sub-groups (Villages, Hamlets, Farms &

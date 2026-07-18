@@ -2665,6 +2665,38 @@ self.onmessage = function(event) {
       .replace('<g id="rail_tracks" ', '<g id="rail_tracks" inkscape:label="Railway tracks" ');
   }
 
+  // ── Two-class rail (AF-05b; decision recorded under AF-05a) ─────────────
+  // A rail way carrying any service=* (yard/siding/spur/crossover) is not
+  // principal track. Drawn with the full casing+sleepers+track signature,
+  // service ways stack into the audit's black yard moiré — measured on the
+  // cached audit layers: 89% of Oulu's rail ways and 61% of Paris's rail
+  // length are service track. They render instead as ONE thin muted stroke
+  // each, in their own editor-selectable "Service tracks" group painted as
+  // the rail layer's first child, so the main lines' casings/sleepers/tracks
+  // stroke over them. Ways without service=* keep v1's signature untouched.
+  const isServiceTrack = (el) => !!(el.tags && el.tags.service);
+
+  function renderServiceTracksGroup(serviceElements, ctx) {
+    const sf = getScaleFactor(ctx.W), eps = getEps();
+    let paths = '';
+    serviceElements.forEach((el, i) => {
+      if (el.type !== 'way' || !el.geometry?.length) return;
+      const s = dpSimplify(el.geometry.map(g => ctx.pr(g.lat, g.lon)), eps);
+      if (s.length < 2) return;
+      let d = `M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
+      for (let j = 1; j < s.length; j++) d += `L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
+      const name = el.tags?.name || el.tags?.ref || '';
+      const pid = ctx.uid(name ? safeName(name) : `rail_service_${el.id || i}`);
+      const lbl = escXml(name || `Service track (${el.id || i})`);
+      // opacity stays per-path, exactly like v1's rail tracks: on the group it
+      // would flatten before blending and crossing tracks would stop
+      // darkening each other.
+      paths += `\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.5"/>`;
+    });
+    if (!paths) return '';
+    return `<g id="rail_service" inkscape:label="Service tracks" fill="none" stroke="#555555" stroke-width="${(1.8 * sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round">${paths}\n    </g>`;
+  }
+
   // v2's per-layer dispatcher. Derived block layers render from precomputed
   // worker geometry; fetch-only inputs (buildings, area_features) never
   // render here; roads/rail/tram/street-labels get the square + tunnel
@@ -2698,10 +2730,25 @@ self.onmessage = function(event) {
       // once as a plaza label, once as if it were a named street.
       const surfaceElements = (result.data?.elements || []).filter(el =>
         !isTunnelElement(el) && (result.layer.id !== streetLabelsLayer.id || !isSquareElement(el)));
-      const svg = renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
-      // v1's rail_casing/rail_sleepers/rail_tracks groups carry no
-      // inkscape:label at all — relabelRailGroups adds one (v2-only).
-      return result.layer.type === 'rail' ? relabelRailGroups(svg) : svg;
+      if (result.layer.type === 'rail') {
+        // Two-class split: only MAIN ways go through v1's builder, so its full
+        // signature and its label-grid corridor stamp now cover principal
+        // track alone. A service hairline is ground texture, not an obstacle
+        // labels must dodge — service ways deliberately skip the grid stamp.
+        const mainWays = surfaceElements.filter(el => !isServiceTrack(el));
+        const serviceWays = surfaceElements.filter(el => isServiceTrack(el) && elementInBbox(el, ctx.b));
+        // v1's rail_casing/rail_sleepers/rail_tracks groups carry no
+        // inkscape:label at all — relabelRailGroups adds one (v2-only).
+        const mainSvg = relabelRailGroups(renderLayerSVG({ layer: result.layer, data: { elements: mainWays } }, ctx));
+        const serviceGroup = renderServiceTracksGroup(serviceWays, ctx);
+        if (!serviceGroup) return mainSvg;
+        // First child of the rail layer group (before rail_casing) so main
+        // lines paint over the service hairlines. A yard-only frame has no
+        // main markup at all — synthesize the layer wrapper v1 would have made.
+        if (!mainSvg) return `  <g id="rail" inkscape:label="Railways" inkscape:groupmode="layer">\n    ${serviceGroup}\n  </g>\n`;
+        return mainSvg.replace('<g id="rail_casing"', `${serviceGroup}\n    <g id="rail_casing"`);
+      }
+      return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
     }
     return renderLayerSVG(result, ctx);
   }
