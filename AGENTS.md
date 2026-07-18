@@ -30,6 +30,31 @@ retired).
   checkpoint, completing it, or handing off. The roadmap checkbox and sprint
   status change only when their stated definition is actually met.
 
+## Background Overpass cache warming — rate limits are not blockers
+
+- When current validation-area cache gaps block exports or visual gates,
+  delegate the network wait to the cheapest adequate background agent. The
+  orchestrator keeps ownership of design, review and the eventual exports; a
+  cache warmer only fills validated cache entries and reports evidence.
+- Use `node tools/prefetch-validation-cache.mjs` rather than looping full
+  exports. It checks the local cache first, derives current v2 queries/keys from
+  source, and fetches only missing entries for the seven validation cities.
+- Keep public-API traffic strictly sequential: one request at a time, no
+  parallel city workers. Each live attempt gets a 30-second client/server
+  timeout, followed by a 10-second cooldown. Rotate endpoints and round-robin
+  failed keys until all are confirmed or 60 minutes of wall time elapse.
+- A first 429, 504, timeout or endpoint outage is expected background state,
+  not a sprint blocker. Do not stop after one bounded failure; stop only when
+  the cache is complete, the one-hour deadline is reached, or the user cancels.
+- Cache only a valid HTTP 200 Overpass JSON envelope with `elements` as an
+  array (an empty array is valid). Confirm the local cache hit after each write.
+  Never cache proxy/error pages, never use `--record`, and never run deploys or
+  pushes from the warmer.
+- Once warming finishes, the orchestrator verifies the gap inventory, pins the
+  current seven-city corpus when appropriate, then runs the actual city exports
+  sequentially. Record only the final success set or remaining keys in
+  `plans/ACTIVE.md`, not a retry diary.
+
 ## Cost-aware delegation
 
 The primary/high-capability model is the **orchestrator**. It owns problem

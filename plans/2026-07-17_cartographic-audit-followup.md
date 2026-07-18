@@ -80,10 +80,15 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 3. **Cache vóór netwerk.** Gebruik de lokale cache wanneer een zichtbare export
    nodig is. Als een cachemiss live Overpass zou raken, doe dat sequentieel met
    maximaal één exportproces; start geen parallelle stadsexports.
-4. **Geen retry-loop.** Bij HTTP 429, `Retry-After`, timeout of endpointuitval:
-   stop na het bestaande begrensde fetchcontract, noteer stad/taak en fout in
-   `ACTIVE.md`, en hervat later. Een ongewijzigde live fout is geen reden om in
-   dezelfde sessie de volledige matrix opnieuw te draaien.
+4. **Cachewarming op de achtergrond (beleid gewijzigd 2026-07-19).** Bij
+   cachemissen, 429, timeout of endpointuitval delegeert O één sequentiële,
+   cache-only prefetchjob aan een goedkope agent via
+   `tools/prefetch-validation-cache.mjs`: maximaal 30 s per live poging, 10 s
+   cooldown, endpointrotatie en round-robin over mislukte keys tot alles binnen
+   is of 60 minuten zijn verstreken. Eén request tegelijk; nooit parallelle
+   stadworkers en geen full-export-retryloop. Een eerste live fout is hiermee
+   achtergrondstatus, geen blocker. Alleen de eindset ontbrekende keys komt in
+   `ACTIVE.md`.
 5. **Visuele gates bundelen.** AF-02, AF-03, AF-04 en AF-05 krijgen elk hooguit
    één kleine representatieve cached-exportgate. AF-08 doet daarna één volledige
    sequentiële sweep. Zo betalen we niet voor zeven keer dezelfde renderlus per

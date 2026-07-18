@@ -5,11 +5,10 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-05c — metroduplicatie en servicegeometrie — `DONE` (2026-07-19,
-  reviewer `ACCEPT`).
-- **Owner/route:** implementatie door Claude gestart; O hervatte de werkboom,
-  repareerde/completeerde fixture, contract en integratie; onafhankelijke
-  reviewer-pass: ACCEPT zonder defects.
+- **Unit:** zeven-steden cachewarmingbeleid + AF-05b/c contextdata —
+  `IN_PROGRESS` (AF-05c-code zelf `DONE`, reviewers `ACCEPT`).
+- **Owner/route:** O stelt beleid/toolcontract vast; E1 bouwt de cache-only
+  prefetcher; E0-agent draait hem sequentieel maximaal één uur op de achtergrond.
 - **Completed checkpoint:** v2 filtert elk `service=*`-metrospoor uit de
   publiekslaag; ref-loze ways met een exact eenduidig name→ref-signaal voegen
   zich bij de bestaande ref-lijngroep. Ambigue namen blijven apart; brondata,
@@ -20,21 +19,23 @@
   Paris-before/after bracht nog een paletverschuiving aan het licht doordat
   verwijderde groepen de sequentiële kleurindex opschoven; hersteld door kleuren
   tegen de originele groepssleutels vast te zetten. Contract, changelog,
-  tests/README en smoke-integratie bijgewerkt.
-- **Next action:** hervat na Overpass-cooldown eerst de volledige Paris-export
-  uit de nu aangevulde cache; ontbrekende `street_labels` faalde op
-  429/504/timeout. Alleen na Paris-succes Oulu sequentieel uitvoeren. Verwerk de
-  context-crops; daarna blijft AF-05d `NEEDS_COEN`.
-- **Changed for current unit:** engine-v2.js, tests/metro-dedup.mjs (nieuw),
-  tests/smoke.sh, tests/README.md, ENGINE-V2.md, CHANGELOG.md en beide actieve
-  planbestanden.
+  tests/README en smoke-integratie bijgewerkt. Cache-only prefetcher nu ook
+  gebouwd en onafhankelijk `ACCEPT`: 63 keys uit bron (7×9), cache-first,
+  gevalideerde gzipwrites + HIT-confirmatie, strikt sequentieel, 30 s/10 s/
+  60 min. Live dry-run: 28 hits, 35 gaps, nul writes/Overpass-verkeer.
+- **Next action:** laat een goedkope achtergrondagent de 35 huidige gaten
+  vullen via `node tools/prefetch-validation-cache.mjs`. Verifieer/pin daarna
+  de actuele keys; voer pas dan Paris en Oulu volledig uit.
+- **Changed for current unit:** AGENTS.md, roadmap/ACTIVE en nieuwe cachewarmer-
+  tool/documentatie; appbron blijft onaangetast.
 - **Latest checks:** `node --check` script.js/engine-v2.js/test groen;
   `tests/metro-dedup.mjs` 26/26; offline smoke groen t/m
   v2-cutterless-worker; `tests/cache-php.mjs` volledig groen buiten sandbox
   (sandbox blokkeerde alleen de tijdelijke localhostserver); reviewer ACCEPT
   (2026-07-19). Na paletfix opnieuw groen: metro-dedup 26/26,
   svg-id-uniqueness, pipeline-equivalence en rail-service; tweede reviewer
-  ACCEPT.
+  ACCEPT. Cachewarmer: `node --check`, `--help`, live `--dry-run` (63 keys,
+  28/35 hit/gap), `git diff --check`; onafhankelijke reviewer ACCEPT.
 - **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
   2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
   gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
@@ -45,7 +46,12 @@
   429/504/timeout over de failoverketen — gestopt zonder retry conform
   beleid. Paris (2026-07-19) vulde roads/rail/tram/metro aan (metro: 167 ways),
   maar de volledige export stopte daarna bij `street_labels`: 429 + 504 +
-  timeout; Oulu daarom niet gestart. Focused cached Paris-metro-before/after is
+  timeout; Oulu daarom niet gestart. Het oude stop-na-één-foutbeleid is op
+  2026-07-19 vervangen: goedkope achtergrondagent blijft nu begrensd proberen
+  (30 s/10 s/60 min), strikt sequentieel. Inventaris bij start: 35 huidige v2-
+  cachegaten — Paris 2, Oulu 3, en Tilburg/Ghent/Bremerhaven/Nièvre/Erfurt elk
+  6; `area_features` ontbreekt door de nieuwe queryhash in alle zeven. Focused
+  cached Paris-metro-before/after is
   wel PASS: 63 service-ways weg, één naamfragment samengevoegd, 11→7 groepen,
   nul kleurwijzigingen op overlevende groepen en depotblobs visueel weg. De
   tijdelijke replaybestanden zijn verwijderd. De volledige contextgate blijft

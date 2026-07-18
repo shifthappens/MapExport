@@ -66,6 +66,14 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 
    See `memory/reference_lamp_server.md` for the gotchas (resize-after-load, Overpass UA, two-port split).
 
+   To warm the v2 data cache for all seven validation cities before running
+   exports, use `node tools/prefetch-validation-cache.mjs`. It reads the current
+   cities, layer queries, filters, building padding, cache keys and Overpass
+   endpoints from the real sources; checks `cache.php` first; then retries only
+   missing keys sequentially for up to an hour (30-second attempts with a
+   10-second cooldown). `--dry-run` probes and prints the plan without contacting
+   Overpass or writing cache entries.
+
 9. **Extended multi-city visual check** (GATED — not part of the standard run):
    ```
    bash tests/visual-cities.sh [size]     # ghent, paris, bremerhaven, oulu
