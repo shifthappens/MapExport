@@ -23,11 +23,12 @@
   gebouwd en onafhankelijk `ACCEPT`: 63 keys uit bron (7×9), cache-first,
   gevalideerde gzipwrites + HIT-confirmatie, strikt sequentieel, 30 s/10 s/
   60 min. Live dry-run: 28 hits, 35 gaps, nul writes/Overpass-verkeer.
-- **Next action:** laat een goedkope achtergrondagent de 35 huidige gaten
-  vullen via `node tools/prefetch-validation-cache.mjs`. Verifieer/pin daarna
-  de actuele keys; voer pas dan Paris en Oulu volledig uit.
-- **Changed for current unit:** AGENTS.md, roadmap/ACTIVE en nieuwe cachewarmer-
-  tool/documentatie; appbron blijft onaangetast.
+- **Next action:** laat in het volgende toegestane achtergrondvenster dezelfde
+  tool alleen de drie resterende gaps hervatten: Tilburg `roads`, Ghent
+  `street_labels` en Ghent `area_features`. Na 63/63: ook die keys pinnen en
+  pas dan Paris/Oulu volledig uitvoeren.
+- **Changed for current unit:** tooltimerfix + roadmap/ACTIVE; beleid/tool zelf
+  staat in `e376bc9`; appbron blijft onaangetast.
 - **Latest checks:** `node --check` script.js/engine-v2.js/test groen;
   `tests/metro-dedup.mjs` 26/26; offline smoke groen t/m
   v2-cutterless-worker; `tests/cache-php.mjs` volledig groen buiten sandbox
@@ -35,7 +36,10 @@
   (2026-07-19). Na paletfix opnieuw groen: metro-dedup 26/26,
   svg-id-uniqueness, pipeline-equivalence en rail-service; tweede reviewer
   ACCEPT. Cachewarmer: `node --check`, `--help`, live `--dry-run` (63 keys,
-  28/35 hit/gap), `git diff --check`; onafhankelijke reviewer ACCEPT.
+  28/35 hit/gap), `git diff --check`; onafhankelijke reviewer ACCEPT. Live run
+  59m33s: 114 pogingen, 32 successen, 82 begrensde fouten, geen ongeldige
+  response gecachet; eind-dry-run 60/63. Deadline-timerfix (`Math.floor`) daarna
+  syntax/diff groen en follow-up reviewer ACCEPT.
 - **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
   2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
   gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
@@ -59,3 +63,8 @@
   rest in AF-08. Paris' hoofdsporenbundel blijft bewust vol gestileerd;
   AF-08 herbeoordeelt. Metro-tunnel (AF-05d) en Countryside/Parks (AF-07c)
   blijven Coen-gates.
+  Eerste achtergrond-run (2026-07-19) vulde 32 van 35 gaps en pinnde de 60
+  bevestigde huidige keys; alleen Tilburg/roads, Ghent/street_labels en
+  Ghent/area_features resten. De run bereikte de uurgrens en onthulde alleen
+  een fractionele-millisecondebug in de deadlinesleep; cachewrites bleven
+  atomair/valide en de tool rondt timers nu neer op gehele milliseconden.

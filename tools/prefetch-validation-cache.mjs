@@ -177,7 +177,7 @@ function validEnvelope(value) {
 }
 
 function signalFor(controller, timeoutMs) {
-  return AbortSignal.any([controller.signal, AbortSignal.timeout(Math.max(1, timeoutMs))]);
+  return AbortSignal.any([controller.signal, AbortSignal.timeout(Math.max(1, Math.floor(timeoutMs)))]);
 }
 
 async function readCache(task, options, controller, remainingMs) {
@@ -243,7 +243,7 @@ function retainedCount(task, data) {
 }
 
 async function waitCooldown(controller, deadlineAt) {
-  const ms = Math.min(COOLDOWN_MS, Math.max(0, deadlineAt - performance.now()));
+  const ms = Math.min(COOLDOWN_MS, Math.max(0, Math.floor(deadlineAt - performance.now())));
   if (ms <= 0 || controller.signal.aborted) return;
   await new Promise(resolve => {
     const timer = setTimeout(done, ms);
