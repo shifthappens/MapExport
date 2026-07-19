@@ -6,8 +6,12 @@
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
 - **Unit:** AF-07a — editorstructuur — offline `DONE` (2026-07-19), visuele
-  bevestiging → AF-08-sweep. Onafhankelijke reviewer-pass loopt nog op de
-  commitdiff; verdict wordt hieronder bijgeschreven (defects → vervolgcommit).
+  bevestiging → AF-08-sweep. Onafhankelijke reviewer-pass: **ACCEPT zonder
+  defects** (byte-identieke urban-only-markup, literal-id/seed-contract en
+  testdekking geverifieerd). Genoteerd restpunt voor de AF-08-sweep: blobs
+  verhuizen nu achter de urban blocks, dus op een gedeelde rand landt het
+  dunne blob-randje altijd bóven een aangrenzend urban-vlak — zelfde crème,
+  disjuncte grond, dus naar verwachting onzichtbaar; de sweep bevestigt.
 - **Owner/route:** O direct (kleine structurele editorwijziging); reviewer
   (read-only) als onafhankelijke pass conform sprintprotocol.
 - **Completed checkpoint:** AF-07a compleet: `tram_casing`/`tram_fill` dragen
@@ -20,11 +24,10 @@
   beschermd via `RESERVED_SVG_IDS`-seed. `tests/editor-structure.mjs`
   (24 checks) in smoke.sh; ENGINE-V2.md §7 en roadmapmatrix/checkbox
   bijgewerkt.
-- **Next action:** reviewer-verdict AF-07a verwerken (bij ACCEPT: alleen dit
-  veld bijwerken); daarna AF-07b — inventariseer de bron van technische
-  namen zoals `Place FO/13` tegen de gepinde cache (`cache/pinned/`,
-  63/63 keys) en kies conservatief: algemene bewezen filter of
-  editorwaarschuwing. AF-06/AF-08 vereisen crops/sweep (visueel);
+- **Next action:** AF-07b — inventariseer de bron van technische namen zoals
+  `Place FO/13` tegen de gepinde cache (`cache/pinned/`, 63/63 keys) en kies
+  conservatief: algemene bewezen filter of editorwaarschuwing. Kan zonder
+  live Overpass/visuele check. AF-06/AF-08 vereisen crops/sweep (visueel);
   AF-05d/AF-07c blijven Coen-beslissingen.
 - **Changed for current unit:** script.js (tram-groepslabels +
   RESERVED_SVG_IDS), engine-v2.js (renderCityBlocks-subgroepen),
