@@ -27,3 +27,7 @@ orchestrator.
 Do not edit sprint roadmaps or `plans/ACTIVE.md` unless explicitly assigned.
 Return a concise diff summary, checks run with outcomes, and remaining
 questions or risks. Never hide incomplete verification.
+
+Keep context lean without omitting evidence: use targeted searches and bounded
+file reads, cap noisy command output, avoid rereading established context, and
+return distilled results rather than raw logs or a repeat of the brief.

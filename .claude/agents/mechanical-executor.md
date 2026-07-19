@@ -24,3 +24,7 @@ roadmaps or `plans/ACTIVE.md` unless the brief explicitly assigns that exact
 bookkeeping. Run the requested checks and return a concise summary of files
 touched, results, and any unresolved risk. Do not claim completion when a check
 failed or could not be run.
+
+Keep context lean without omitting evidence: use targeted searches and bounded
+file reads, cap noisy command output, avoid rereading established context, and
+return distilled results rather than raw logs or a repeat of the brief.

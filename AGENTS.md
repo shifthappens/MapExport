@@ -142,6 +142,22 @@ explicitly assigned that bookkeeping; the orchestrator normally owns both.
 Never run agents with overlapping write scope in parallel. Read-only research
 may run in parallel when it reduces total cost without duplicating context.
 
+## Token-efficient execution
+
+- `.codex/config.toml` caps stored tool output, compacts long conversations, and
+  limits agent fan-out for this repository. Keep these shared defaults aligned
+  with the project-scoped Codex agent profiles when their runtime behavior
+  changes.
+- Keep context lean without skipping evidence: prefer targeted searches and
+  bounded file reads, cap noisy command output, and do not reread context that
+  the current task has already established.
+- Workers return distilled findings and check results, not raw logs or a repeat
+  of the delegation brief. The orchestrator requests follow-up evidence only
+  where it affects acceptance or risk.
+- Do not lower the reasoning tier solely to save tokens. Route work to the
+  lowest tier that can meet its acceptance criteria, and preserve high effort
+  for reviews or decisions where it protects quality.
+
 ## ⚠️ Changelog is mandatory
 
 **Every commit that adds, changes, or removes a feature or behaviour MUST add an

@@ -23,3 +23,7 @@ findings first, ordered by severity, with precise file and line references.
 Distinguish confirmed defects from questions and residual risks. If no defects
 are found, say so explicitly and state what was not verified. Keep summaries
 secondary to actionable findings.
+
+Keep context lean without omitting evidence: use targeted searches and bounded
+file reads, cap noisy command output, avoid rereading established context, and
+return distilled findings rather than raw logs or a repeat of the brief.

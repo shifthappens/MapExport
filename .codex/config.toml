@@ -1,0 +1,16 @@
+# Shared token-efficiency defaults for work in this repository. Agent profiles
+# inherit these values unless they explicitly override them.
+model_auto_compact_token_limit = 120000
+model_auto_compact_token_limit_scope = "total"
+tool_output_token_limit = 6000
+# Use the slower queue when available; this lowers processing cost, not tokens.
+service_tier = "flex"
+
+[agents]
+# Keep delegation useful without multiplying context across broad fan-out.
+max_threads = 2
+max_depth = 1
+
+[features]
+# Project guidance is kept in AGENTS.md; do not inject separate memory context.
+memories = false
