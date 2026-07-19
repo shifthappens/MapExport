@@ -11,11 +11,16 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
-### 2026-07-19 — Editor: tram sub-groups get readable panel names
+### 2026-07-19 — Editor: clearer layer-panel structure (AF-07a)
 - The tram layer's casing and fill groups now carry "Tram casings" / "Tram
   fills" labels in the editor's layer panel (matching the roads layer's "Road
   casings" / "Road fills") instead of showing only their technical ids. Both
-  engines; no visual change on the map (AF-07a, first part).
+  engines; no visual change on the map.
+- In the v2 "City blocks" layer, hamlet blobs and standalone buildings now
+  collect into their own "Hamlets" and "Standalone buildings" sub-groups
+  instead of sitting flat between the urban blocks (Nièvre: 60 blobs and 20
+  buildings in one list), so a designer can grab or restyle them at once.
+  Pure panel organization — same cream paint, same per-path ids and labels.
 
 ### 2026-07-19 — Engine v2: metro lines lose depot blobs and duplicate fragments
 - Metro depot, siding, spur and crossover tracks no longer paint as thick

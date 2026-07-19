@@ -390,6 +390,17 @@ not redesigned. Tags with no family keep their raw value group (e.g.
 Named squares get their own "Squares & plazas" editor group, separate from
 "Water & park names" and from the street-label layers (§2 item 1).
 
+Inside the City blocks layer (AF-07a), urban blocks stay direct children
+while hamlet blobs group under **"Hamlets"** (`city_blocks_hamlets`) and
+standalone buildings under **"Standalone buildings"**
+(`city_blocks_buildings`) — pure panel organization: all three kinds paint
+the same opaque cream on disjoint ground, so the grouping moves no paint,
+and an absent kind emits no empty sub-group. Structural group ids like these
+are literal, protected by the `RESERVED_SVG_IDS` seed (never uid-allocated).
+The shared tram builder's sub-groups carry "Tram casings" / "Tram fills"
+labels, matching the roads layer's "Road casings" / "Road fills" (both
+engines; guarded offline by `tests/editor-structure.mjs`).
+
 Inside the Railways layer, service tracks live in their own selectable
 "Service tracks" group (`rail_service`, §4) — a designer can restyle or
 delete a whole yard without touching the main lines. Named service ways keep

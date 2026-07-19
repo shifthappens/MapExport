@@ -64,6 +64,10 @@ echo "== metro-dedup (offline, engine v2 public-line grouping + service filter) 
 node tests/metro-dedup.mjs
 
 echo
+echo "== editor-structure (offline, AF-07a tram labels + city-blocks sub-groups) =="
+node tests/editor-structure.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 

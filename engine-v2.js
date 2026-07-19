@@ -2041,7 +2041,16 @@ self.onmessage = function(event) {
     // their own — without it the cream fill vanishes against the pale
     // landcover painting beneath.
     const hamletStroke = ` stroke="${ctx.preset.buildingStroke}" stroke-width="${(2.5 * getScaleFactor(ctx.W)).toFixed(2)}" stroke-linejoin="round"`;
-    const paths = (blocks || []).filter(blk => blk.kind === 'urban' || blk.kind === 'hamlet' || blk.kind === 'building').map(blk => {
+    // Urban blocks stay direct children of the layer; hamlet blobs and
+    // standalone buildings collect into their own named sub-groups (AF-07a)
+    // so a designer can grab all rural blobs at once instead of picking them
+    // out of a flat list (Nièvre: 60 blobs + 20 buildings between the urban
+    // blocks). Pure panel organization: all three kinds paint the same
+    // opaque cream on disjoint ground — different faces, or disjoint pieces
+    // within one — so regrouping moves no paint.
+    const urban = [], hamlets = [], buildings = [];
+    for (const blk of (blocks || [])) {
+      if (blk.kind !== 'urban' && blk.kind !== 'hamlet' && blk.kind !== 'building') continue;
       const outlined = blk.kind !== 'urban';
       const [id, label] = blk.kind === 'hamlet'
         ? [ctx.uid(`hamlet_${++hamletCount}`), blk.name ? `Hamlet “${escXml(blk.name)}”` : `Hamlet ${hamletCount}`]
@@ -2049,10 +2058,22 @@ self.onmessage = function(event) {
           ? [ctx.uid(`building_${++buildingCount}`), `Building ${buildingCount}`]
           : [ctx.uid(`block_${++urbanCount}`), `Block ${urbanCount}`];
       const d = blk.outer + (blk.holes && blk.holes.length ? ' ' + blk.holes.join(' ') : '');
-      return `<path id="${id}" inkscape:label="${label}" d="${d}" fill="${CREAM}" fill-rule="evenodd"${outlined ? hamletStroke : ' stroke="none"'}/>`;
-    }).join('\n    ');
-    if (!paths) return '';
-    return `  <g id="city_blocks" inkscape:label="City blocks" inkscape:groupmode="layer">\n    ${paths}\n  </g>\n`;
+      (blk.kind === 'hamlet' ? hamlets : blk.kind === 'building' ? buildings : urban)
+        .push(`<path id="${id}" inkscape:label="${label}" d="${d}" fill="${CREAM}" fill-rule="evenodd"${outlined ? hamletStroke : ' stroke="none"'}/>`);
+    }
+    if (!urban.length && !hamlets.length && !buildings.length) return '';
+    // Structural group ids are literal (protected by the RESERVED_SVG_IDS
+    // seed, like rail_service), not uid-allocated — allocating would burn
+    // the seeded base and emit city_blocks_hamlets_2.
+    const sub = (id, label, paths) => paths.length
+      ? `    <g id="${id}" inkscape:label="${label}">\n      ${paths.join('\n      ')}\n    </g>`
+      : '';
+    const children = [
+      urban.length ? '    ' + urban.join('\n    ') : '',
+      sub('city_blocks_hamlets', 'Hamlets', hamlets),
+      sub('city_blocks_buildings', 'Standalone buildings', buildings),
+    ].filter(Boolean).join('\n');
+    return `  <g id="city_blocks" inkscape:label="City blocks" inkscape:groupmode="layer">\n${children}\n  </g>\n`;
   }
 
   // Render the coverage-fallback patches: cream land that no other layer covered

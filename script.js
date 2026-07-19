@@ -1269,7 +1269,8 @@ function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 // engine-v2.js — tests/svg-id-uniqueness.mjs carries a reserved-name
 // fixture that catches the road/rail/tram/metro surfaces.
 const RESERVED_SVG_IDS = [
-  'background', 'beach', 'buildings', 'city_blocks', 'fallback_blocks',
+  'background', 'beach', 'buildings', 'city_blocks', 'city_blocks_buildings',
+  'city_blocks_hamlets', 'fallback_blocks',
   'greenblue_clip', 'landcover', 'metro', 'parks', 'parks_green',
   'parks_recreation', 'place_labels', 'place_labels_dwelling',
   'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',

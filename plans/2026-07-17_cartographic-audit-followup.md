@@ -116,7 +116,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
 | Te dichte park-/cemeterypaden | OPEN | AF-06 |
-| Tram-/city-blocksubgroepen en labels | OPEN | AF-07a |
+| Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | OPEN | AF-07b; conservatieve filter/editorwaarschuwing |
 | Countryside versus Parks & green | DEFERRED_DESIGN | Oud CF-03; AF-07c levert alleen beslissing, geen naïeve merge |
 
@@ -459,9 +459,19 @@ zeven-stedenrun.
 
 ### [ ] AF-07 — Editorstructuur en uitgestelde productkeuzes
 
-- [ ] **AF-07a — laagnamen/subgroepen.** Geef tram casing/fill consistente
+- [x] **AF-07a — laagnamen/subgroepen.** Geef tram casing/fill consistente
   `inkscape:label`s; scheid waar zinvol Hamlets/Standalone buildings zonder
-  paint-order te veranderen. Alleen structurele/editorwijziging.
+  paint-order te veranderen. Alleen structurele/editorwijziging. *Af
+  2026-07-19: `tram_casing`/`tram_fill` dragen "Tram casings"/"Tram fills"
+  (gedeelde builder, beide engines, conform "Road casings"/"Road fills");
+  v2's `renderCityBlocks` groepeert hamletblobs onder "Hamlets"
+  (`city_blocks_hamlets`) en losse gebouwen onder "Standalone buildings"
+  (`city_blocks_buildings`), urban blocks blijven directe kinderen, een
+  afwezige soort krijgt geen lege subgroep; zelfde crème/ids/labels, geen
+  paint-orderwijziging (disjuncte grond). Structurele groeps-ids blijven
+  letterlijk en zijn via `RESERVED_SVG_IDS` beschermd. Regressietest
+  `tests/editor-structure.mjs` (24 checks) in smoke.sh; ENGINE-V2.md §7
+  geamendeerd. Door O geïmplementeerd; visuele bevestiging → AF-08-sweep.*
 - [ ] **AF-07b — technische namen.** Inventariseer de bron van namen als
   `Place FO/13`. Kies conservatief: een algemene bewezen filter of een
   audit/editorwaarschuwing; geen blacklist per stad en geen legitieme OSM-namen
