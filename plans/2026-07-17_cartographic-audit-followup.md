@@ -419,10 +419,10 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   overlevende groepen; visueel verdwijnen de depotblobs. De volledige
   Paris-export stopte later bij `street_labels` op 429/504/timeout; geen Oulu-
   retry onder het toenmalige beleid. Nieuw achtergrondbeleid vulde op
-  2026-07-19 in 59m33s 32 van 35 gaps (60/63 keys bevestigd en gepind); alleen
-  Tilburg/roads, Ghent/street_labels en Ghent/area_features resten voor het
-  volgende begrensde achtergrondvenster. Volledige contextgate volgt bij
-  63/63.*
+  2026-07-19 in 59m33s 32 van 35 gaps; een tweede begrensde run vulde in 5m10s
+  ook Tilburg/roads, Ghent/street_labels en Ghent/area_features. Eind-dry-run:
+  63/63 huidige keys bevestigd, nul gaps, volledige corpus gepind. De volledige
+  contextgate kan nu cache-only draaien.*
 - [ ] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
   (a) tunnels in de zichtbare Metro-laag behouden maar veel subtieler maken,
   (b) tunnels standaard verbergen en als editorlaag bewaren, of (c) alleen

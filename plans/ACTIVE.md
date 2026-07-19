@@ -5,10 +5,10 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** zeven-steden cachewarmingbeleid + AF-05b/c contextdata —
-  `IN_PROGRESS` (AF-05c-code zelf `DONE`, reviewers `ACCEPT`).
-- **Owner/route:** O stelt beleid/toolcontract vast; E1 bouwt de cache-only
-  prefetcher; E0-agent draait hem sequentieel maximaal één uur op de achtergrond.
+- **Unit:** zeven-steden cachewarmingbeleid + AF-05b/c contextdata — `DONE`
+  (63/63 huidige v2-keys bevestigd en gepind; AF-05c-code reviewers `ACCEPT`).
+- **Owner/route:** O stelde beleid/toolcontract vast; E1 bouwde de cache-only
+  prefetcher; E0-agenten vulden de corpus sequentieel op de achtergrond.
 - **Completed checkpoint:** v2 filtert elk `service=*`-metrospoor uit de
   publiekslaag; ref-loze ways met een exact eenduidig name→ref-signaal voegen
   zich bij de bestaande ref-lijngroep. Ambigue namen blijven apart; brondata,
@@ -23,12 +23,11 @@
   gebouwd en onafhankelijk `ACCEPT`: 63 keys uit bron (7×9), cache-first,
   gevalideerde gzipwrites + HIT-confirmatie, strikt sequentieel, 30 s/10 s/
   60 min. Live dry-run: 28 hits, 35 gaps, nul writes/Overpass-verkeer.
-- **Next action:** laat in het volgende toegestane achtergrondvenster dezelfde
-  tool alleen de drie resterende gaps hervatten: Tilburg `roads`, Ghent
-  `street_labels` en Ghent `area_features`. Na 63/63: ook die keys pinnen en
-  pas dan Paris/Oulu volledig uitvoeren.
-- **Changed for current unit:** tooltimerfix + roadmap/ACTIVE; beleid/tool zelf
-  staat in `e376bc9`; appbron blijft onaangetast.
+- **Next action:** voer nu de volledig gecachete AF-05b/c contextgate uit:
+  eerst Paris, daarna Oulu, één exportproces tegelijk; inspecteer de relevante
+  rail-/metrocrops. Daarna blijft AF-05d `NEEDS_COEN`.
+- **Changed for current unit:** alleen cache/pinned + roadmap/ACTIVE; beleid en
+  tool staan in `e376bc9`, timerfix in `bc599fc`; appbron bleef onaangetast.
 - **Latest checks:** `node --check` script.js/engine-v2.js/test groen;
   `tests/metro-dedup.mjs` 26/26; offline smoke groen t/m
   v2-cutterless-worker; `tests/cache-php.mjs` volledig groen buiten sandbox
@@ -39,7 +38,9 @@
   28/35 hit/gap), `git diff --check`; onafhankelijke reviewer ACCEPT. Live run
   59m33s: 114 pogingen, 32 successen, 82 begrensde fouten, geen ongeldige
   response gecachet; eind-dry-run 60/63. Deadline-timerfix (`Math.floor`) daarna
-  syntax/diff groen en follow-up reviewer ACCEPT.
+  syntax/diff groen en follow-up reviewer ACCEPT. Hervatting: 5m10s,
+  10 pogingen, 3 successen, 7 begrensde 504/timeouts; eind-dry-run 63 hits,
+  0 gaps. De drie laatste keys zijn gepind.
 - **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
   2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
   gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
@@ -68,3 +69,6 @@
   Ghent/area_features resten. De run bereikte de uurgrens en onthulde alleen
   een fractionele-millisecondebug in de deadlinesleep; cachewrites bleven
   atomair/valide en de tool rondt timers nu neer op gehele milliseconden.
+  Tweede achtergrond-run vulde Tilburg/roads, Ghent/street_labels en
+  Ghent/area_features; de huidige zeven-steden-corpus is nu volledig (63/63)
+  en gepind. Er is geen Overpass/cacheblocker meer voor de AF-05-contextgate.
