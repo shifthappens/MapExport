@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-19 — Editor: tram sub-groups get readable panel names
+- The tram layer's casing and fill groups now carry "Tram casings" / "Tram
+  fills" labels in the editor's layer panel (matching the roads layer's "Road
+  casings" / "Road fills") instead of showing only their technical ids. Both
+  engines; no visual change on the map (AF-07a, first part).
+
 ### 2026-07-19 — Engine v2: metro lines lose depot blobs and duplicate fragments
 - Metro depot, siding, spur and crossover tracks no longer paint as thick
   passenger lines (v2), removing technical connection blobs from the

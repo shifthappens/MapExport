@@ -5,77 +5,29 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-05b/c contextgate — `DONE` (Paris en Oulu volledig cache-only
-  geëxporteerd, automatisch groen en visueel goedgekeurd; 63/63 huidige
-  v2-keys bevestigd en gepind; AF-05c-code reviewers `ACCEPT`).
-- **Owner/route:** O stelde beleid/toolcontract vast; E1 bouwde de cache-only
-  prefetcher; E0-agenten vulden de corpus sequentieel op de achtergrond.
-- **Completed checkpoint:** v2 filtert elk `service=*`-metrospoor uit de
-  publiekslaag; ref-loze ways met een exact eenduidig name→ref-signaal voegen
-  zich bij de bestaande ref-lijngroep. Ambigue namen blijven apart; brondata,
-  tunnels, schone groep/IDs en v1 blijven onaangetast. Overgenomen fixture had
-  twee fout-negatieven door een niet-nestingbewuste `<g>`-extractor en één
-  tautologische assert; hersteld en uitgebreid naar 26 checks (incl. siding,
-  expliciete non-mutatie en stabiele publiekslijnkleur). De eerste cached
-  Paris-before/after bracht nog een paletverschuiving aan het licht doordat
-  verwijderde groepen de sequentiële kleurindex opschoven; hersteld door kleuren
-  tegen de originele groepssleutels vast te zetten. Contract, changelog,
-  tests/README en smoke-integratie bijgewerkt. Cache-only prefetcher nu ook
-  gebouwd en onafhankelijk `ACCEPT`: 63 keys uit bron (7×9), cache-first,
-  gevalideerde gzipwrites + HIT-confirmatie, strikt sequentieel, 30 s/10 s/
-  60 min. Live dry-run: 28 hits, 35 gaps, nul writes/Overpass-verkeer.
-- **Next action:** AF-05b/c is afgerond; AF-05d blijft een expliciete
-  `NEEDS_COEN`-keuze en blokkeert de andere units niet.
-- **Changed for current unit:** nieuwste Oulu/Paris-v2 exporttrail +
-  roadmap/ACTIVE; beleid en tool staan in `e376bc9`, timerfix in `bc599fc`;
-  appbron bleef onaangetast.
-- **Latest checks:** `node --check` script.js/engine-v2.js/test groen;
-  `tests/metro-dedup.mjs` 26/26; offline smoke groen t/m
-  v2-cutterless-worker; `tests/cache-php.mjs` volledig groen buiten sandbox
-  (sandbox blokkeerde alleen de tijdelijke localhostserver); reviewer ACCEPT
-  (2026-07-19). Na paletfix opnieuw groen: metro-dedup 26/26,
-  svg-id-uniqueness, pipeline-equivalence en rail-service; tweede reviewer
-  ACCEPT. Cachewarmer: `node --check`, `--help`, live `--dry-run` (63 keys,
-  28/35 hit/gap), `git diff --check`; onafhankelijke reviewer ACCEPT. Live run
-  59m33s: 114 pogingen, 32 successen, 82 begrensde fouten, geen ongeldige
-  response gecachet; eind-dry-run 60/63. Deadline-timerfix (`Math.floor`) daarna
-  syntax/diff groen en follow-up reviewer ACCEPT. Hervatting: 5m10s,
-  10 pogingen, 3 successen, 7 begrensde 504/timeouts; eind-dry-run 63 hits,
-  0 gaps. De drie laatste keys zijn gepind. Contextgate daarna strikt
-  sequentieel: Paris en Oulu elk 9/9 cache-hits, 0 misses/writes/Overpass;
-  beide exports PASS met 0 lintfouten/-waarschuwingen en 0 significante kale
-  renderdekking. Visueel: Paris zonder depot-/serviceblobs of dubbele
-  metrostroken; Oulu-yard als dunne secundaire infrastructuur naast herkenbaar
-  hoofdspoor, zonder zwarte moirémassa.
-- **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
-  2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
-  gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
-  sweep/expiry; herstel na TTL-verval: `cp cache/pinned/*.json.gz cache/`
-  (zie `cache/pinned/README.md`). Lokale lamp-stack + cache aanwezig, maar de
-  cachekeys van vóór de sprint dekken de huidige queries niet overal meer:
-  één Oulu-exportpoging (2026-07-18) raakte live Overpass en kreeg
-  429/504/timeout over de failoverketen — gestopt zonder retry conform
-  beleid. Paris (2026-07-19) vulde roads/rail/tram/metro aan (metro: 167 ways),
-  maar de volledige export stopte daarna bij `street_labels`: 429 + 504 +
-  timeout; Oulu daarom niet gestart. Het oude stop-na-één-foutbeleid is op
-  2026-07-19 vervangen: goedkope achtergrondagent blijft nu begrensd proberen
-  (30 s/10 s/60 min), strikt sequentieel. Inventaris bij start: 35 huidige v2-
-  cachegaten — Paris 2, Oulu 3, en Tilburg/Ghent/Bremerhaven/Nièvre/Erfurt elk
-  6; `area_features` ontbreekt door de nieuwe queryhash in alle zeven. Focused
-  cached Paris-metro-before/after is
-  wel PASS: 63 service-ways weg, één naamfragment samengevoegd, 11→7 groepen,
-  nul kleurwijzigingen op overlevende groepen en depotblobs visueel weg. De
-  tijdelijke replaybestanden zijn verwijderd. De volledige contextgate blijft
-  gebundeld: AF-05b+c samen (Oulu/Paris),
-  rest in AF-08. Paris' hoofdsporenbundel blijft bewust vol gestileerd;
-  AF-08 herbeoordeelt. Metro-tunnel (AF-05d) en Countryside/Parks (AF-07c)
-  blijven Coen-gates.
-  Eerste achtergrond-run (2026-07-19) vulde 32 van 35 gaps en pinnde de 60
-  bevestigde huidige keys; alleen Tilburg/roads, Ghent/street_labels en
-  Ghent/area_features resten. De run bereikte de uurgrens en onthulde alleen
-  een fractionele-millisecondebug in de deadlinesleep; cachewrites bleven
-  atomair/valide en de tool rondt timers nu neer op gehele milliseconden.
-  Tweede achtergrond-run vulde Tilburg/roads, Ghent/street_labels en
-  Ghent/area_features; de huidige zeven-steden-corpus is nu volledig (63/63)
-  en gepind. De daaropvolgende AF-05-contextgate is cache-only geslaagd voor
-  Paris en Oulu; AF-05d blijft de enige open AF-05-keuze en vereist Coen.
+- **Unit:** AF-07a — editorstructuur — `IN_PROGRESS`. AF-01 t/m AF-05b/c zijn
+  `DONE` (zie roadmapmatrix); AF-05d blijft `NEEDS_COEN`.
+- **Owner/route:** O direct (kleine structurele editorwijziging; delegatie zou
+  meer kosten dan het werk).
+- **Completed checkpoint:** tram-deel van AF-07a: `tram_casing`/`tram_fill`
+  dragen nu `inkscape:label` "Tram casings"/"Tram fills" (consistent met
+  "Road casings"/"Road fills"); beide engines, geen visuele wijziging.
+- **Next action:** tweede deel AF-07a — in `renderCityBlocks` (engine-v2.js)
+  hamletblobs en losse gebouwen in eigen subgroepen "Hamlets"
+  (`city_blocks_hamlets`) en "Standalone buildings" (`city_blocks_buildings`)
+  zetten, urban blocks blijven direct in de laag; die twee ids in
+  `RESERVED_SVG_IDS` seeden; offline fixturetest (tram-labels +
+  city-blocks-structuur) toevoegen aan smoke.sh; ENGINE-V2.md §7 amenderen.
+  **Wacht op Coens go** — Coen onderbrak de sessie met de vraag wat er werd
+  opgepakt; het voorstel (AF-07a nu, AF-07b als alternatief) ligt in de chat.
+- **Changed for current unit:** script.js (alleen de twee
+  tram-groepslabels), CHANGELOG.md, plans/ACTIVE.md.
+- **Latest checks:** `node --check script.js` groen; `svg-id-uniqueness`,
+  `pipeline-equivalence` en `rail-service` groen na de tram-labeledit
+  (2026-07-19).
+- **Decisions/blockers:** deze omgeving heeft geen live Overpass/visuele
+  check nodig voor AF-07a/b; AF-06 en AF-08 (crops/sweep) en AF-05d/AF-07c
+  (Coen-beslissingen) blijven hier buiten bereik. Cache-corpus (63/63 keys)
+  staat gepind in `cache/pinned/` (herstel: `cp cache/pinned/*.json.gz
+  cache/`, zie `cache/pinned/README.md`; TTL-klok gereset t/m 2026-07-25).
+  Metro-tunnel (AF-05d) en Countryside/Parks (AF-07c) blijven Coen-gates.

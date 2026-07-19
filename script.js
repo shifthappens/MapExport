@@ -1595,7 +1595,7 @@ function buildTramLayer(elements, pr, W, uid=makeUidGen()) {
     fills+=`\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}" opacity="0.9"/>`;
   });
   if (!casings) return '';
-  return `  <g id="tram" inkscape:label="Tram &amp; light rail" inkscape:groupmode="layer">\n    <g id="tram_casing" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="tram_fill" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>\n`;
+  return `  <g id="tram" inkscape:label="Tram &amp; light rail" inkscape:groupmode="layer">\n    <g id="tram_casing" inkscape:label="Tram casings" fill="none" stroke="#555555" stroke-width="${(10.5*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${casings}\n    </g>\n    <g id="tram_fill" inkscape:label="Tram fills" fill="none" stroke="#aaee44" stroke-width="${(6*sf).toFixed(2)}" stroke-linecap="round" stroke-linejoin="round">${fills}\n    </g>\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
