@@ -2640,7 +2640,7 @@ self.onmessage = function(event) {
         svg = `<text id="${fid}_halo" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr}text-anchor="middle" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" fill="none">${eName}</text>`
           + `<text id="${fid}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${illustratorWeight}" ${italicAttr}text-anchor="middle" fill="${tier.color}" opacity="0.9">${eName}</text>`;
       } else {
-        svg = `<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${tier.weight}" ${italicAttr}text-anchor="middle" fill="${tier.color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
+        svg = `<text id="${fid}" inkscape:label="${escXml(editorPanelName(name))}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${tier.weight}" ${italicAttr}text-anchor="middle" fill="${tier.color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
       }
       if (!byGroup.has(tier.group)) byGroup.set(tier.group, []);
       byGroup.get(tier.group).push({ name, svg });

@@ -11,6 +11,14 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-19 — Editor: technical OSM names flagged for review (AF-07b)
+- Map labels whose name reads administrative rather than editorial (Paris
+  cadastral designations like "Voie FI/13" / "Place FO/13", bare codes like
+  "BAD 2") now carry a "⚠ " prefix on their editor-panel name so a designer
+  reviews them before publication. The rendered map text is untouched — these
+  are real OSM names, so nothing is dropped. Street, water/park/square and
+  place labels, both engines; Illustrator exports are unchanged.
+
 ### 2026-07-19 — Editor: clearer layer-panel structure (AF-07a)
 - The tram layer's casing and fill groups now carry "Tram casings" / "Tram
   fills" labels in the editor's layer panel (matching the roads layer's "Road

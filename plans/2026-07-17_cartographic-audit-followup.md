@@ -117,7 +117,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
 | Te dichte park-/cemeterypaden | OPEN | AF-06 |
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
-| Technische OSM-namen zoals `Place FO/13` | OPEN | AF-07b; conservatieve filter/editorwaarschuwing |
+| Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | DEFERRED_DESIGN | Oud CF-03; AF-07c levert alleen beslissing, geen naïeve merge |
 
 Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
@@ -472,10 +472,19 @@ zeven-stedenrun.
   letterlijk en zijn via `RESERVED_SVG_IDS` beschermd. Regressietest
   `tests/editor-structure.mjs` (24 checks) in smoke.sh; ENGINE-V2.md §7
   geamendeerd. Door O geïmplementeerd; visuele bevestiging → AF-08-sweep.*
-- [ ] **AF-07b — technische namen.** Inventariseer de bron van namen als
+- [x] **AF-07b — technische namen.** Inventariseer de bron van namen als
   `Place FO/13`. Kies conservatief: een algemene bewezen filter of een
   audit/editorwaarschuwing; geen blacklist per stad en geen legitieme OSM-namen
-  stil verwijderen.
+  stil verwijderen. *Afgerond 2026-07-19: inventaris tegen de gepinde
+  zeven-stedencache (29.613 benoemde elementen, 140 verdachte) wees uit dat
+  alleen de Parijse kadastrale werknamen ("Voie FI/13", "Place FO/13" — mét
+  wikidata/`source:name=cadastre`, dus legitiem) plus kale refcodes ("BAD 2")
+  gerenderde labels bereiken; al het andere zit in nooit-gelabelde data
+  (gebouwnamen, parkeerrefs). Keuze: editorwaarschuwing, geen filter —
+  `isTechnicalName` (script.js, gedeeld door street-/feature-/place-labels,
+  beide engines) geeft de paneelnaam een "⚠ "-prefix; kaarttekst en
+  Illustrator-uitvoer ongewijzigd. `tests/technical-names.mjs` (33 checks) in
+  smoke.sh; ENGINE-V2.md §7 geamendeerd. Door O direct geïmplementeerd.*
 - [ ] **AF-07c — Countryside/Parks & green.** Neem het open CF-03-besluit over.
   O legt met Coen vast of dit één zichtbare editorgroep met twee paintposities
   blijft of werkelijk één renderlaag wordt. Zonder besluit geen implementatie.

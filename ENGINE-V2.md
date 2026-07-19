@@ -401,6 +401,18 @@ The shared tram builder's sub-groups carry "Tram casings" / "Tram fills"
 labels, matching the roads layer's "Road casings" / "Road fills" (both
 engines; guarded offline by `tests/editor-structure.mjs`).
 
+Technical-looking names get a review marker, never a filter (AF-07b): a
+rendered label whose name reads administrative rather than editorial — the
+Paris cadastral scheme ("Voie FI/13", "Place FO/13"), a bare ref-like code
+("BAD 2") — keeps its map text untouched but carries a **"⚠ "** prefix on its
+`inkscape:label`, so the designer reviews it in the panel instead of shipping
+it unseen. These are legitimate OSM names (the corpus cases carry wikidata /
+`source:name=cadastre`), so dropping them silently is off the table; the
+predicate is `isTechnicalName` in `script.js` (shared by street, feature and
+place labels, both engines), widened only on corpus evidence and never into a
+per-city list. Illustrator output strips `inkscape:*` and is unchanged.
+Guarded offline by `tests/technical-names.mjs`.
+
 Inside the Railways layer, service tracks live in their own selectable
 "Service tracks" group (`rail_service`, §4) — a designer can restyle or
 delete a whole yard without touching the main lines. Named service ways keep

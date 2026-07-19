@@ -227,6 +227,29 @@ function parksNamedGate(el) {
     || /^(forest|cemetery|allotments|recreation_ground)$/.test(el.tags.landuse || '')
     || el.tags.natural === 'wood' || el.tags.amenity === 'grave_yard' || el.tags.tourism === 'zoo';
 }
+// Does a feature name read administrative/technical rather than editorial on a
+// public map? Proven against the pinned seven-city validation corpus
+// (2026-07-19): the only such names that reach rendered text are the Paris
+// cadastral provisional street designations ("Voie FI/13", "Place FO/13",
+// "Passage Commun AA/13" — letter code + "/" + district number) and bare
+// ref-like codes as the whole name ("BAD 2"). These are legitimate OSM names
+// (FO/13 even carries a wikidata tag), so they are never dropped: the label
+// builders keep rendering them and only prefix the editor-panel name
+// (inkscape:label, via editorPanelName below) with "⚠ " so a designer reviews
+// them in the layers panel instead of shipping them unseen. Illustrator mode
+// has no panel-label attribute and is untouched. Warning-only by design —
+// widen the patterns only with corpus evidence, never into a per-city list.
+function isTechnicalName(name) {
+  const n = String(name || '').trim();
+  // Cadastral scheme: the name ENDS in a short capital letter code, a slash
+  // and a number. A slash inside a normal dual name ("Schleuse Neuer Hafen /
+  // Sportbootschleuse", "'t Steegske/De frontline") never matches.
+  if (/(^|\s)[A-Z]{1,3}\/\d{1,3}$/.test(n)) return true;
+  // The whole name is a bare ref-like code: "K6", "GUW4", "BAD 2".
+  if (/^[A-Z]{1,5}[ .-]?\d{1,4}[A-Za-z]?$/.test(n)) return true;
+  return false;
+}
+function editorPanelName(name) { return isTechnicalName(name) ? `⚠ ${name}` : name; }
 // Canonical OSM open-square tagging: an explicit place=square, or area=yes on
 // a highway way. The one shared square predicate — used by the street-label
 // builder (lays the plaza name flat) and by engine v2's geometry pass (fills
@@ -2025,14 +2048,14 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
     const oa=off[0],ob=off[off.length-1];
     if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
     if (illustratorCompatible) { emitCurvedLabelAsGlyphs(hw,name,attrs,label,off,fs); return; }
-    const id=`lp${lpN++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
+    const id=`lp${lpN++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
   // one object per letter). (cx,cy) is the centroid of the span's fitted
   // baseline, rotated to the fitted angle (averages a gentle bend instead of
   // inheriting one segment's heading); the baseline offset is baked into y
   // and rotates with the anchor, so it stays perpendicular at any angle.
-  const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
+  const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
   // A chosen stretch is emitted as a single rotated <text> (one editable
@@ -2112,7 +2135,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
       if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
       fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
       const attrs=`font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${labelFontWeight(style.weight)}" letter-spacing="${ls.toFixed(1)}"`;
-      texts.push({hw:best.hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
+      texts.push({hw:best.hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(displayName)}</text>`});
       continue;
     }
 
@@ -2153,7 +2176,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
         const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
         if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
         fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
-        texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(name)}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
+        texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
         continue;
       }
 
@@ -2382,7 +2405,7 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
       // keeps the 0.9 ink transparency of the old fill copy while the halo
       // stroke stays fully opaque — identical compositing to the historical
       // two-element form, at half the element count.
-      labels+=`<text id="${fid}" inkscape:label="${eName}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" fill="${color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
+      labels+=`<text id="${fid}" inkscape:label="${escXml(editorPanelName(name))}" x="${cx.toFixed(1)}" y="${by}" font-family="${labelFontFamily}" font-size="${sz.toFixed(1)}" font-weight="${weight}" ${italicAttr} text-anchor="middle" fill="${color}" fill-opacity="0.9" stroke="white" stroke-width="${haloSz}" stroke-linejoin="round" paint-order="stroke">${eName}</text>`;
     }
   });
 

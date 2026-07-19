@@ -68,6 +68,10 @@ echo "== editor-structure (offline, AF-07a tram labels + city-blocks sub-groups)
 node tests/editor-structure.mjs
 
 echo
+echo "== technical-names (offline, AF-07b ⚠ editor warning on technical names) =="
+node tests/technical-names.mjs
+
+echo
 echo "== pipeline-equivalence (offline, fixtures only) =="
 node tests/pipeline-equivalence.mjs
 
