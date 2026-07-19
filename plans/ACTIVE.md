@@ -5,8 +5,9 @@
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** zeven-steden cachewarmingbeleid + AF-05b/c contextdata — `DONE`
-  (63/63 huidige v2-keys bevestigd en gepind; AF-05c-code reviewers `ACCEPT`).
+- **Unit:** AF-05b/c contextgate — `DONE` (Paris en Oulu volledig cache-only
+  geëxporteerd, automatisch groen en visueel goedgekeurd; 63/63 huidige
+  v2-keys bevestigd en gepind; AF-05c-code reviewers `ACCEPT`).
 - **Owner/route:** O stelde beleid/toolcontract vast; E1 bouwde de cache-only
   prefetcher; E0-agenten vulden de corpus sequentieel op de achtergrond.
 - **Completed checkpoint:** v2 filtert elk `service=*`-metrospoor uit de
@@ -23,11 +24,11 @@
   gebouwd en onafhankelijk `ACCEPT`: 63 keys uit bron (7×9), cache-first,
   gevalideerde gzipwrites + HIT-confirmatie, strikt sequentieel, 30 s/10 s/
   60 min. Live dry-run: 28 hits, 35 gaps, nul writes/Overpass-verkeer.
-- **Next action:** voer nu de volledig gecachete AF-05b/c contextgate uit:
-  eerst Paris, daarna Oulu, één exportproces tegelijk; inspecteer de relevante
-  rail-/metrocrops. Daarna blijft AF-05d `NEEDS_COEN`.
-- **Changed for current unit:** alleen cache/pinned + roadmap/ACTIVE; beleid en
-  tool staan in `e376bc9`, timerfix in `bc599fc`; appbron bleef onaangetast.
+- **Next action:** AF-05b/c is afgerond; AF-05d blijft een expliciete
+  `NEEDS_COEN`-keuze en blokkeert de andere units niet.
+- **Changed for current unit:** nieuwste Oulu/Paris-v2 exporttrail +
+  roadmap/ACTIVE; beleid en tool staan in `e376bc9`, timerfix in `bc599fc`;
+  appbron bleef onaangetast.
 - **Latest checks:** `node --check` script.js/engine-v2.js/test groen;
   `tests/metro-dedup.mjs` 26/26; offline smoke groen t/m
   v2-cutterless-worker; `tests/cache-php.mjs` volledig groen buiten sandbox
@@ -40,7 +41,12 @@
   response gecachet; eind-dry-run 60/63. Deadline-timerfix (`Math.floor`) daarna
   syntax/diff groen en follow-up reviewer ACCEPT. Hervatting: 5m10s,
   10 pogingen, 3 successen, 7 begrensde 504/timeouts; eind-dry-run 63 hits,
-  0 gaps. De drie laatste keys zijn gepind.
+  0 gaps. De drie laatste keys zijn gepind. Contextgate daarna strikt
+  sequentieel: Paris en Oulu elk 9/9 cache-hits, 0 misses/writes/Overpass;
+  beide exports PASS met 0 lintfouten/-waarschuwingen en 0 significante kale
+  renderdekking. Visueel: Paris zonder depot-/serviceblobs of dubbele
+  metrostroken; Oulu-yard als dunne secundaire infrastructuur naast herkenbaar
+  hoofdspoor, zonder zwarte moirémassa.
 - **Decisions/blockers:** Cachebestanden van de 7 testgebieden zijn op
   2026-07-18 ge-touch't (TTL-klok gereset, houdbaar t/m 2026-07-25) én
   gekopieerd naar `cache/pinned/` — die submap valt buiten cache.php's
@@ -71,4 +77,5 @@
   atomair/valide en de tool rondt timers nu neer op gehele milliseconden.
   Tweede achtergrond-run vulde Tilburg/roads, Ghent/street_labels en
   Ghent/area_features; de huidige zeven-steden-corpus is nu volledig (63/63)
-  en gepind. Er is geen Overpass/cacheblocker meer voor de AF-05-contextgate.
+  en gepind. De daaropvolgende AF-05-contextgate is cache-only geslaagd voor
+  Paris en Oulu; AF-05d blijft de enige open AF-05-keuze en vereist Coen.

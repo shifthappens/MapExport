@@ -394,8 +394,9 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   stijlwaarden door O vastgesteld op een before/after-render van de gecachte
   Oulu-raillaag (moiréwand → leesbare waaier, hoofdlijn onaangetast).
   Onafhankelijke reviewer-pass: ACCEPT zonder defects. Cached
-  Oulu/Paris-exportgate → na AF-05c (één gebundelde run; live Overpass gaf
-  hier 429/504 op een cache-miss, geen retry conform beleid).*
+  Oulu/Paris-exportgate is na AF-05c cache-only geslaagd: beide exports 9/9
+  hits, nul misses/writes/Overpass en volledig groen; Oulu-crop leest als
+  dunne yardinfrastructuur naast herkenbaar hoofdspoor, zonder moirémassa.*
 - [x] **AF-05c — metroduplicatie en servicegeometrie.** Voorkom dubbele
   relation/member-wayweergave en filter niet-publieksgerichte depot-/service-
   verbindingen met een algemene OSM-regel. Houd lijnsubgroepen en IDs stabiel.
@@ -422,7 +423,11 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   2026-07-19 in 59m33s 32 van 35 gaps; een tweede begrensde run vulde in 5m10s
   ook Tilburg/roads, Ghent/street_labels en Ghent/area_features. Eind-dry-run:
   63/63 huidige keys bevestigd, nul gaps, volledige corpus gepind. De volledige
-  contextgate kan nu cache-only draaien.*
+  contextgate draaide daarna sequentieel en cache-only voor Paris en Oulu:
+  beide 9/9 hits, nul misses/writes/Overpass, nul lintfouten/-waarschuwingen en
+  nul significante kale renderdekking. De Paris-crop toont geen technische
+  serviceblobs of dubbele memberlijnen; overlevende publiekslijnen blijven
+  visueel onderscheiden. Gate `PASS`.*
 - [ ] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
   (a) tunnels in de zichtbare Metro-laag behouden maar veel subtieler maken,
   (b) tunnels standaard verbergen en als editorlaag bewaren, of (c) alleen
