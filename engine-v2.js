@@ -2457,14 +2457,12 @@ self.onmessage = function(event) {
         d = d.trim();
       }
       if (!d) continue;
-      // Same contract as the parks/water renderers (script.js): every painted
-      // green/blue surface joins ctx.areaClipDs so dashed footpaths crossing
-      // it get their white "over parks/water" twin, clipped to exactly this
-      // shape. Recreation grounds paint the same opaque park green, so a path
-      // across a golf course must flip white exactly like one across a named
-      // park. Renders before the roads layer by paint order (§4), so the
-      // clip list is complete when buildRoadsLayer consumes it.
-      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
+      // Same contract as named parks (script.js): every painted recreation
+      // surface joins ctx.greenClipDs. The roads layer uses that clip for
+      // cycleways and named paths, and hides anonymous trails there, so a
+      // golf course cannot turn into technical-looking path hatching.
+      // Renders before roads by paint order (§4), so the list is complete.
+      if (ctx.greenClipDs) ctx.greenClipDs.push(d);
       const t = el.tags || {};
       // English label for the specific ground OSM records; a name wins.
       const kind = t.leisure === 'golf_course' ? 'Golf course'

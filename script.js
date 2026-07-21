@@ -456,8 +456,10 @@ const ROAD_WIDTHS = {
 // cycleway, short dash = footway, fine thin dash = dirt path, wide short
 // rungs = steps. w/dash are map px and scale with sf — the old ROAD_WIDTHS
 // dash strings were unscaled, which is why these classes used to render as
-// solid mini-streets at print sizes. Over parks/water the stroke is
-// overprinted white via a clipPath (salmon vanishes on the park green).
+// solid mini-streets at print sizes. Over water every path is overprinted
+// white; over green only cycleways and named paths get that orientation aid.
+// Anonymous trails are hidden there, so dense cemetery mapping cannot form a
+// technical hatch; their ordinary styling remains unchanged everywhere else.
 const PATH_STYLES = {
   cycleway: { w:5.5, dash:[24,9] },
   footway:  { w:4.5, dash:[13,8] },
@@ -1294,14 +1296,15 @@ function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 const RESERVED_SVG_IDS = [
   'background', 'beach', 'buildings', 'city_blocks', 'city_blocks_buildings',
   'city_blocks_hamlets', 'fallback_blocks',
-  'greenblue_clip', 'landcover', 'metro', 'parks', 'parks_green',
+  'green_clip', 'landcover', 'metro', 'parks', 'parks_green',
   'parks_recreation', 'place_labels', 'place_labels_dwelling',
   'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',
   'place_nodes', 'rail', 'rail_casing', 'rail_service', 'rail_sleepers',
   'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
-  'roads_junction_infill', 'roads_paths', 'roads_paths_green',
+  'roads_junction_infill', 'roads_paths', 'roads_paths_green', 'roads_paths_green_subdued',
+  'roads_paths_water',
   'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
-  'tram_fill', 'water', 'water_bodies', 'water_labels', 'waterways',
+  'tram_fill', 'water', 'water_bodies', 'water_clip', 'water_labels', 'waterways',
 ];
 // Document-wide id allocator. uid(base, ...suffixes) reserves `base` AND
 // every `base+suffix` atomically: it walks base, base_2, base_3, … until it
@@ -1447,8 +1450,9 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   // minor classes still paint under major ones) and order streets alphabetically
   // inside each class, so a designer can grab a whole class at once or find one
   // named street fast. Casings and fills mirror the same class+alpha order.
-  let casingGroups='', fillGroups='', pathGroups='', pathOverGroups='';
-  const clipDs = ctx?.areaClipDs || [];
+  let casingGroups='', fillGroups='', pathGroups='', pathWaterGroups='', pathGreenGroups='', pathGreenMuteGroups='';
+  const waterClipDs = ctx?.waterClipDs || [];
+  const greenClipDs = ctx?.greenClipDs || [];
   const uid=ctx?.uid || makeUidGen();
   types.forEach(hw => {
     const ways=byType.get(hw);
@@ -1469,7 +1473,7 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       if(na&&nb) return na.localeCompare(nb)||a.i-b.i;
       if(na) return -1; if(nb) return 1; return a.i-b.i;
     });
-    let casings='', fills='', paths='', pathsOver='';
+    let casings='', fills='', paths='', pathsOverWater='', pathsOverGreen='', pathsMuteGreen='';
     sorted.forEach(({el,i}) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
@@ -1480,18 +1484,26 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       const base=name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`;
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
       if (ps) {
-        // Reserve the companion "_green" id up front (only actually emitted
-        // when clipDs.length), so the allocator can never hand out that
-        // suffixed id to something else.
-        const pid=clipDs.length?uid(base,'_green'):uid(base);
+        // Reserve the clipped companion ids up front (only actually emitted
+        // when the matching clip has shapes), so the allocator can never hand
+        // either suffixed id to something else.
+        const needsWater=waterClipDs.length>0;
+        const needsGreen=greenClipDs.length>0 && (hw==='cycleway'||!!name);
+        const needsGreenMute=greenClipDs.length>0 && !needsGreen;
+        const pid=(needsWater||needsGreen||needsGreenMute)
+          ?uid(base,'_water','_green','_green_mute'):uid(base);
         // Single dashed stroke; butt caps keep the dash rhythm crisp. Paint
         // attributes live on the class group below — every path in a class
         // shares them, and SVG 1.1 inheritance is safe in every consumer
         // (Illustrator included), so the per-path markup is just geometry.
         paths+=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
-        // White twin, clipped to parks/water — identical d and dash phase, so
-        // the colour flips exactly at the green/blue edge.
-        if (clipDs.length) pathsOver+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}"/>`;
+        // White twins use the identical d and dash phase, so the colour flips
+        // exactly at the area edge. Water keeps full contrast; green reserves
+        // it for cycleways and named paths, the useful orientation cues, and
+        // masks anonymous trails with the park colour to prevent hatching.
+        if (needsWater) pathsOverWater+=`\n          <path id="${pid}_water" inkscape:label="${lbl}" d="${d}"/>`;
+        if (needsGreen) pathsOverGreen+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}"/>`;
+        if (needsGreenMute) pathsMuteGreen+=`\n          <path id="${pid}_green_mute" inkscape:label="${lbl}" d="${d}"/>`;
         return;
       }
       const pid=uid(base,'_casing');
@@ -1500,25 +1512,37 @@ function buildRoadsLayer(elements, pr, W, ctx) {
     });
     const pathPaint=`fill="none" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}`;
     if (paths) pathGroups+=`\n      <g id="roads_paths_${hw}" inkscape:label="${escXml(label)}" ${pathPaint} stroke="${colors.casing}">${paths}\n      </g>`;
-    if (pathsOver) pathOverGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks/water)" ${pathPaint} stroke="#ffffff">${pathsOver}\n        </g>`;
+    if (pathsOverWater) pathWaterGroups+=`\n        <g id="roads_paths_${hw}_on_water" inkscape:label="${escXml(label)} (over water)" ${pathPaint} stroke="#ffffff">${pathsOverWater}\n        </g>`;
+    if (pathsOverGreen) pathGreenGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks)" ${pathPaint} stroke="#ffffff">${pathsOverGreen}\n        </g>`;
+    if (pathsMuteGreen) pathGreenMuteGroups+=`\n        <g id="roads_paths_${hw}_muted_on_green" inkscape:label="${escXml(label)} (subdued over parks)" ${pathPaint} stroke="${preset.park}">${pathsMuteGreen}\n        </g>`;
     if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${casings}\n      </g>`;
     if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${fills}\n      </g>`;
   });
   if (!casingGroups&&!fillGroups&&!pathGroups) return '';
   // Paths & trails paint first (under street casings/fills), then the white
-  // clipped twins, then the two street passes.
+  // area-clipped twins, then the two street passes.
   let pathsBlock='';
   if (pathGroups) {
     let clipDef='', overlay='';
-    if (pathOverGroups) {
-      const clipPathMarkup=`<clipPath id="greenblue_clip" clipPathUnits="userSpaceOnUse">${clipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`;
+    const clipPathMarkup=[];
+    if (pathWaterGroups) {
+      clipPathMarkup.push(`<clipPath id="water_clip" clipPathUnits="userSpaceOnUse">${waterClipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`);
+      overlay+=`\n    <g id="roads_paths_water" inkscape:label="Paths over water" clip-path="url(#water_clip)">${pathWaterGroups}\n    </g>`;
+    }
+    if (pathGreenGroups) {
+      clipPathMarkup.push(`<clipPath id="green_clip" clipPathUnits="userSpaceOnUse">${greenClipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`);
+    } else if (pathGreenMuteGroups) {
+      clipPathMarkup.push(`<clipPath id="green_clip" clipPathUnits="userSpaceOnUse">${greenClipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`);
+    }
+    if (pathGreenMuteGroups) overlay+=`\n    <g id="roads_paths_green_subdued" inkscape:label="Anonymous paths hidden over parks" clip-path="url(#green_clip)">${pathGreenMuteGroups}\n    </g>`;
+    if (pathGreenGroups) overlay+=`\n    <g id="roads_paths_green" inkscape:label="Selected paths over parks" clip-path="url(#green_clip)">${pathGreenGroups}\n    </g>`;
+    if (clipPathMarkup.length) {
       // Illustrator only handles clipPaths reliably when they live in the
       // document-root <defs>; declaring one inline inside a <g> is legal
       // SVG (and fine in browsers/Inkscape) but risky there. The Illustrator
       // wrapper collects these and emits them at the root.
-      if (ctx?.illustratorCompatible && ctx.illustratorDefs) ctx.illustratorDefs.push(clipPathMarkup);
-      else clipDef=`\n    ${clipPathMarkup}`;
-      overlay=`\n    <g id="roads_paths_green" inkscape:label="Paths over parks/water" clip-path="url(#greenblue_clip)">${pathOverGroups}\n    </g>`;
+      if (ctx?.illustratorCompatible && ctx.illustratorDefs) ctx.illustratorDefs.push(...clipPathMarkup);
+      else clipDef=`\n    ${clipPathMarkup.join('\n    ')}`;
     }
     pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${clipDef}${pathGroups}\n  </g>${overlay}`;
   }
@@ -3155,7 +3179,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         d = d.trim();
       }
       if (!d) return;
-      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
+      if (ctx.waterClipDs) ctx.waterClipDs.push(d);
       const name = el.tags?.name;
       const id = name ? uid(`water_${safeName(name)}`) : uid(`water${el.id ? '_' + el.id : ''}`);
       // Same self-coloured stroke the merged path carried: it seals the
@@ -3215,7 +3239,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         d = d.trim();
       }
       if (!d) return;
-      if (ctx.areaClipDs) ctx.areaClipDs.push(d);
+      if (ctx.greenClipDs) ctx.greenClipDs.push(d);
       // Named greens keep their name as id + label. A nameless element only
       // reaches here after pruneIslandGreens confirmed it sits inside a water
       // island, so its id/label come from the land-cover tag instead.
@@ -3286,10 +3310,11 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
     // clipPath definitions that must live in the document-root <defs> in
     // Illustrator mode (it mishandles clipPaths declared inline in a <g>).
     illustratorDefs: [],
-    // Park/water outline d-strings, filled by the parks and water_bodies
-    // renders (they paint before roads, see LAYER_ORDER). The roads layer
-    // turns them into the clipPath that overprints path dashes in white.
-    areaClipDs: [],
+    // Outline d-strings, filled before roads (see LAYER_ORDER). Water keeps
+    // white overlays for every path; green reserves them for cycleways and
+    // named paths so ordinary trails stay visually quiet.
+    waterClipDs: [],
+    greenClipDs: [],
     // One collision grid for the whole export: rail corridors stamp it,
     // then feature labels, then street labels — nothing can overlap.
     labelGrid: makeFootprintGrid(),

@@ -56,6 +56,10 @@ echo "== area-binding (offline, engine v2 AREA_FEATURES classify/bucket/render) 
 node tests/area-binding.mjs
 
 echo
+echo "== park-paths (offline, AF-06 park/cemetery trail generalisation) =="
+node tests/park-paths.mjs
+
+echo
 echo "== rail-service (offline, engine v2 two-class rail rule) =="
 node tests/rail-service.mjs
 

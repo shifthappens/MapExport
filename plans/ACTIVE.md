@@ -1,48 +1,36 @@
 # Active checkpoint
 
-- **Updated:** 2026-07-19
+- **Updated:** 2026-07-21
 - **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** AF-07b — technische namen — offline `DONE` (2026-07-19).
-  Onafhankelijke reviewer-pass: **ACCEPT zonder defects** (⚠ alleen in
-  `inkscape:label`, alle zes emit-sites gedekt, escaping en beide
-  Illustrator-pipelines geverifieerd). Genoteerde restpunten (by design,
-  geen actie): regex 2 markeert ook een legitieme kale code-naam als "O2";
-  het curved-label-basispad in `<defs>` houdt bewust de rauwe naam — de
-  zichtbare tekst zelf draagt de ⚠. AF-07a blijft compleet met
-  reviewer-ACCEPT (restpunt AF-08-sweep: blob-randje op gedeelde randen).
-- **Owner/route:** O direct (inventaris + kleine gedeelde helperwijziging);
-  reviewer (read-only) als onafhankelijke pass conform sprintprotocol.
-- **Completed checkpoint:** AF-07b compleet: inventaris tegen de gepinde
-  zeven-stedencache (29.613 benoemde elementen, 140 verdachte) wees uit dat
-  alleen Parijse kadastrale werknamen ("Voie FI/13", "Place FO/13" — mét
-  wikidata/`source:name=cadastre`, dus legitiem) en kale refcodes ("BAD 2")
-  gerenderde labels bereiken; rest zit in nooit-gelabelde data. Keuze:
-  editorwaarschuwing, geen filter — `isTechnicalName`/`editorPanelName`
-  (script.js, na parksNamedGate) prefixt de `inkscape:label`-paneelnaam met
-  "⚠ " op de drie labeloppervlakken (street ×4 emit-sites, feature/square,
-  v2 place); kaarttekst, ids en Illustrator-uitvoer (stript `inkscape:*`)
-  ongewijzigd. `tests/technical-names.mjs` (33 checks) in smoke.sh;
-  ENGINE-V2.md §7, CHANGELOG en roadmapmatrix/checkbox bijgewerkt.
-- **Next action:** geen offline unit meer beschikbaar in deze omgeving:
-  AF-06/AF-08 vereisen crops/sweep (visueel, live Overpass); AF-05d/AF-07c
-  blijven Coen-beslissingen. Eerstvolgende zinvolle sessie: AF-08-sweep in
-  een omgeving mét netwerk, of Coens besluiten op AF-05d/AF-07c.
-- **Changed for current unit:** script.js (isTechnicalName/editorPanelName +
-  labelemitters), engine-v2.js (place-labelemitter),
-  tests/technical-names.mjs (nieuw), tests/smoke.sh, ENGINE-V2.md,
-  CHANGELOG.md, plans/.
-- **Latest checks:** `node --check` script.js/engine-v2.js groen;
-  `tests/technical-names.mjs` 33/33; `OFFLINE_ONLY=1 bash tests/smoke.sh`
-  volledig groen (v2-cutterless-worker SKIPt zonder ClipperLib-cache/netwerk,
-  zoals bekend in deze sandbox) (2026-07-19).
-- **Decisions/blockers:** AF-07b-keuze: waarschuwing, geen filter — de
-  corpus-gevallen zijn legitieme OSM-namen (wikidata/kadaster), dus stil
-  verwijderen is uitgesloten; patronen alleen verbreden op corpusbewijs,
-  nooit een per-stadlijst. ⚠ mag alléén in `inkscape:label` leven (de
-  Illustrator-wrapper stript die bij assemblage). Cache-corpus (63/63 keys)
-  gepind in `cache/pinned/` (herstel: `cp cache/pinned/*.json.gz cache/`;
-  TTL t/m 2026-07-25). Metro-tunnel (AF-05d) en Countryside/Parks (AF-07c)
-  blijven Coen-gates.
+- **Unit:** AF-06 — park- en begraafplaatspaden generaliseren — `DONE`
+  (2026-07-21).
+- **Owner/route:** O direct; geen agentdelegatie (kleine gedeelde rendererwijziging,
+  visueel besluit al lokaal vastgesteld).
+- **Completed checkpoint:** AF-06 voltooid. De gedeelde wegenrenderer heeft nu
+  aparte water- en groenclips: op water blijven alle kleine paden wit voor
+  contrast; op groen blijven alleen cycleways en benoemde paden wit. Naamloze
+  footways, paths en steps krijgen daar een parkkleurige maskerstrook, zodat
+  hun gewone stijl buiten groen onveranderd blijft maar ze geen technische
+  hatching vormen. `tests/park-paths.mjs` dekt beide clips en alle drie
+  beleidsgevallen; `tests/area-binding.mjs` houdt recreation gekoppeld aan de
+  groenclip.
+- **Next action:** AF-08 blijft de volgende uitvoerbare sweep zodra Coen de
+  open keuzes AF-05d (metro-tunnel) en AF-07c (Countryside/Parks & green)
+  heeft beslist; geen verdere lokale AF-06-actie nodig.
+- **Changed for current unit:** `script.js`, `engine-v2.js`,
+  `tests/park-paths.mjs`, `tests/area-binding.mjs`, `tests/svg-id-uniqueness.mjs`,
+  `tests/smoke.sh`, CHANGELOG, roadmap en de drie nieuwste v2-trails.
+- **Latest checks:** cache-inventaris 63/63 v2-keys lokaal aanwezig (geen
+  Overpass); cache-only v2-exports voor Oulu, Bremerhaven en Ghent hadden elk
+  9 cache-hits, 0 misses/writes/Overpass, SVG-lint 0 en renderdekking 0.000%.
+  Lokale browsercrops van Oulu cemetery, Bürgerpark en Citadelpark tonen geen
+  technische hatch meer, met geselecteerde oriëntatieroutes leesbaar.
+  `OFFLINE_ONLY=1 bash tests/smoke.sh` is groen (PHP-cachetest via localhost).
+- **Decisions/blockers:** AF-06 beleid: nooit een gewone path/footway buiten
+  groene vlakken wijzigen; water houdt zijn volledige witte contrast. Op
+  parks/cemetery/recreation behouden cycleways en benoemde paden de witte
+  oriëntatie-overlay, gewone naamloze trails niet. Metro-tunnel (AF-05d) en
+  Countryside/Parks (AF-07c) blijven Coen-gates.

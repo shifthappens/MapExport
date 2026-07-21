@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-21 — Clearer trails in parks and cemeteries (AF-06)
+- Anonymous trails no longer form a dense technical hatch across park,
+  cemetery and recreation-green areas. Named paths and cycleways stay visible
+  for orientation, while every small path still turns white over water for
+  contrast. Streets and paths outside green areas are unchanged.
+
 ### 2026-07-19 — Editor: technical OSM names flagged for review (AF-07b)
 - Map labels whose name reads administrative rather than editorial (Paris
   cadastral designations like "Voie FI/13" / "Place FO/13", bare codes like

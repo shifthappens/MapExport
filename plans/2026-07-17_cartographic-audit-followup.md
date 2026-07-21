@@ -115,7 +115,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
-| Te dichte park-/cemeterypaden | OPEN | AF-06 |
+| Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): aparte water-/groenclips; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | DEFERRED_DESIGN | Oud CF-03; AF-07c levert alleen beslissing, geen naïeve merge |
@@ -442,7 +442,7 @@ Coen-besluit.
 **Gate:** fixtures plus cached Oulu/Paris na AF-05b/c; AF-05d kan de sprint als
 expliciet `NEEDS_COEN` verlaten zonder andere units te blokkeren.
 
-### [ ] AF-06 — Park- en begraafplaatspaden generaliseren
+### [x] AF-06 — Park- en begraafplaatspaden generaliseren
 
 **Route:** O kiest schaalregel op crops; E1 implementeert. Baselines: Oulu
 cemetery, Bremerhaven Bürgerpark en Ghent Citadelpark.
@@ -456,6 +456,14 @@ straten/footways buiten groene gebieden veranderen niet onbedoeld.
 
 **Gate:** gerichte browsercrops op bestaande/cached exports; geen eigen
 zeven-stedenrun.
+
+*Afgerond 2026-07-21: de gedeelde wegenrenderer gebruikt nu aparte clips voor
+water en groen. Alle kleine paden blijven wit op water; op park-, cemetery- en
+recreationgroen blijven alleen cycleways en benoemde paden wit voor oriëntatie.
+Naamloze footways, paths en steps worden daar in parkkleur gemaskeerd en buiten
+groen niet gewijzigd. `tests/park-paths.mjs` dekt de drie beleidsgevallen;
+cache-only v2-herexports en lokale browsercrops van Oulu cemetery, Bremerhaven
+Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
 
 ### [ ] AF-07 — Editorstructuur en uitgestelde productkeuzes
 
