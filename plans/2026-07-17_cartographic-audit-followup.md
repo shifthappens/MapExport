@@ -119,6 +119,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | DEFERRED_DESIGN | Oud CF-03; AF-07c levert alleen beslissing, geen naïeve merge |
+| Parken en stedelijk groen verdwijnen onder city blocks | OPEN | AF-07d: aparte diagnose en contract voor Piushaven en Cobbenhagenpark |
 
 Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
 `SOURCE_DATA`, `NEEDS_COEN`, `DEFERRED_DESIGN`.
@@ -496,6 +497,21 @@ Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
 - [ ] **AF-07c — Countryside/Parks & green.** Neem het open CF-03-besluit over.
   O legt met Coen vast of dit één zichtbare editorgroep met twee paintposities
   blijft of werkelijk één renderlaag wordt. Zonder besluit geen implementatie.
+- [ ] **AF-07d — Parkgrond zichtbaar boven city blocks.** Isoleer de
+  selectie- en bindregel voor echte stedelijke parken van de algemene
+  countryside/green-laag. Reproduceer met de lokale Tilburg-cache: het
+  naamloze `leisure=park` bij Piushaven (`way/138166896`) verdwijnt in v1 door
+  de named-green-gate; Cobbenhagenpark bestaat uit samenhangende `forest`,
+  `grass` en `scrub`-vlakken die in v2 wel worden getekend maar onder de later
+  geschilderde city blocks verdwijnen. Bepaal en implementeer een contract
+  waarin expliciet `leisure=park` de block-void snijdt ongeacht `name` of
+  `access` (dus ook een privaat landgoed of themapark), en waarin overig
+  grondgroen alleen als samenhangend, stedelijk parkcomplex kan doorwerken.
+  Geen algemene naamregel, access-filter of minimum-breedte; voorkom losse
+  grasconfetti met een aantoonbare cluster-/kaartschaleregel. Leg cached
+  Piushaven- en Cobbenhagen-fixtures vast, inclusief een negatieve
+  confetti-case, en bewijs de v2 complement-/coverage-invariant en paint order
+  opnieuw.
 
 **Acceptatie:** editorlagen hebben consistente namen; technische namen hebben
 een reproduceerbaar beleid; CF-03 heeft een vastgelegde keuze of blijft bewust
