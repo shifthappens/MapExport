@@ -96,6 +96,10 @@ echo "== v2-cutterless-worker (real ClipperLib worker; SKIPs if no clipper cache
 node tests/v2-cutterless-worker.mjs
 
 echo
+echo "== v2-face-runtime-benchmark (real worker parity + opt-in phase timings) =="
+node tests/v2-face-runtime-benchmark.mjs
+
+echo
 echo "== cache-php (offline, cache.php bounds/validation/atomic writes; php -S on localhost) =="
 node tests/cache-php.mjs
 

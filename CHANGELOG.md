@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-21 — Faster v2 city-block exports
+- V2 now avoids hamlet-shape work when no countryside face exists, and skips
+  unrelated water, green, landcover and urban-signal shapes during face tests.
+  Map geometry and classification rules are unchanged.
+
 ### 2026-07-21 — Exports wait out temporary Overpass outages
 - Both export engines now keep trying through rate limits, timeouts, network
   drops and temporary server errors for up to one hour instead of stopping after

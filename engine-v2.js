@@ -980,6 +980,14 @@ self.onmessage = function(event) {
   const urbanPolys = data.urbanPolys || [];
   const waterwayLines = data.waterwayLines || [];
   const W = data.W, H = data.H, bigFacePx2 = data.bigFacePx2, mPerPx = data.mPerPx;
+  // Benchmark output is opt-in so the normal production worker protocol stays
+  // unchanged. tests/v2-face-runtime-benchmark.mjs uses these phase timings.
+  const benchmark = data.benchmark === true;
+  // Benchmark/reference runs can retain the pre-PERF path for an exact worker
+  // result comparison. Production payloads omit this and always optimize.
+  const runtimeOptimizations = data.runtimeOptimizations !== false;
+  const benchmarkStarted = benchmark ? Date.now() : 0;
+  const benchmarkTimings = benchmark ? {} : null;
   const Clipper = ClipperLib;
   // Clipper works on integer coordinates; buffer at SCALE× so the cut keeps
   // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
@@ -1072,6 +1080,7 @@ self.onmessage = function(event) {
     }
   }
   for (let i = 0; i < faceTree.ChildCount(); i++) collectFace(faceTree.Childs()[i]);
+  if (benchmark) benchmarkTimings.faceConstruction = Date.now() - benchmarkStarted;
 
   function toPathD(path) {
     const pts = path.map(p => [p.X / SCALE, p.Y / SCALE]);
@@ -1140,6 +1149,71 @@ self.onmessage = function(event) {
     const out = new Clipper.Paths();
     clipper.Execute(ctUnion, out, NZ, NZ);
     return out;
+  }
+
+  // A small worker-local grid narrows global signal paths before an area
+  // intersection. The raw Clipper Paths remain the geometry authority; this
+  // only returns their original members, in original order, when their bounds
+  // can touch the subject. One scaled unit of pad makes the filter conservative
+  // around a touching edge or rounding boundary.
+  function pathsBounds(paths) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const path of paths) for (const p of path) {
+      if (p.X < x0) x0 = p.X; if (p.X > x1) x1 = p.X;
+      if (p.Y < y0) y0 = p.Y; if (p.Y > y1) y1 = p.Y;
+    }
+    return x0 === Infinity ? null : { x0, y0, x1, y1 };
+  }
+
+  function indexVoid(paths) {
+    const extent = pathsBounds(paths);
+    if (!extent || !paths.length) return { indexedVoid: true, paths, entries: [], cells: new Map(), cellSize: 1, minCellX: 0, minCellY: 0, maxCellX: -1, maxCellY: -1 };
+    // 32 cells over the longest dimension keeps both index build and a large
+    // subject query bounded, while dense city signals get useful selectivity.
+    const cellSize = Math.max(1, Math.ceil(Math.max(extent.x1 - extent.x0 + 1, extent.y1 - extent.y0 + 1) / 32));
+    const cellOf = value => Math.floor(value / cellSize);
+    const cells = new Map(), entries = [];
+    let minCellX = Infinity, minCellY = Infinity, maxCellX = -Infinity, maxCellY = -Infinity;
+    for (let ordinal = 0; ordinal < paths.length; ordinal++) {
+      const path = paths[ordinal];
+      const bounds = pathsBounds([path]);
+      if (!bounds) continue;
+      const entry = { path, ordinal, ...bounds };
+      entries.push(entry);
+      const cx0 = cellOf(bounds.x0), cx1 = cellOf(bounds.x1), cy0 = cellOf(bounds.y0), cy1 = cellOf(bounds.y1);
+      if (cx0 < minCellX) minCellX = cx0; if (cx1 > maxCellX) maxCellX = cx1;
+      if (cy0 < minCellY) minCellY = cy0; if (cy1 > maxCellY) maxCellY = cy1;
+      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+        const key = cx + ',' + cy;
+        let bucket = cells.get(key);
+        if (!bucket) { bucket = []; cells.set(key, bucket); }
+        bucket.push(entry);
+      }
+    }
+    return { indexedVoid: true, paths, entries, cells, cellSize, minCellX, minCellY, maxCellX, maxCellY };
+  }
+
+  function indexedCandidates(index, subjectBounds) {
+    if (!subjectBounds || !index.entries.length) return [];
+    const pad = 1, cellOf = value => Math.floor(value / index.cellSize);
+    const cx0 = Math.max(index.minCellX, cellOf(subjectBounds.x0 - pad));
+    const cx1 = Math.min(index.maxCellX, cellOf(subjectBounds.x1 + pad));
+    const cy0 = Math.max(index.minCellY, cellOf(subjectBounds.y0 - pad));
+    const cy1 = Math.min(index.maxCellY, cellOf(subjectBounds.y1 + pad));
+    if (cx0 > cx1 || cy0 > cy1) return [];
+    const seen = new Set(), candidates = [];
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const bucket = index.cells.get(cx + ',' + cy);
+      if (!bucket) continue;
+      for (const entry of bucket) {
+        if (seen.has(entry.ordinal)) continue;
+        seen.add(entry.ordinal);
+        if (entry.x1 < subjectBounds.x0 - pad || entry.x0 > subjectBounds.x1 + pad || entry.y1 < subjectBounds.y0 - pad || entry.y0 > subjectBounds.y1 + pad) continue;
+        candidates.push(entry);
+      }
+    }
+    candidates.sort((a, b) => a.ordinal - b.ordinal);
+    return candidates.map(entry => entry.path);
   }
 
   // subject (an array of scaled rings: a face's outer + holes, or a Paths list)
@@ -1212,32 +1286,6 @@ self.onmessage = function(event) {
   // the main thread; Infinity means "classify nothing as countryside".
   const bigFaceScaled = (bigFacePx2 || Infinity) * SCALE * SCALE;
 
-  // Hamlet clusters: morphological closing of the building bounding boxes —
-  // dilate wide enough that neighbouring rural houses fuse into one chunky
-  // USE-IT block, then erode most of it back so a lone barn doesn't balloon.
-  // DILATE_M is the rural-spacing tuning knob (18 m bridges ~36 m gaps) and
-  // only ever applies inside large faces, so raising it never touches city
-  // blocks. Ported as-is from v1's hamlet code.
-  let clusterPolys = null;
-  if (clusterRings && clusterRings.length && mPerPx) {
-    const DILATE_M = 18, ERODE_M = 10;
-    const dilateOffset = new Clipper.ClipperOffset();
-    dilateOffset.ArcTolerance = 0.5 * SCALE;
-    dilateOffset.MiterLimit = 2;
-    for (const ring of clusterRings) {
-      const p = ring.map(pt => ({ X: Math.round(pt[0] * SCALE), Y: Math.round(pt[1] * SCALE) }));
-      if (p.length >= 3) dilateOffset.AddPath(p, Clipper.JoinType.jtRound, Clipper.EndType.etClosedPolygon);
-    }
-    const grown = new Clipper.Paths();
-    dilateOffset.Execute(grown, (DILATE_M / mPerPx) * SCALE);
-    const erodeOffset = new Clipper.ClipperOffset();
-    erodeOffset.ArcTolerance = 0.5 * SCALE;
-    erodeOffset.MiterLimit = 2;
-    erodeOffset.AddPaths(grown, Clipper.JoinType.jtRound, Clipper.EndType.etClosedPolygon);
-    clusterPolys = new Clipper.Paths();
-    erodeOffset.Execute(clusterPolys, -(ERODE_M / mPerPx) * SCALE);
-  }
-
   // Open-land signal for big-face classification: green + landcover cover
   // (NOT water — harbour basins sit inside dock faces and would fake a rural
   // signal). A big face is only "countryside" if OSM actually shows open land
@@ -1248,22 +1296,22 @@ self.onmessage = function(event) {
   // NOT in here (nor in landcoverVoid below): a golf course or sports centre
   // paints green but must never flip a face's urban/countryside verdict
   // (AF-03b O-contract — recreation changes paint, not classification).
-  const openLandVoid = buildVoid([greenPolys, openLandPolys], null);
-  const waterVoid = buildVoid([waterPolys], waterwayStrokePaths);
+  const openLandVoid = indexVoid(buildVoid([greenPolys, openLandPolys], null));
+  const waterVoid = indexVoid(buildVoid([waterPolys], waterwayStrokePaths));
   // Urban-landuse signal (the isUrbanSignalElement set: residential/commercial/
   // retail/institutional/education/religious landuse + amenity=parking). A
   // buildingless face this covers ≥ URBAN_LANDUSE_MIN_SHARE of (over its land
   // area) is city, not open land — much of OSM maps a district by its landuse
   // polygon and never its individual buildings. Classification only: never
   // subtracted, never painted.
-  const urbanVoid = buildVoid([urbanPolys], null);
+  const urbanVoid = indexVoid(buildVoid([urbanPolys], null));
   // Hidden-green cover: the landcover paint rows ALONE (grass + landcover,
   // parks/water/waterways excluded). Named green needs no equivalent — it is
   // subtracted from every block and shows through the holes — but landcover
   // paints UNDER blocks, so cream over it erases ground OSM shows green. This
   // void measures exactly that erasure risk (see the green-dominance rule in
   // isUrbanPiece).
-  const landcoverVoid = buildVoid([landcoverPolys], null);
+  const landcoverVoid = indexVoid(buildVoid([landcoverPolys], null));
   // Per-element landcover rings ({ index, rings }): the paint cull and the
   // green-remainder merge both address individual painted elements, not the
   // unioned void.
@@ -1275,7 +1323,14 @@ self.onmessage = function(event) {
   // is. Grass is common in cities, so the bar sits well above the 0.35 non-grass
   // open-land gate.
   const GREEN_OPEN_MIN_SHARE = 0.6;
-  function intersectArea(faceSubject, clipPaths) {
+  function intersectArea(faceSubject, clipSource, subjectBounds) {
+    const bounds = subjectBounds || pathsBounds(faceSubject);
+    const clipPaths = clipSource && clipSource.indexedVoid
+      ? (runtimeOptimizations ? indexedCandidates(clipSource, bounds) : clipSource.paths)
+      : clipSource;
+    // No spatially relevant global geometry means no intersection; avoid the
+    // Clipper construction entirely on this common empty-cell fast path.
+    if (!clipPaths || !clipPaths.length) return 0;
     const clipper = new Clipper.Clipper();
     for (const p of faceSubject) clipper.AddPath(p, ptSubject, true);
     clipper.AddPaths(clipPaths, ptClip, true);
@@ -1288,8 +1343,72 @@ self.onmessage = function(event) {
 
   // Net land area (net polygon area minus water) of a subject, floored at 1 so it
   // never divides to zero. The shared denominator for every share test.
-  function landAreaOf(subjectPaths, netScaled) {
-    return Math.max(1, netScaled - intersectArea(subjectPaths, waterVoid));
+  function landAreaOf(subjectPaths, netScaled, subjectBounds) {
+    return Math.max(1, netScaled - intersectArea(subjectPaths, waterVoid, subjectBounds));
+  }
+
+  // The countryside formula is intentionally kept in one place and is run
+  // exactly once per raw face. Later classification reuses the stored verdict,
+  // so hamlet morphology can be skipped entirely for an urban-only export.
+  function classifyCountrysideFace(face) {
+    const netAreaScaled = Math.abs(Clipper.Clipper.Area(face.outer))
+      - face.holes.reduce((sum, h) => sum + Math.abs(Clipper.Clipper.Area(h)), 0);
+    const subject = [face.outer].concat(face.holes);
+    const bounds = pathsBounds(subject);
+    if (netAreaScaled < bigFaceScaled) return { netAreaScaled, subject, bounds, isCountryside: false };
+    const landArea = landAreaOf(subject, netAreaScaled, bounds);
+    return {
+      netAreaScaled, subject, bounds,
+      isCountryside: intersectArea(subject, openLandVoid, bounds) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE,
+    };
+  }
+
+  const countrysideStarted = benchmark ? Date.now() : 0;
+  for (const face of rawFaces) Object.assign(face, classifyCountrysideFace(face));
+  if (benchmark) benchmarkTimings.countrysidePreclassification = Date.now() - countrysideStarted;
+
+  // Hamlet clusters: morphological closing of building bounding boxes. It is
+  // relevant only to countryside faces. ClipperOffset's global closing can
+  // shift a retained path by a sub-pixel amount when a disconnected input is
+  // omitted, so keep its full input whenever morphology is needed. The
+  // urban-only fast path still avoids this entire operation. Building centres
+  // remain unfiltered for urban tests.
+  let clusterPolys = null;
+  let hamletMorphologySkipped = true;
+  let retainedClusterRingCount = 0;
+  const hamletMorphologyStarted = benchmark ? Date.now() : 0;
+  if (clusterRings && clusterRings.length && mPerPx) {
+    const DILATE_M = 18, ERODE_M = 10;
+    const relevantRings = [];
+    // The Tilburg fast path is urban-only: no countryside face means neither
+    // a building-bounds scan nor any ClipperOffset work can affect the output.
+    if (!runtimeOptimizations || rawFaces.some(face => face.isCountryside)) {
+      relevantRings.push(...clusterRings);
+    }
+    if (relevantRings.length) {
+      retainedClusterRingCount = relevantRings.length;
+      hamletMorphologySkipped = false;
+      const dilateOffset = new Clipper.ClipperOffset();
+      dilateOffset.ArcTolerance = 0.5 * SCALE;
+      dilateOffset.MiterLimit = 2;
+      for (const ring of relevantRings) {
+        const p = scaleRing(ring);
+        if (p.length >= 3) dilateOffset.AddPath(p, Clipper.JoinType.jtRound, Clipper.EndType.etClosedPolygon);
+      }
+      const grown = new Clipper.Paths();
+      dilateOffset.Execute(grown, (DILATE_M / mPerPx) * SCALE);
+      const erodeOffset = new Clipper.ClipperOffset();
+      erodeOffset.ArcTolerance = 0.5 * SCALE;
+      erodeOffset.MiterLimit = 2;
+      erodeOffset.AddPaths(grown, Clipper.JoinType.jtRound, Clipper.EndType.etClosedPolygon);
+      clusterPolys = new Clipper.Paths();
+      erodeOffset.Execute(clusterPolys, -(ERODE_M / mPerPx) * SCALE);
+    }
+  }
+  if (benchmark) {
+    benchmarkTimings.hamletMorphology = Date.now() - hamletMorphologyStarted;
+    benchmarkTimings.hamletMorphologySkipped = hamletMorphologySkipped;
+    benchmarkTimings.hamletRingsRetained = retainedClusterRingCount;
   }
 
   // Total building footprint (bbox px²) whose centre falls inside this subject
@@ -1333,8 +1452,8 @@ self.onmessage = function(event) {
   // "is it green", this asks "are the buildings sparse", so a leafy-but-built
   // neighbourhood keeps real coverage and stays cream.
   const BUILT_MIN_SHARE = 0.05;
-  function isUrbanPiece(subjectPaths, netScaled, buildingArea, gateBuildings) {
-    const landArea = landAreaOf(subjectPaths, netScaled);
+  function isUrbanPiece(subjectPaths, netScaled, buildingArea, gateBuildings, subjectBounds) {
+    const landArea = landAreaOf(subjectPaths, netScaled, subjectBounds);
     const builtUp = (buildingArea * SCALE * SCALE) / landArea >= BUILT_MIN_SHARE;
     // Green dominance overrides built-up: when the landcover paint rows —
     // which only show through fallback holes, so a cream block HIDES them —
@@ -1346,14 +1465,14 @@ self.onmessage = function(event) {
     // NOT the rejected all-sizes green gate (35% openland flipped 10% of
     // Oulu): landcover-only at 60% asks "would cream erase what OSM paints
     // here", and a demoted piece keeps its buildings visible.
-    if (intersectArea(subjectPaths, landcoverVoid) / landArea >= GREEN_OPEN_MIN_SHARE) return false;
+    if (intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landArea >= GREEN_OPEN_MIN_SHARE) return false;
     // Built-up faces stay urban and are never demoted by the open-land gate
     // (gateBuildings=false); the countryside remainder re-test passes
     // gateBuildings=true, letting the gate apply to its pieces too (they were
     // all fallback before, so it cannot regress). The gate always applies to the
     // urban-landuse promotion, which only ADDS blocks.
     if (builtUp && !gateBuildings) return true;
-    if (intersectArea(subjectPaths, openLandVoid) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return false;
+    if (intersectArea(subjectPaths, openLandVoid, subjectBounds) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return false;
     if (builtUp) return true;
     // An urban-signal polygon (residential/commercial/retail/institutional/
     // education/religious landuse, or parking — see isUrbanSignalElement)
@@ -1362,7 +1481,7 @@ self.onmessage = function(event) {
     // would paint here is already protected above:
     // named parks show through block holes, and landcover-dominant ground was
     // demoted by the green-dominance rule; nothing green survives to this point.
-    return intersectArea(subjectPaths, urbanVoid) / landArea >= URBAN_LANDUSE_MIN_SHARE;
+    return intersectArea(subjectPaths, urbanVoid, subjectBounds) / landArea >= URBAN_LANDUSE_MIN_SHARE;
   }
 
   // Net (outer minus holes) area of a scaled contour + its hole contours.
@@ -1378,8 +1497,8 @@ self.onmessage = function(event) {
   // buildings draw standalone. One shared predicate so classification,
   // remainder handling and building emission can never disagree about which
   // pieces are green ground.
-  function isGreenOpenPiece(subjectPaths, netScaled) {
-    return intersectArea(subjectPaths, landcoverVoid) / landAreaOf(subjectPaths, netScaled) >= GREEN_OPEN_MIN_SHARE;
+  function isGreenOpenPiece(subjectPaths, netScaled, subjectBounds) {
+    return intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landAreaOf(subjectPaths, netScaled, subjectBounds) >= GREEN_OPEN_MIN_SHARE;
   }
 
   // Merge a green-open piece's coverage remainder INTO its landcover instead
@@ -1523,7 +1642,8 @@ self.onmessage = function(event) {
         const pieceNet = netAreaOfContour(outer, holes);
         const outerRing = outer.map(p => [p.X / SCALE, p.Y / SCALE]);
         const holeRings = holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
-        if (isUrbanPiece(pieceSubject, pieceNet, subjectBuildingArea(outerRing, holeRings), gateBuildings)) {
+        const pieceBounds = pathsBounds(pieceSubject);
+        if (isUrbanPiece(pieceSubject, pieceNet, subjectBuildingArea(outerRing, holeRings), gateBuildings, pieceBounds)) {
           // Already the exact block shape — emit verbatim, with the same floor
           // guards emitTree applies (nested solids are classified by this walk).
           if (pieceNet >= tinyGuard) {
@@ -1534,7 +1654,7 @@ self.onmessage = function(event) {
           // Urban-side mass split only: the countryside remainder
           // (gateBuildings=true) owns its buildings via the hamlet machinery
           // and keeps its deliberately-cream remainder (quays, floodplain).
-          if (!gateBuildings && isGreenOpenPiece(pieceSubject, pieceNet)) {
+          if (!gateBuildings && isGreenOpenPiece(pieceSubject, pieceNet, pieceBounds)) {
             mergeGreenRemainder(pieceSubject);
             emitPieceBuildings(pieceSubject, pieceNet);
           } else {
@@ -1546,18 +1666,13 @@ self.onmessage = function(event) {
     }
   }
 
+  const classificationStarted = benchmark ? Date.now() : 0;
   for (const face of rawFaces) {
-    const netAreaScaled = Math.abs(Clipper.Clipper.Area(face.outer))
-      - face.holes.reduce((sum, h) => sum + Math.abs(Clipper.Clipper.Area(h)), 0);
-    const faceSubject = [face.outer].concat(face.holes);
+    const netAreaScaled = face.netAreaScaled;
+    const faceSubject = face.subject;
+    const faceBounds = face.bounds;
 
-    let isCountryside = false;
-    if (netAreaScaled >= bigFaceScaled) {
-      const landArea = Math.max(1, netAreaScaled - intersectArea(faceSubject, waterVoid));
-      isCountryside = intersectArea(faceSubject, openLandVoid) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE;
-    }
-
-    if (isCountryside) {
+    if (face.isCountryside) {
       // Countryside face: no curb-to-curb cream fill. Emit an unpainted
       // placeholder for stats (the renderer skips kind:'countryside'), one
       // hamlet blob per building cluster, and a fallback remainder so whatever
@@ -1638,7 +1753,7 @@ self.onmessage = function(event) {
     const holeRings = face.holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
     const buildingArea = subjectBuildingArea(outerRing, holeRings);
 
-    if (isUrbanPiece(faceSubject, netAreaScaled, buildingArea, false)) {
+    if (isUrbanPiece(faceSubject, netAreaScaled, buildingArea, false, faceBounds)) {
       // Cream city block = face minus the block void, evenodd holes. A pond in
       // the block becomes a hole; a face split by a river yields two blocks.
       // Per-land-mass classification: when the void (water + green + waterway
@@ -1666,7 +1781,7 @@ self.onmessage = function(event) {
       // (one grown green shape, no cream wedge) and draw their buildings;
       // everything else stays a cream patch. This is how river islands render
       // in v2: no island machinery.
-      if (isGreenOpenPiece(faceSubject, netAreaScaled)) {
+      if (isGreenOpenPiece(faceSubject, netAreaScaled, faceBounds)) {
         mergeGreenRemainder(faceSubject);
         emitPieceBuildings(faceSubject, netAreaScaled);
       } else {
@@ -1674,6 +1789,8 @@ self.onmessage = function(event) {
       }
     }
   }
+
+  if (benchmark) benchmarkTimings.classificationIntersections = Date.now() - classificationStarted;
 
   // ── Occlusion cull: landcover fully hidden under painted OPAQUE layers ──
   // Landcover sits at the BOTTOM of the paint order (§4). A landcover polygon
@@ -1773,9 +1890,11 @@ self.onmessage = function(event) {
     }
   }
 
+  if (benchmark) benchmarkTimings.totalWorker = Date.now() - benchmarkStarted;
   self.postMessage({
     type: 'done', blocks: blocks, culledLandcover: culledLandcover,
     greenGroundMerges: [...mergedLandcover].map(index => ({ index, rings: landcoverElements[index].rings })),
+    ...(benchmark ? { timings: benchmarkTimings } : {}),
   });
 };
 `

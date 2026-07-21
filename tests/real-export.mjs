@@ -174,14 +174,17 @@ function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
   // face), so the harness masking that would hide the very fix it should test.
   const isV2Face = 'cutterLines' in data;
   if (!isV2Face && !data.lines?.length && !data.areas?.length) return { blocks: [], needsBuildings: false };
+  const workerData = isV2Face && process.env.FACE_BENCHMARK === '1'
+    ? { ...data, benchmark: true, runtimeOptimizations: process.env.FACE_RUNTIME_OPTIMIZATIONS !== '0' }
+    : data;
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [], greenGroundMerges: msg.greenGroundMerges || [] }; };
+  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [], greenGroundMerges: msg.greenGroundMerges || [], timings: msg.timings }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
   vm.runInContext(workerSrc, w); // defines self.onmessage, loads ClipperLib
-  w.onmessage({ data });
+  w.onmessage({ data: workerData });
   return out;
 }
 
@@ -282,6 +285,7 @@ if (engineV2) {
   const data = X2.prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, bbox, placeNodeElements);
   const faceResult = computeBlocks(data, clipperSrc, X2.FACE_WORKER_SRC);
   v2Blocks = faceResult.blocks;
+  if (faceResult.timings) console.log('face worker timings (ms):', faceResult.timings);
   // Occlusion cull (paint-only): drop landcover elements fully hidden under the
   // city blocks. Report before/after counts. Filter the landcover render result
   // in place; voids/coverage are unaffected (see engine-v2 worker cull).
@@ -526,4 +530,3 @@ if (failures.length) {
 console.log(`\nPASS — all checks. Next: visually verify in a browser via the preview MCP on :8889 (see tests/README.md):`);
 console.log(`  http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/${filename}`);
 if (illustratorFilename) console.log(`  http://localhost:8889/mapexport/tests/viewer.html?file=/mapexport/exports/${illustratorFilename}`);
-

@@ -1,10 +1,10 @@
 # Plan: v2 face-runtime optimizations — deferred hamlets and spatial clipping
 
-**Status: READY FOR IMPLEMENTATION.** Two ordered, output-preserving performance
-changes for `engine-v2.js`. Intended executor: Terra, high effort. Do not start
-while unrelated edits to `engine-v2.js` or `CHANGELOG.md` are present in the
-worktree; preserve the current active work and implement from a clean/integrated
-base or an isolated branch supplied by the orchestrator.
+**Status: IMPLEMENTED (2026-07-22, accepted revision).** Two ordered,
+output-preserving performance changes for `engine-v2.js`. PERF-01 retains the
+global rural morphology input: testing showed that omitting even disconnected
+rings moves a Nièvre hamlet outline by 0.1px. The urban-only fast path remains
+the intended performance improvement, while rural geometry remains exact.
 
 ## Objective and evidence
 
@@ -17,8 +17,9 @@ is not the target.
 
 Implement in order:
 
-1. Defer hamlet morphology until countryside faces are known, and restrict its
-   building input to the region that can influence those faces.
+1. Defer hamlet morphology until countryside faces are known; run it only when
+   needed, while retaining its global building input whenever it runs so rural
+   geometry stays exact.
 2. Spatially filter global signal paths before each `intersectArea` call.
 
 Output, classification thresholds, geometry tolerances and layer structure
@@ -46,12 +47,10 @@ format, or deployment files. Reuse existing worker data; do not add a library.
   area floor, water-excluded land denominator, open-land share and thresholds.
 - If no face is countryside, leave `clusterPolys = null` and perform no
   `ClipperOffset` work. This is the important Tilburg fast path.
-- If countryside faces exist, filter `clusterRings` before morphology. A final
-  hamlet point inside a countryside face can only be influenced by input within
-  the dilate plus erode distance. Build conservative scaled bounding boxes for
-  countryside faces, expand them by `(18 + 10) / mPerPx`, and retain every
-  building ring whose bounding box overlaps any expanded face box. False
-  positives are acceptable; false negatives are not.
+- If countryside faces exist, retain all `clusterRings` for the existing global
+  morphology operation. A tested bounding-box filter changed emitted hamlet
+  geometry by 0.1px even for rings outside the local influence area, so exact
+  output takes priority over a rural-only speed optimization.
 - Run the existing global dilate/erode algorithm once over that retained set,
   using the same round joins, arc tolerance, scale and distances. Keep the later
   exact face intersection and place-node grounding unchanged.
