@@ -16,11 +16,13 @@ cutover (plan milestone 8, a separate human decision).
 
 ## 1. The coverage promise
 
-**Every land pixel inside the frame is painted by a content layer.** The page
-background is never load-bearing; it stays white for print but must never
-show through. This is v2's reason to exist — v1 shows the page through
-countryside faces, rail corridors and dropped slivers by design, and has no
-way to measure it.
+**Every land pixel inside the frame is painted by a content layer while the
+City blocks layer is enabled.** The page background is never load-bearing in a
+normal v2 export; it stays white for print but must never show through. A
+designer who explicitly turns City blocks off has opted out of this coverage
+layer, so uncovered land is intentional and is not a coverage regression.
+This is v2's reason to exist — v1 shows the page through countryside faces,
+rail corridors and dropped slivers by design, and has no way to measure it.
 
 Enforcement is two checks in `tests/real-export.mjs`, and the second one is
 the authority:

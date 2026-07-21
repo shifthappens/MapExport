@@ -188,6 +188,8 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #progress-log{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--muted);line-height:1.55;max-height:100px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
 #progress-log .log-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #progress-log .log-time{color:var(--cream3);margin-right:7px}
+#btn-progress-cancel{align-self:flex-end;padding:5px 9px;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:var(--body);font-size:11px;font-weight:700;cursor:pointer}
+#btn-progress-cancel:hover{background:var(--cream2);color:var(--ink)}
 #progress-log .log-line.warn{color:var(--accent)}
 
 #preview-pane{position:absolute;inset:0;background:var(--cream);z-index:1000;display:none;flex-direction:column}

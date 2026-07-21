@@ -92,7 +92,7 @@
           <label for="engine-v2-toggle">Engine v2 (experimental)</label>
           <div style="flex:1;margin-top:2px">
             <input type="checkbox" id="engine-v2-toggle">
-            <span style="font-size:9px;color:var(--muted)">Routes export through the new engine. Renders roads only for now; ignores the layer checkboxes above.</span>
+            <span style="font-size:9px;color:var(--muted)">Routes export through the new engine. It follows the layer checkboxes above; City blocks may privately use road data to calculate block shapes.</span>
           </div>
         </div>
         <div class="opts-row">
@@ -141,6 +141,7 @@
           <div id="progress-log-label">Activity</div>
           <div id="progress-log"></div>
         </div>
+        <button id="btn-progress-cancel" type="button">Cancel export</button>
       </div>
     </div>
     <div id="preview-pane">
@@ -181,9 +182,9 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="script.js"></script>
+<script src="script.js?v=20260721-toggle-parity"></script>
 <!-- engine-v2:start -->
-<script src="engine-v2.js"></script>
+<script src="engine-v2.js?v=20260721-toggle-parity"></script>
 <!-- engine-v2:end -->
 </body>
 </html>

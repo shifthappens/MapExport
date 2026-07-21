@@ -32,6 +32,10 @@ echo "== preview-state (offline, preview/download separation + races) =="
 node tests/preview-state.mjs
 
 echo
+echo "== layer-selection (offline, v1/v2 layer-toggle fetch + render contract) =="
+node tests/layer-selection.mjs
+
+echo
 echo "== overpass-fetch (offline, shared timeout/failover/abort fetch contract) =="
 node tests/overpass-fetch.mjs
 

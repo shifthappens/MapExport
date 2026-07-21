@@ -25,7 +25,7 @@ jobs:
           # Both live between engine-v2:start/end marker comments in
           # index.html; delete every such block.
           sed -e 's/href="style\.css"/href="style.min.css"/' \
-              -e 's/src="script\.js"/src="script.min.js"/' \
+              -e 's/src="script\.js[^"]*"/src="script.min.js"/' \
               -e '/engine-v2:start/,/engine-v2:end/d' \
               index.html > /tmp/prod-index.html
           chmod 644 /tmp/prod-index.html

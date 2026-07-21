@@ -76,6 +76,8 @@ function hangingFetch(signalLog) {
 
 // 2. Typed failure history: one endpoint 500s, one drops the connection, one
 //    returns a non-Overpass body — the aggregate error names all three kinds.
+//    `maxAttempts` is a test-only short budget; normal exports use the retry
+//    window below rather than a fixed count.
 {
   const { ctx, ov } = freshContext();
   const [epA, epB, epC] = ov.OVERPASS_ENDPOINTS;
@@ -85,7 +87,7 @@ function hangingFetch(signalLog) {
     return { ok: true, status: 200, body: null, headers: new Headers(), json: async () => ({ not: 'overpass' }) };
   };
   let error = null;
-  try { await ov.overpassFetch('data=q', { timeoutMs: 60 }); } catch (e) { error = e; }
+  try { await ov.overpassFetch('data=q', { timeoutMs: 60, maxAttempts: 3 }); } catch (e) { error = e; }
   check('exhausted rotation throws OverpassFetchError', error instanceof ov.OverpassFetchError, String(error));
   const kinds = (error?.failures || []).map(f => f.kind).sort();
   check('failure history is typed per attempt',
@@ -94,25 +96,37 @@ function hangingFetch(signalLog) {
   check('summary names the failure kinds', /HTTP 504/.test(summary) && /network/.test(summary) && /parse/.test(summary), summary);
 }
 
-// 3. Rate limiting: 429 with Retry-After is honoured (bounded), endpoint goes
-//    on backoff, and a fully rate-limited pool fails typed, not silently.
+// 3. Rate limiting continues past the former three-attempt ceiling. After all
+//    three endpoints reject once, a later healthy response still completes.
 {
   const { ctx, ov } = freshContext();
-  ctx.fetch = async () => ({
-    ok: false, status: 429, headers: new Headers({ 'Retry-After': '0' }), json: async () => ({}),
-  });
-  let error = null;
-  const t0 = Date.now();
-  try { await ov.overpassFetch('data=q', { timeoutMs: 60 }); } catch (e) { error = e; }
-  check('all-429 pool fails typed and bounded',
-    error instanceof ov.OverpassFetchError
-      && error.failures.every(f => f.kind === 'rate-limited')
-      && Date.now() - t0 < 5000,
-    JSON.stringify(error?.failures));
+  let calls = 0;
+  ctx.fetch = async () => {
+    calls++;
+    return calls <= ov.OVERPASS_ENDPOINTS.length
+      ? { ok: false, status: 429, headers: new Headers({ 'Retry-After': '0' }), json: async () => ({}) }
+      : okResponse();
+  };
+  const { json } = await ov.overpassFetch('data=q', { timeoutMs: 60, retryWindowMs: 2000, rateLimitCooldownMs: 1 });
+  check('rate-limited fetch continues beyond three attempts', calls === ov.OVERPASS_ENDPOINTS.length + 1 && json.elements.length === 1, `${calls} attempts`);
   check('429 endpoints put on backoff', Object.keys(ov.backoffSnapshot()).length >= 1);
 }
 
-// 4. Race: first valid response wins, losing requests are aborted immediately.
+// 4. The single-tile race likewise continues beyond its former two rounds.
+{
+  const { ctx, ov } = freshContext();
+  let calls = 0;
+  ctx.fetch = async () => {
+    calls++;
+    return calls <= ov.OVERPASS_ENDPOINTS.length * 2
+      ? { ok: false, status: 429, headers: new Headers({ 'Retry-After': '0' }), json: async () => ({}) }
+      : okResponse();
+  };
+  const { json } = await ov.overpassFetchRace('data=q', { timeoutMs: 60, retryWindowMs: 5000, rateLimitCooldownMs: 1 });
+  check('rate-limited race continues past two rounds', calls > ov.OVERPASS_ENDPOINTS.length * 2 && json.elements.length === 1, `${calls} attempts`);
+}
+
+// 5. Race: first valid response wins, losing requests are aborted immediately.
 {
   const { ctx, ov } = freshContext();
   const [epA] = ov.OVERPASS_ENDPOINTS;
@@ -128,8 +142,8 @@ function hangingFetch(signalLog) {
     `${loserSignals.filter(s => s?.aborted).length}/${loserSignals.length} aborted`);
 }
 
-// 5. Race where every endpoint hangs: both rounds time out, the failure is
-//    typed 'timeout' and arrives in bounded time.
+// 6. Race where every endpoint hangs: the retry-window cap keeps the failure
+//    typed and bounded in this mocked test.
 {
   const { ctx, ov } = freshContext();
   const signals = [];
@@ -137,9 +151,10 @@ function hangingFetch(signalLog) {
   ctx.fetch = (url, options) => hang(url, options);
   let error = null;
   const t0 = Date.now();
-  try { await ov.overpassFetchRace('data=q', { timeoutMs: 50 }); } catch (e) { error = e; }
+  try { await ov.overpassFetchRace('data=q', { timeoutMs: 50, retryWindowMs: 200 }); } catch (e) { error = e; }
   check('fully hung race fails bounded with timeouts',
     error instanceof ov.OverpassFetchError
+      && error.retryWindowExpired === true
       && Date.now() - t0 < 3000
       && error.failures.length >= ov.OVERPASS_ENDPOINTS.length
       && error.failures.every(f => f.kind === 'timeout'),
@@ -147,7 +162,7 @@ function hangingFetch(signalLog) {
   check('every hung race request was aborted', signals.every(s => s?.aborted), `${signals.length} signals`);
 }
 
-// 6. Export-level abort cancels in-flight requests and surfaces as 'aborted'.
+// 7. Export-level abort cancels in-flight requests and surfaces as 'aborted'.
 {
   const { ctx, ov } = freshContext();
   const signals = [];
@@ -165,7 +180,7 @@ function hangingFetch(signalLog) {
   check('export abort cancels the in-flight request', signals.length === 1 && signals[0]?.aborted);
 }
 
-// 7. An HTTP 200 with elements: [] is a VALID empty response — success, no
+// 8. An HTTP 200 with elements: [] is a VALID empty response — success, no
 //    retries, and fetchLayer passes it through as an empty layer.
 {
   const { ctx, ov } = freshContext();
@@ -184,7 +199,7 @@ function hangingFetch(signalLog) {
     `${overpassCalls} overpass calls, ${failedTiles.length} failed tiles`);
 }
 
-// 8. fetchLayer wraps exhausted fetches in the ME-01 contract with the typed
+// 9. fetchLayer wraps exhausted fetches in the ME-01 contract with the typed
 //    diagnostics attached, and the user message names the failure kind.
 {
   const { ctx, ov } = freshContext();
@@ -195,7 +210,7 @@ function hangingFetch(signalLog) {
   const bbox = { south: 51.5, west: 5, north: 51.51, east: 5.01 };
   const layer = { id: 'outage_probe', label: 'Outage probe', overpassQuery: (b) => `way["highway"](${b});` };
   let error = null;
-  try { await ov.fetchLayer(layer, '51.5,5,51.51,5.01', bbox); } catch (e) { error = e; }
+  try { await ov.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 3 }); } catch (e) { error = e; }
   check('fetchLayer failure is an ExportFailure with typed details',
     error instanceof ov.ExportFailure
       && error.phase === 'fetch'

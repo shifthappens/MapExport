@@ -177,6 +177,7 @@ Name-centric label placement with cartographic quality:
 - **Batch cache probe**: one round-trip checks up to 64 cache keys
 - **Query hash in cache key**: FNV-1a hash of the query string auto-retires stale cache entries
 - **Adaptive tile delay**: starts at 350ms, increases on 429 responses, caps at 1500ms
+- **Resilient retry window**: temporary rate limits, timeouts and server outages keep retrying with endpoint backoff for up to one hour; the progress panel always offers Cancel export
 
 ## USE-IT color preset
 
@@ -290,7 +291,7 @@ meant to linger in a local checkout. Any personal root-level `minify.sh` /
 ## Known limitations
 
 - **Large area exports**: ClipperLib boolean operations can be slow for areas >10km x 10km. May need internal tiling for full-city exports.
-- **Overpass rate limits**: public endpoints may return 429 during heavy OSM community usage. The app backs off adaptively but can't eliminate waits.
+- **Overpass rate limits**: public endpoints may return 429 during heavy OSM community usage. The app keeps retrying for up to one hour with endpoint backoff; use Cancel export if you do not want to wait.
 - **OSM data completeness**: output quality depends on how well the target city is mapped in OpenStreetMap. Well-mapped European cities produce excellent results; less-mapped areas may have gaps.
 
 ## License

@@ -11,6 +11,20 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-21 — Exports wait out temporary Overpass outages
+- Both export engines now keep trying through rate limits, timeouts, network
+  drops and temporary server errors for up to one hour instead of stopping after
+  two or three attempts. Each request still has a hard timeout and endpoint
+  backoff, permanent bad requests still report promptly, and the progress
+  panel now includes **Cancel export** so a long retry can always be stopped.
+
+### 2026-07-21 — Export layer toggles now work consistently
+- Engine v2 now follows the same layer checkboxes as the standard export:
+  disabled layers are omitted from the SVG and are no longer fetched unless
+  their data is strictly needed to construct selected city blocks. This fixes
+  disabled tram and light-rail data still being requested, and makes Metro,
+  transit stops, water, green, countryside and label choices consistent too.
+
 ### 2026-07-21 — Clearer trails in parks and cemeteries (AF-06)
 - Anonymous trails no longer form a dense technical hatch across park,
   cemetery and recreation-green areas. Named paths and cycleways stay visible

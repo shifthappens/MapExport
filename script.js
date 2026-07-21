@@ -817,7 +817,11 @@ function mergeElements(arrays) {
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
 const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-const MAX_TILE_RETRIES=3;
+// A temporary Overpass outage must not discard an otherwise valid export.
+// Keep retrying across the endpoint pool for a bounded, cancellable window;
+// user cancellation still stops immediately.
+const OVERPASS_RETRY_WINDOW_MS=60*60*1000;
+const RATE_LIMIT_COOLDOWN_MS=10000;
 // Hard per-attempt timeouts (ME-05). Single-layer queries carry [timeout:60],
 // combined queries [timeout:120] server-side; the client-side cap sits just
 // above so a healthy-but-slow query finishes while a hung connection cannot
@@ -844,12 +848,12 @@ function getAvailableEndpoint(){
   return OVERPASS_ENDPOINTS.find(ep=>{ const b=endpointBackoff[ep]; return !b||now>=b.until; })||null;
 }
 
-// Bounded exponential backoff per endpoint (500ms → 4s). Applied on 429 and
-// on any failed attempt (timeout/network/http/parse), so the next attempt
-// rotates to a different host instead of re-hitting the one that just failed.
-function recordEndpointBackoff(ep){
+// Bounded exponential backoff per endpoint (500ms → 15s). Applied on 429 and
+// on retryable failures, so the next attempt rotates to a different host
+// instead of re-hitting the one that just failed.
+function recordEndpointBackoff(ep, minimumDelay=0){
   const prev=endpointBackoff[ep];
-  const nextDelay=Math.min((prev?prev.delay:500)*2,4000);
+  const nextDelay=Math.min(prev ? Math.max(prev.delay*2, minimumDelay) : Math.max(500, minimumDelay), MAX_BACKOFF_WAIT_MS);
   endpointBackoff[ep]={ until:Date.now()+nextDelay, delay:nextDelay };
 }
 
@@ -874,11 +878,12 @@ class OverpassAttemptError extends Error {
 }
 
 class OverpassFetchError extends Error {
-  constructor(failures, { aborted=false } = {}) {
-    super(aborted ? 'Overpass fetch aborted' : 'All Overpass attempts failed');
+  constructor(failures, { aborted=false, retryWindowExpired=false } = {}) {
+    super(aborted ? 'Overpass fetch aborted' : retryWindowExpired ? 'Overpass retry window expired' : 'All Overpass attempts failed');
     this.name='OverpassFetchError';
     this.failures=failures;   // [{ kind, endpoint, status }] in attempt order
     this.aborted=aborted;
+    this.retryWindowExpired=retryWindowExpired;
   }
   // Compact per-kind diagnostic, e.g. "2× timeout (overpass-api.de), 1× HTTP 504 (kumi.systems)"
   summary(){
@@ -897,7 +902,7 @@ class OverpassFetchError extends Error {
 // One POST attempt against one endpoint: hard timeout, export-abort wiring,
 // optional streaming progress, typed failure. `raceSignal` lets the race
 // driver cancel losing attempts.
-async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, raceSignal=null } = {}) {
+async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, raceSignal=null, rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS } = {}) {
   const exportSignal=activeExportAbort?.signal || null;
   const timeoutSignal=AbortSignal.timeout(timeoutMs);
   const signals=[timeoutSignal];
@@ -928,9 +933,9 @@ async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, rac
       throw new OverpassAttemptError('network', endpoint, { cause:e });
     }
     if (res.status===429) {
-      recordEndpointBackoff(endpoint);
       const retryAfter=res.headers.get('Retry-After');
       const retryAfterMs=retryAfter ? Math.min(parseInt(retryAfter,10)*1000||0, MAX_BACKOFF_WAIT_MS) : null;
+      recordEndpointBackoff(endpoint, Math.max(rateLimitCooldownMs, retryAfterMs||0));
       throw new OverpassAttemptError('rate-limited', endpoint, { status:429, retryAfterMs });
     }
     if (!res.ok) throw new OverpassAttemptError('http', endpoint, { status:res.status });
@@ -969,14 +974,37 @@ async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, rac
   }
 }
 
-// Rotation/backoff driver: tries up to `retries` attempts across available
-// endpoints (preferring `preferredEndpoint` when supplied) and returns
-// { json, endpoint }. Throws OverpassFetchError with the typed attempt
-// history when the budget is spent or the export is aborted.
-async function overpassFetch(body, { retries=MAX_TILE_RETRIES, preferredEndpoint=null, timeoutMs=OVERPASS_ATTEMPT_TIMEOUT_MS, onProgress=null } = {}) {
+function isRetryableOverpassFailure(error){
+  return error.kind==='rate-limited' || error.kind==='timeout' || error.kind==='network'
+    || error.kind==='parse' || (error.kind==='http' && (error.status===408 || error.status>=500));
+}
+
+function endpointWaitMs(){
+  const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+  return Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS);
+}
+
+async function waitForOverpassCapacity(waitMs, deadline, exportSignal){
+  await sleep(Math.min(waitMs, Math.max(0, deadline-Date.now())), exportSignal);
+}
+
+// Rotation/backoff driver: keep trying available endpoints (preferring
+// `preferredEndpoint` when supplied) for the retry window. This makes export
+// recovery resilient to temporary 429s, server errors and network outages,
+// while malformed/client-error requests still fail promptly.
+async function overpassFetch(body, {
+  preferredEndpoint=null,
+  timeoutMs=OVERPASS_ATTEMPT_TIMEOUT_MS,
+  onProgress=null,
+  retryWindowMs=OVERPASS_RETRY_WINDOW_MS,
+  maxAttempts=Infinity,
+  rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS,
+} = {}) {
   const exportSignal=activeExportAbort?.signal || null;
   const failures=[];
-  for (let attempt=0; attempt<retries; attempt++) {
+  const deadline=Date.now()+retryWindowMs;
+  let attempt=0;
+  while (attempt<maxAttempts && Date.now()<deadline) {
     if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
     let ep=null;
     if (preferredEndpoint) {
@@ -985,51 +1013,73 @@ async function overpassFetch(body, { retries=MAX_TILE_RETRIES, preferredEndpoint
     }
     if (!ep) ep=getAvailableEndpoint();
     if (!ep) {
-      const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
-      const waitMs=Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS);
-      setStatus(`Rate limited — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-      progress.log(`All endpoints rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn:true });
-      failures.push({ kind:'rate-limited', endpoint:null, status:null });
-      await sleep(waitMs, exportSignal);
+      const waitMs=endpointWaitMs();
+      setStatus(`Overpass busy — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      progress.log(`All Overpass endpoints cooling down — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
+      await waitForOverpassCapacity(waitMs, deadline, exportSignal);
       continue;
     }
     try {
-      const json=await overpassAttempt(ep, body, { timeoutMs, onProgress });
+      attempt++;
+      const json=await overpassAttempt(ep, body, {
+        timeoutMs:Math.min(timeoutMs, Math.max(1, deadline-Date.now())),
+        onProgress, rateLimitCooldownMs,
+      });
       return { json, endpoint:ep };
     } catch(e) {
       if (!(e instanceof OverpassAttemptError)) throw e;
       failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
       if (e.kind==='aborted' || exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
+      if (!isRetryableOverpassFailure(e)) throw new OverpassFetchError(failures);
       if (e.kind==='rate-limited') {
         adaptiveTileDelay=Math.min(adaptiveTileDelay+150, 1500);
-        const waitMs=e.retryAfterMs ?? (endpointBackoff[ep]?.delay||500);
-        setStatus(`Rate limited on ${new URL(ep).hostname} — waiting ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-        progress.log(`${new URL(ep).hostname} rate-limited — waiting ${(waitMs/1000).toFixed(1)}s`, { warn:true });
-        await sleep(waitMs, exportSignal);
+        const alternate=getAvailableEndpoint();
+        if (alternate) {
+          setStatus(`Rate limited on ${new URL(ep).hostname} — trying another server…`, 'loading');
+          progress.log(`${new URL(ep).hostname} rate-limited — rotating to another server`, { warn:true });
+        } else {
+          const waitMs=Math.max(e.retryAfterMs||0, endpointBackoff[ep]?.delay||500);
+          setStatus(`Rate limited — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+          progress.log(`All Overpass endpoints rate-limited — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
+          await waitForOverpassCapacity(waitMs, deadline, exportSignal);
+        }
       } else {
         recordEndpointBackoff(ep);
         console.warn(`Overpass ${e.kind} (${ep}):`, e.cause?.message || e.message);
       }
     }
   }
-  throw new OverpassFetchError(failures, { aborted: !!exportSignal?.aborted });
+  throw new OverpassFetchError(failures, {
+    aborted:!!exportSignal?.aborted,
+    retryWindowExpired:Date.now()>=deadline,
+  });
 }
 
 // Race variant: fire the same query at every available endpoint, first valid
-// response wins, losers are aborted immediately. Two rounds, then typed
-// failure — used for single-tile exports where rotation would serialize.
-async function overpassFetchRace(body, { timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS, onProgress=null } = {}) {
+// response wins, losers are aborted immediately. Retry rounds continue for
+// the same bounded, cancellable window as the sequential driver.
+async function overpassFetchRace(body, {
+  timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS,
+  onProgress=null,
+  retryWindowMs=OVERPASS_RETRY_WINDOW_MS,
+  maxRounds=Infinity,
+  rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS,
+} = {}) {
   const exportSignal=activeExportAbort?.signal || null;
   const failures=[];
-  for (let round=0; round<2; round++) {
+  const deadline=Date.now()+retryWindowMs;
+  let round=0;
+  while (round<maxRounds && Date.now()<deadline) {
     if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
     const eps=OVERPASS_ENDPOINTS.filter(ep=>{ const bk=endpointBackoff[ep]; return !bk || Date.now()>=bk.until; });
     if (!eps.length) {
-      const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
-      failures.push({ kind:'rate-limited', endpoint:null, status:null });
-      await sleep(Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS), exportSignal);
+      const waitMs=endpointWaitMs();
+      setStatus(`Overpass busy — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      progress.log(`All Overpass endpoints cooling down — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
+      await waitForOverpassCapacity(waitMs, deadline, exportSignal);
       continue;
     }
+    round++;
     const reqStart=Date.now();
     let ttfb=null;
     const label=`racing ${eps.length} server${eps.length>1?'s':''}`;
@@ -1039,7 +1089,10 @@ async function overpassFetchRace(body, { timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS,
     }
     const controllers=eps.map(()=>new AbortController());
     const attempts=eps.map((ep, i)=>
-      overpassAttempt(ep, body, { timeoutMs, raceSignal:controllers[i].signal })
+      overpassAttempt(ep, body, {
+        timeoutMs:Math.min(timeoutMs, Math.max(1, deadline-Date.now())),
+        raceSignal:controllers[i].signal, rateLimitCooldownMs,
+      })
         .then(json=>({ json, ep, i })));
     try {
       const winner=await Promise.any(attempts);
@@ -1049,17 +1102,30 @@ async function overpassFetchRace(body, { timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS,
       return { json:winner.json, endpoint:winner.ep };
     } catch(aggregate) {
       if (ttfb) clearInterval(ttfb);
+      const roundFailures=[];
       for (const e of aggregate.errors||[]) {
-        if (e instanceof OverpassAttemptError && e.kind!=='aborted') failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
+        if (e instanceof OverpassAttemptError && e.kind!=='aborted') {
+          failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
+          roundFailures.push(e);
+          if (e.kind!=='rate-limited' && isRetryableOverpassFailure(e)) recordEndpointBackoff(e.endpoint);
+        }
       }
       if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
-      // every endpoint failed this round — one retry, then give up
+      if (roundFailures.some(e=>!isRetryableOverpassFailure(e))) throw new OverpassFetchError(failures);
     }
   }
-  throw new OverpassFetchError(failures, { aborted: !!exportSignal?.aborted });
+  throw new OverpassFetchError(failures, {
+    aborted:!!exportSignal?.aborted,
+    retryWindowExpired:Date.now()>=deadline,
+  });
 }
 
-async function fetchLayer(layer, bboxStr, bbox) {
+function overpassFailureDetail(error){
+  const elapsed=error.retryWindowExpired ? ' after retrying for up to 60 minutes' : '';
+  return `${error.summary()}${elapsed}`;
+}
+
+async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
   const tiles = bboxToTiles(bbox);
   const elementArrays = [];
   const failedTiles = [];
@@ -1080,7 +1146,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
     const body = 'data=' + encodeURIComponent(q);
     let fetched;
     try {
-      fetched = (await overpassFetch(body, { timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS })).json;
+      fetched = (await overpassFetch(body, { ...fetchOptions, timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS })).json;
     } catch(e) {
       if (!(e instanceof OverpassFetchError)) throw e;
       console.warn(`Tile ${tileBboxStr} failed for layer ${layer.id}: ${e.summary()}`);
@@ -1090,7 +1156,7 @@ async function fetchLayer(layer, bboxStr, bbox) {
         phase: 'fetch',
         userMessage: e.aborted
           ? 'Export cancelled while map data was loading.'
-          : `Map data for ${layer.label || layer.id} could not be loaded (${e.summary()}). Check your connection and try again.`,
+          : `Map data for ${layer.label || layer.id} could not be loaded (${overpassFailureDetail(e)}). Check your connection and try again.`,
         cause: e,
         details: { tile: tileBboxStr, failures: e.failures },
       });
@@ -3487,9 +3553,10 @@ function getExportSettings(engine, exportBbox, {
     labels: Object.freeze({ ...labels }),
     widthPx,
     physicalWidthMm,
-    selectedLayerIds: engine === EXPORT_ENGINE.V1
-      ? Object.freeze(selectedLayerIds ? [...selectedLayerIds] : getAllSelectedLayers().map(layer => layer.id))
-      : Object.freeze([]),
+    // The layer panel applies to both engines.  v2 has a few private inputs
+    // (buildings/area features/place nodes), but every user-facing layer still
+    // comes from this frozen selection.
+    selectedLayerIds: Object.freeze(selectedLayerIds ? [...selectedLayerIds] : getAllSelectedLayers().map(layer => layer.id)),
     seaName: engine === EXPORT_ENGINE.V2
       ? (seaName === null ? document.getElementById('v2-sea-name')?.value || '' : seaName).trim()
       : '',
@@ -3588,11 +3655,10 @@ function commitSuccessfulExport({ svg, filename, engine, results, exportBbox, wi
 function previewSourceSupportsCurrentSettings(source) {
   if (!source || source.engine !== getCurrentEngine() || !sameBbox(source.bbox, bbox)) return false;
   if (source.settings.preset !== activePreset) return false;
-  if (source.engine === EXPORT_ENGINE.V2) {
-    return source.settings.seaName === (document.getElementById('v2-sea-name')?.value || '').trim();
-  }
   const available = new Set(source.results.map(result => result.layer.id));
-  return getAllSelectedLayers().every(layer => layer.id === 'city_blocks' || available.has(layer.id));
+  if (!getAllSelectedLayers().every(layer => available.has(layer.id))) return false;
+  return source.engine !== EXPORT_ENGINE.V2 ||
+    source.settings.seaName === (document.getElementById('v2-sea-name')?.value || '').trim();
 }
 
 function commitLivePreview(requestId, source, svg, fingerprint) {
@@ -3631,8 +3697,9 @@ function scheduleLivePreview() {
     try {
       let svg;
       if (source.engine === EXPORT_ENGINE.V2) {
+        const selectedIds = getAllSelectedLayers().map(layer => layer.id);
         svg = await Promise.resolve(EngineV2.buildSVG(
-          source.results,
+          EngineV2.filterResultsForSelection(source.results, selectedIds),
           source.bbox,
           source.settings.widthPx,
           null,
@@ -3978,7 +4045,7 @@ async function doExport() {
           phase: 'fetch',
           userMessage: e.aborted
             ? 'Export cancelled while map data was loading.'
-            : `Map data could not be loaded — ${e.summary()} on tile ${idx+1} of ${tiles.length}. Check your connection and try again.`,
+            : `Map data could not be loaded — ${overpassFailureDetail(e)} on tile ${idx+1} of ${tiles.length}. Check your connection and try again.`,
           cause: e,
           details: {
             tile: `${tile.s},${tile.w},${tile.n},${tile.e}`,
@@ -4474,6 +4541,12 @@ document.addEventListener('DOMContentLoaded',()=>{
       console.error('Export preflight failed:', failure.cause || failure);
       setStatus(failure.userMessage, 'error');
     });
+  });
+  document.getElementById('btn-progress-cancel').addEventListener('click', () => {
+    if (!activeExportAbort || activeExportAbort.signal.aborted) return;
+    progress.log('Export cancelled by user', { warn:true });
+    setStatus('Cancelling export…', 'loading');
+    activeExportAbort.abort(new Error('Export cancelled by user'));
   });
   document.getElementById('btn-dl').addEventListener('click',()=>{
     if (exportState) triggerDownload(exportState.svg, exportState.filename);

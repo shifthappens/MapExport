@@ -100,7 +100,7 @@ const layer = {
   tagFilter: () => true,
 };
 await expectStructuredRejection('fetchLayer rejects complete tile failure', 'fetch', () =>
-  X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox));
+  X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 3 }));
 
 class FailingWorker {
   postMessage() {
@@ -196,7 +196,10 @@ function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds }) {
         json: async () => options.method === 'POST' ? {} : null,
       };
     }
-    if (networkFails) throw new Error('simulated complete network outage');
+    // A malformed client request is intentionally non-retryable. This keeps
+    // the lifecycle failure test fast while normal transient outages exercise
+    // the longer retry window in overpass-fetch.mjs.
+    if (networkFails) return { ok: false, status: 400, headers: new Headers(), json: async () => ({}) };
     return {
       ok: true, status: 200, body: null,
       headers: new Headers(),

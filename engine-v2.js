@@ -9,7 +9,7 @@
 // so all of script.js's top-level declarations are in scope here).
 //
 // The v2 model (milestones 2-6): faces = bbox minus the buffered
-// road/rail/tram/metro network; a small face with a building becomes a cream
+// road network; a small face with a building becomes a cream
 // block, with water/green/waterway strokes subtracted mechanically (plain
 // Clipper difference, evenodd holes — NO water heuristics: no winding, no
 // island checks, no interior-point tests). Area features come from one
@@ -30,17 +30,14 @@ const EngineV2 = (() => {
   const findLayer = (id) => LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === id);
   const roadsLayer = findLayer('roads');
 
-  // Rail, tram and metro both cut faces (a hard block boundary in the USE-IT
-  // style) and render, through v1's own builders (sleepers, tram/metro
-  // palettes) via renderLayerSVG. Underground segments drop out of the CUTTER
-  // via the tunnel filter, so a metro line only cuts where it surfaces; what
-  // the builders draw is v1 semantics, unchanged. Transit stops (dot symbols)
-  // are deliberately OFF in v2 (removed 2026-07-12): they cluttered the clean
-  // USE-IT plate without carrying wayfinding value at this scale, so v2's fixed
-  // layer set simply omits them. v1's registry keeps the layer untouched.
+  // Transit layers render through v1's own builders (sleepers, tram/metro
+  // palettes and stop symbols) via renderLayerSVG. Their controls use the same
+  // layer-panel selection as v1: an unchecked transit layer neither fetches
+  // nor paints.
   const railLayer = findLayer('rail');
   const tramLayer = findLayer('tram');
   const metroLayer = findLayer('metro');
+  const transitStopsLayer = findLayer('transit_stops');
 
   // Labels reuse the full v1 engine (placement, collision grid, abbreviations,
   // both emission pipelines) via renderLayerSVG. Feature labels render before
@@ -183,7 +180,7 @@ const EngineV2 = (() => {
   const cityBlocksLayer = { id: 'city_blocks', label: 'City blocks', type: 'derived' };
   const fallbackBlocksLayer = { id: 'fallback_blocks', label: 'Fallback blocks', type: 'derived' };
 
-  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, placeNodesLayer, cityBlocksLayer];
+  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, placeNodesLayer, cityBlocksLayer];
 
   // Fetched to feed the face cutter / classifier, but never rendered as their
   // own layer. area_features is the fetch vehicle for water/green/landcover —
@@ -207,9 +204,60 @@ const EngineV2 = (() => {
     'rail',
     'tram',
     'metro',
+    'transit_stops',
     'water_labels',
     'street_labels',
   ];
+
+  // v2-only paint groups inherit the closest user-facing layer switch. They
+  // have no separate checkbox, so recreation is part of Parks & green and sand
+  // is part of Countryside.
+  function isSelectedRenderLayer(id, selectedIds) {
+    if (id === recreationLayer.id) return selectedIds.has(parksLayer.id);
+    if (id === beachLayer.id) return selectedIds.has(landcoverLayer.id);
+    return selectedIds.has(id);
+  }
+
+  // Turn the shared layer-panel state into v2's two kinds of inputs:
+  // user-visible layers and private data dependencies. City blocks still need
+  // roads, building footprints and area geometry when their own checkbox is
+  // on, even if those source layers are hidden in the finished SVG. Nothing
+  // else is fetched merely because v2 knows how to render it.
+  function planLayers(selectedLayerIds = getAllSelectedLayers().map(layer => layer.id)) {
+    const selectedIds = new Set(selectedLayerIds);
+    const needsBlocks = selectedIds.has(cityBlocksLayer.id);
+    const needsAreaFeatures = needsBlocks ||
+      ['water_bodies', 'waterways', 'parks', 'landcover'].some(id => selectedIds.has(id));
+    const directLayers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer];
+    const fetchLayers = directLayers.filter(layer => selectedIds.has(layer.id));
+    // Roads are also the block cutter, but are not rendered unless selected.
+    if (needsBlocks && !fetchLayers.includes(roadsLayer)) fetchLayers.unshift(roadsLayer);
+    if (needsBlocks) fetchLayers.push(buildingsLayer);
+    // Place names render immediately after Water & park names, so that labels
+    // toggle is their user-facing switch even when City blocks is off.
+    if (needsBlocks || selectedIds.has(waterLabelsLayer.id)) fetchLayers.push(placeNodesLayer);
+    if (needsAreaFeatures) fetchLayers.push(areaFeaturesLayer);
+    return {
+      selectedIds,
+      needsBlocks,
+      fetchLayers,
+      fetchLayerIds: fetchLayers.map(layer => layer.id),
+    };
+  }
+
+  // Results also carry a small amount of private data for v2's builders. Keep
+  // that data only when it can affect a selected visible layer; all ordinary
+  // layer results follow the checkbox exactly. Shared by export and preview so
+  // a preview cannot resurrect an unchecked layer from its source export.
+  function filterResultsForSelection(results, selectedLayerIds = getAllSelectedLayers().map(layer => layer.id)) {
+    const selectedIds = new Set(selectedLayerIds);
+    return results.filter(result => {
+      const id = result.layer.id;
+      if (id === fallbackBlocksLayer.id) return selectedIds.has(cityBlocksLayer.id);
+      if (id === placeNodesLayer.id) return selectedIds.has(waterLabelsLayer.id);
+      return isSelectedRenderLayer(id, selectedIds);
+    });
+  }
 
   // Cream fill for city blocks. v1 renders blocks as #FEF6ED at
   // fill-opacity="0.8" over white — a pure style choice from commit a7ab512.
@@ -795,7 +843,7 @@ const EngineV2 = (() => {
   // ════════════════════════════════════════════════════════════════
   //  FACE CUTTER — Web Worker + ClipperLib
   //
-  //  Faces = bbox minus the buffered road/rail cutter network (the same first
+  //  Faces = bbox minus the buffered road cutter network (the same first
   //  stage as v1). Each face is then classified by building presence alone,
   //  then has water/green/waterway strokes subtracted mechanically:
   //   - small face with >= 1 building  → cream city block = face minus the
@@ -986,7 +1034,7 @@ self.onmessage = function(event) {
 
   self.postMessage({ type: 'progress', msg: 'Cutting faces…', pct: 65 });
 
-  // Faces = bbox rectangle minus the cutter union. Each road/rail-bounded face
+  // Faces = bbox rectangle minus the cutter union. Each road-bounded face
   // is one PolyTree contour with its holes.
   const bboxPath = [
     { X: 0, Y: 0 }, { X: Math.round(W * SCALE), Y: 0 },
@@ -2970,13 +3018,15 @@ self.onmessage = function(event) {
       : wrapSVG(layersSVG, ctx, physicalWidthMm);
   }
 
-  // Browser-side v2 orchestration. Mirrors v1's doExport shape but lean:
-  // v2 ignores the layer checkboxes and always builds its own fixed layer
-  // set. Reuses v1's shared helpers (bbox guard, area-name resolution,
+  // Browser-side v2 orchestration. Mirrors v1's doExport shape and honours
+  // the shared layer checkboxes. Reuses v1's shared helpers (bbox guard, area-name resolution,
   // size/width computation, fetchLayer, progress overlay, export state and
   // history). Its preview is rebuilt by this engine's own buildSVG function.
   async function doExport() {
     if (!bbox || exportInProgress) return;
+    const selected = getAllSelectedLayers();
+    if (!selected.length) { setStatus('Select at least one layer', 'error'); return; }
+    const layerPlan = planLayers(selected.map(layer => layer.id));
 
     // Claim the lock before the first await below, for the same reason as v1:
     // area-name resolution can suspend, and without the lock a second click
@@ -3013,6 +3063,7 @@ self.onmessage = function(event) {
       widthPx,
       physicalWidthMm,
       format: illustratorCompatible ? 'svg-illustrator' : 'svg-standard',
+      selectedLayerIds: selected.map(layer => layer.id),
       seaName: seaNameOverride,
     });
 
@@ -3041,10 +3092,13 @@ self.onmessage = function(event) {
     progress.begin(stages);
     progress.log(`Engine v2 export: ${widthPx}px wide (${(physicalWidthMm / 10).toFixed(1)}cm @ ${PRINT_DPI}dpi), style “${activePreset}”`);
 
-    // Fetch stage. One fetchLayer call per v2 layer with an overpassQuery
-    // (roads, rail, buildings). No combined-tile pooling yet — the single
-    // combined v2 bundle arrives with the area-features milestone (M3).
-    const fetchableLayers = layers.filter((l) => typeof l.overpassQuery === 'function');
+    // Fetch stage. v2 gets each selected direct source layer independently,
+    // plus the small private inputs needed when city-block faces are enabled.
+    const fetchableLayers = layerPlan.fetchLayers;
+    const privateFetchIds = fetchableLayers
+      .filter(layer => !layerPlan.selectedIds.has(layer.id))
+      .map(layer => layer.id);
+    progress.log(`Fetch plan: ${fetchableLayers.map(layer => layer.id).join(', ')}${privateFetchIds.length ? ` (private: ${privateFetchIds.join(', ')})` : ''}`);
     progress.setStage('fetch', 'active', { meta: `0/${fetchableLayers.length}` });
     const results = [];
     let fetched = 0;
@@ -3072,11 +3126,9 @@ self.onmessage = function(event) {
 
     const totalElements = results.reduce((sum, r) => sum + (r.data?.elements?.length || 0), 0);
     // Zero elements only means "check your connection" when tiles actually
-    // failed. Zero elements with every tile OK is a genuinely empty frame (an
-    // unmapped or cutterless area) — that must flow to the full-frame coverage
-    // fallback below, not abort, or the coverage promise ("no frame comes back
-    // blank", ENGINE-V2.md §1) breaks. The face worker turns empty cutters into
-    // one full-frame face; see computeFacesAsync.
+    // failed. With City blocks selected, a genuinely empty frame must still
+    // flow to the full-frame coverage fallback below. With it off, an empty
+    // selected layer is valid and deliberately stays empty.
     if (!totalElements && totalFailedTiles > 0) {
       progress.log('No elements fetched and tiles failed — aborting export', { warn: true });
       throw new ExportFailure({
@@ -3087,7 +3139,9 @@ self.onmessage = function(event) {
       });
     }
     if (!totalElements) {
-      progress.log('No mapped features in this area — painting an empty frame', { warn: true });
+      progress.log(layerPlan.needsBlocks
+        ? 'No mapped features in this area — painting an empty frame'
+        : 'No mapped features in the selected layers', { warn: true });
     }
 
     // Classify the combined area-features fetch into the render layers and the
@@ -3109,24 +3163,32 @@ self.onmessage = function(event) {
     // "square_labels" group inside buildSVG, so the test harness path gets
     // them too — see the squareLabelNodes construction there.)
 
-    // Faces stage. The cutter reads roads + rail/tram/metro; buildings classify
-    // faces and seed hamlet blobs; water/green/landcover/waterways feed the
-    // mechanical subtraction. Buildings and area_features are fetch-only.
-    progress.setStage('faces', 'active', { detail: 'Starting worker…' });
-    const { pr, H } = makeProjector(bbox, widthPx);
-    const buildingElements = results.find(r => r.layer.id === buildingsLayer.id)?.data.elements || [];
-    // Rural place nodes ground hamlet blobs (fetch-only, projected in the worker
-    // payload — see prepareFaceData / the hamlet face loop).
-    const placeNodeElements = results.find(r => r.layer.id === placeNodesLayer.id)?.data.elements || [];
-    // Cutter input = roads only (rail/tram/metro stopped cutting 2026-07-12 —
-    // see prepareFaceData; buildings + area_features are not cutters either;
-    // area geometry subtracts, it does not bound faces).
-    const cutterResults = results.filter(r => r.layer.type === 'roads');
-    const onFaceProgress = (msg, pct) => {
-      progress.setStage('faces', 'active', { detail: msg });
-      progress.bar(55 + Math.round(pct * 0.25));
-    };
-    const { blocks, culledLandcover, greenGroundMerges } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements });
+    // Faces are private input for the City blocks checkbox. When it is off,
+    // skip the worker entirely: other selected layers do not need hidden block
+    // geometry or its supporting OSM data.
+    let blocks = [], culledLandcover = [], greenGroundMerges = [];
+    let placeNodeElements = [];
+    if (layerPlan.needsBlocks) {
+      // Faces stage. The cutter reads roads; buildings classify faces and seed
+      // hamlet blobs; water/green/landcover/waterways feed subtraction.
+      progress.setStage('faces', 'active', { detail: 'Starting worker…' });
+      const { pr, H } = makeProjector(bbox, widthPx);
+      const buildingElements = results.find(r => r.layer.id === buildingsLayer.id)?.data.elements || [];
+      // Rural place nodes ground hamlet blobs (fetch-only, projected in the
+      // worker payload — see prepareFaceData / the hamlet face loop).
+      placeNodeElements = results.find(r => r.layer.id === placeNodesLayer.id)?.data.elements || [];
+      // Cutter input = roads only (rail/tram/metro stopped cutting 2026-07-12 —
+      // see prepareFaceData; buildings + area_features are not cutters either;
+      // area geometry subtracts, it does not bound faces).
+      const cutterResults = results.filter(r => r.layer.type === 'roads');
+      const onFaceProgress = (msg, pct) => {
+        progress.setStage('faces', 'active', { detail: msg });
+        progress.bar(55 + Math.round(pct * 0.25));
+      };
+      ({ blocks, culledLandcover, greenGroundMerges } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements }));
+    } else {
+      progress.setStage('faces', 'done', { meta: 'City blocks off', detail: '' });
+    }
     // Green-remainder merges (paint-only, before the cull filter reindexes):
     // a merged element paints the worker's grown rings — its own shape unioned
     // with the coverage remainder of the green-open piece(s) it lies in — so
@@ -3156,21 +3218,27 @@ self.onmessage = function(event) {
     const hamletBlocks = blocks.filter(b => b.kind === 'hamlet').length;
     const buildingBlocks = blocks.filter(b => b.kind === 'building').length;
     const fallbackBlocks = blocks.filter(b => b.kind === 'fallback').length;
-    progress.setStage('faces', 'done', { meta: `${urbanBlocks + hamletBlocks} blocks` });
-    progress.log(`city_blocks: ${urbanBlocks} urban, ${hamletBlocks} hamlet, ${buildingBlocks} standalone buildings; fallback_blocks: ${fallbackBlocks} patches`);
+    if (layerPlan.needsBlocks) {
+      progress.setStage('faces', 'done', { meta: `${urbanBlocks + hamletBlocks} blocks` });
+      progress.log(`city_blocks: ${urbanBlocks} urban, ${hamletBlocks} hamlet, ${buildingBlocks} standalone buildings; fallback_blocks: ${fallbackBlocks} patches`);
+    }
 
     // Renderable results = everything except the fetch-only inputs, plus the
     // classified area layers and the two derived block layers. Both block
     // results carry the full block list; each renderer filters by kind.
-    const renderableResults = results.filter(r => !fetchOnlyIds.has(r.layer.id));
-    renderableResults.push(...areaRenderResults);
-    renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
-    renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
+    const renderableResults = results.filter(r => !fetchOnlyIds.has(r.layer.id) && layerPlan.selectedIds.has(r.layer.id));
+    renderableResults.push(...areaRenderResults.filter(r => isSelectedRenderLayer(r.layer.id, layerPlan.selectedIds)));
+    if (layerPlan.needsBlocks) {
+      renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
+      renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
+    }
     // place_nodes rides along as a pure data vehicle for the AF-04 place
     // labels (fetch-only, so renderLayer paints nothing for it): buildSVG
     // reads its elements the same way it reads the fallback result's
     // labelElements for squares.
-    renderableResults.push({ layer: placeNodesLayer, data: { elements: placeNodeElements } });
+    if (layerPlan.selectedIds.has(waterLabelsLayer.id)) {
+      renderableResults.push({ layer: placeNodesLayer, data: { elements: placeNodeElements } });
+    }
 
     // Render stage.
     progress.setStage('render', 'active', { detail: 'Assembling SVG…' });
@@ -3211,6 +3279,7 @@ self.onmessage = function(event) {
     // Exposed for the headless test harness (tests/real-export.mjs).
     FACE_WORKER_SRC, prepareFaceData, computeFacesAsync, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
+    planLayers, filterResultsForSelection,
     // Building-fetch padding (cause A) — shared with the headless harness.
     padBboxMeters, BUILDING_FETCH_PAD_M,
     // Hamlet grounding (pure; exercised by tests/hamlet-grounding.mjs).
