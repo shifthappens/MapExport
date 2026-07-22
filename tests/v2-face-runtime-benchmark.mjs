@@ -84,6 +84,12 @@ const base = {
   // (0.25px²) is below the ~1px² EMPTY cull floor -- the reference route
   // culls it regardless of coverage, so the zero-candidate fast path must
   // check the element's own area instead of assuming "no candidates = keep".
+  // [6] is isolated and two-ringed, overlapping by 0.1 on x: each ring is
+  // 0.8x0.9=0.72px² (naive sum 1.44px², >= EMPTY) but the true Clipper union
+  // is 0.9x0.9=0.81px² (< EMPTY) -- a naive area-sum shortcut would wrongly
+  // keep it (1.44 >= EMPTY) where exact NonZero normalization culls it
+  // (0.81 < EMPTY); this is the double-counting case a real merged/multi-ring
+  // landcover element (e.g. after mergeGreenRemainder growth) could hit.
   landcoverElements: [
     { index: 0, rings: [ring(100, 400, 200, 500)] },
     { index: 1, rings: [ring(950, 950, 990, 990)] },
@@ -91,6 +97,7 @@ const base = {
     { index: 3, rings: [ring(550, 650, 650, 750)] },
     { index: 4, rings: [ring(5, 660, 40, 990)] },
     { index: 5, rings: [ring(850, 50, 850.5, 50.5)] },
+    { index: 6, rings: [ring(600, 50, 600.8, 50.9), ring(600.1, 50, 600.9, 50.9)] },
   ],
 };
 
@@ -107,6 +114,7 @@ check('occlusion cull culls fully-covered elements but keeps exposed/isolated on
 check('west-strip remainder merges into element 4 via the PERF-04 spatial index', optimized.greenGroundMerges.some(m => m.index === 4) && !optimized.culledLandcover.includes(4));
 check('isolated element 1 (1600px², zero candidates) is kept, not culled', !optimized.culledLandcover.includes(1));
 check('isolated sub-1px² element 5 (zero candidates) is still culled, matching the reference route', optimized.culledLandcover.includes(5));
+check('isolated overlapping-rings element 6 (naive sum >= EMPTY, true union < EMPTY) is culled via exact normalization, not naive area sum', optimized.culledLandcover.includes(6));
 
 // No qualifying countryside faces: the city-only fast path must leave the
 // costly morphology untouched, even with many building cluster input rings.

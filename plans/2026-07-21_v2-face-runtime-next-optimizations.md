@@ -228,3 +228,29 @@ and explain it; do not normalize output or update expectations to accept it.
   invariants) was confirmed correct with no defect. Per Coen's instruction,
   only this blocking/reliability finding was acted on — no stylistic or
   scope-expansion suggestions were incorporated.
+
+### Follow-up finding (2026-07-22, post-commit)
+- A second-pass review (Coen, external to the Opus reviewer above) found that
+  the first fix's own "own area" computation was itself inexact: summing
+  `|Clipper.Area(ring)|` per ring double-counts area where a multi-ring
+  element's own rings overlap each other (reproduced case: two rings each
+  0.72 px² summing to 1.44 px² — above `EMPTY` — whose true Clipper-normalized
+  union is only 0.81 px², below it). The naive sum could therefore keep an
+  element the reference route would still cull, on the same kind of data the
+  seven-city corpus and the first fix's own regression tests didn't contain
+  (no overlapping-ring landcover element there either).
+- Fixed properly: the naive sum is still used, but only for what it can prove
+  *exactly* — since it always overestimates or equals the true normalized
+  area, `rawArea < EMPTY` safely proves the true area is too (cull, no
+  Clipper needed), and a single ring cannot self-overlap so `rawArea >= EMPTY`
+  for `subj.length <= 1` is exact too (keep, no Clipper needed). A multi-ring
+  element whose raw sum is `>= EMPTY` is genuinely ambiguous and now falls
+  through to the real Clipper difference with its (empty) candidate list —
+  identical geometric normalization to what the reference route computes,
+  not an approximation.
+- Added a third regression case to `tests/v2-face-runtime-benchmark.mjs`
+  (element 6: two overlapping rings, naive sum 1.44 px² ≥ `EMPTY`, true union
+  0.81 px² < `EMPTY`) that fails against the first fix and passes against
+  this one. Re-ran `node --check`, the full offline smoke suite (exit 0), and
+  Tilburg optimized+reference re-exports (both still byte-identical to the
+  committed trail) to confirm no behavior change on already-correct data.

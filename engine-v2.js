@@ -2034,17 +2034,27 @@ self.onmessage = function(event) {
         if (!subj.length) continue;
         const subjectBounds = pathsBounds(subj);
         const candidates = runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
-        // No covering path can reach this element's bounds, so a difference
-        // Clipper would return the element unchanged -- match that exactly
-        // (own area vs EMPTY) without constructing one. A near-zero-area
-        // element with nothing overlapping it is still culled by the
-        // reference route (remArea = its own area < EMPTY), so this fast
-        // path must reproduce that, not just assume "no candidates = keep".
+        // No covering path can reach this element's bounds. A difference
+        // Clipper with zero clip paths just normalizes the subject (NonZero
+        // fill), same as the reference route effectively gets when none of
+        // its candidates geometrically touch the subject -- so building one
+        // here would be exact, just usually wasted work. Two cheap, EXACT
+        // shortcuts cover the common cases without it:
+        //  - rawArea (naive sum of |ring area|, double-counts any overlap
+        //    between the element's own rings) is always >= the true
+        //    normalized area, so rawArea < EMPTY proves the normalized area
+        //    is too -- safe to cull.
+        //  - a single ring cannot overlap itself, so rawArea IS the exact
+        //    normalized area; if that is >= EMPTY, safe to keep.
+        // A multi-ring element whose rawArea lands >= EMPTY is genuinely
+        // ambiguous (over-count could hide a true area below EMPTY) and
+        // falls through to the real Clipper normalization below, exactly
+        // reproducing what the reference route would compute.
         if (!candidates.length) {
-          let ownArea = 0;
-          for (const s of subj) ownArea += Math.abs(Clipper.Clipper.Area(s));
-          if (ownArea < EMPTY) culledLandcover.push(lc.index);
-          continue;
+          let rawArea = 0;
+          for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
+          if (rawArea < EMPTY) { culledLandcover.push(lc.index); continue; }
+          if (subj.length <= 1) continue;
         }
         const dc = new Clipper.Clipper();
         for (const s of subj) dc.AddPath(s, ptSubject, true);
