@@ -1452,6 +1452,14 @@ self.onmessage = function(event) {
   // "is it green", this asks "are the buildings sparse", so a leafy-but-built
   // neighbourhood keeps real coverage and stays cream.
   const BUILT_MIN_SHARE = 0.05;
+  // Returns a verdict { urban, landArea, landcoverShare } instead of a plain
+  // boolean (PERF-04): landArea and landcoverShare are measured unconditionally
+  // on every call regardless of which branch below decides the verdict, and
+  // isGreenOpenPiece needs exactly those same two numbers for the exact same
+  // subject/netScaled/subjectBounds right after a failed verdict — reusing
+  // them there means that second test costs no extra Clipper work. Branch
+  // order and every short-circuit stay exactly as before, so a passing verdict
+  // still skips the open-land/urban-landuse tests it never needed.
   function isUrbanPiece(subjectPaths, netScaled, buildingArea, gateBuildings, subjectBounds) {
     const landArea = landAreaOf(subjectPaths, netScaled, subjectBounds);
     const builtUp = (buildingArea * SCALE * SCALE) / landArea >= BUILT_MIN_SHARE;
@@ -1465,15 +1473,16 @@ self.onmessage = function(event) {
     // NOT the rejected all-sizes green gate (35% openland flipped 10% of
     // Oulu): landcover-only at 60% asks "would cream erase what OSM paints
     // here", and a demoted piece keeps its buildings visible.
-    if (intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landArea >= GREEN_OPEN_MIN_SHARE) return false;
+    const landcoverShare = intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landArea;
+    if (landcoverShare >= GREEN_OPEN_MIN_SHARE) return { urban: false, landArea, landcoverShare };
     // Built-up faces stay urban and are never demoted by the open-land gate
     // (gateBuildings=false); the countryside remainder re-test passes
     // gateBuildings=true, letting the gate apply to its pieces too (they were
     // all fallback before, so it cannot regress). The gate always applies to the
     // urban-landuse promotion, which only ADDS blocks.
-    if (builtUp && !gateBuildings) return true;
-    if (intersectArea(subjectPaths, openLandVoid, subjectBounds) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return false;
-    if (builtUp) return true;
+    if (builtUp && !gateBuildings) return { urban: true, landArea, landcoverShare };
+    if (intersectArea(subjectPaths, openLandVoid, subjectBounds) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE) return { urban: false, landArea, landcoverShare };
+    if (builtUp) return { urban: true, landArea, landcoverShare };
     // An urban-signal polygon (residential/commercial/retail/institutional/
     // education/religious landuse, or parking — see isUrbanSignalElement)
     // promotes a buildingless-but-covered face to a city block (much of OSM
@@ -1481,7 +1490,8 @@ self.onmessage = function(event) {
     // would paint here is already protected above:
     // named parks show through block holes, and landcover-dominant ground was
     // demoted by the green-dominance rule; nothing green survives to this point.
-    return intersectArea(subjectPaths, urbanVoid, subjectBounds) / landArea >= URBAN_LANDUSE_MIN_SHARE;
+    const urban = intersectArea(subjectPaths, urbanVoid, subjectBounds) / landArea >= URBAN_LANDUSE_MIN_SHARE;
+    return { urban, landArea, landcoverShare };
   }
 
   // Net (outer minus holes) area of a scaled contour + its hole contours.
@@ -1496,9 +1506,13 @@ self.onmessage = function(event) {
   // remainder merges into its landcover (mergeGreenRemainder) and its
   // buildings draw standalone. One shared predicate so classification,
   // remainder handling and building emission can never disagree about which
-  // pieces are green ground.
-  function isGreenOpenPiece(subjectPaths, netScaled, subjectBounds) {
-    return intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landAreaOf(subjectPaths, netScaled, subjectBounds) >= GREEN_OPEN_MIN_SHARE;
+  // pieces are green ground. Takes the isUrbanPiece verdict for the same
+  // piece (always called right after a failed one, see isUrbanPiece) instead
+  // of a fresh subject/netScaled/subjectBounds triple, so it costs no extra
+  // Clipper work (PERF-04) — landArea and landcoverShare are exactly what
+  // isUrbanPiece already measured deciding it was not urban.
+  function isGreenOpenPiece(verdict) {
+    return verdict.landcoverShare >= GREEN_OPEN_MIN_SHARE;
   }
 
   // Merge a green-open piece's coverage remainder INTO its landcover instead
@@ -1512,33 +1526,123 @@ self.onmessage = function(event) {
   // extra patch, no colour seam, and the complement rule still holds (the
   // piece stays exactly covered by landcover ∪ water/green holes).
   const mergedLandcover = new Set(); // element indices with a grown shape
-  function mergeGreenRemainder(pieceSubject) {
-    const remainder = Clipper.Clipper.PolyTreeToPaths(subtractVoid(pieceSubject, fallbackVoid));
-    if (!remainder.length) return;
-    // Largest-overlap landcover element in this piece takes the remainder.
-    let best = null, bestArea = 0;
-    for (const lc of landcoverElements) {
-      let area = 0;
-      for (const ring of (lc.rings || [])) {
-        const sp = scaleRing(ring);
-        if (sp.length >= 3) area += intersectArea(pieceSubject, [sp]);
-      }
-      if (area > bestArea) { bestArea = area; best = lc; }
+
+  // Pre-scaled landcover element geometry (PERF-04): scaleRing(ring) used to
+  // run fresh, for every ring of every element, on every mergeGreenRemainder
+  // call -- wasteful when the same 733-element city geometry never changes
+  // between calls except for the one element an earlier call grew. Array-
+  // position-aligned with landcoverElements (its own .index field), so an
+  // ordinal maps straight back with no lookup.
+  const landcoverElementGeometry = landcoverElements.map(lc => scaleLandcoverElementRings(lc.rings));
+  function scaleLandcoverElementRings(rings) {
+    const scaledRings = [];
+    for (const ring of (rings || [])) { const sp = scaleRing(ring); if (sp.length >= 3) scaledRings.push(sp); }
+    return { scaledRings, bounds: scaledRings.length ? pathsBounds(scaledRings) : null };
+  }
+
+  // Fixed-grid index over landcoverElementGeometry bounds: same conservative
+  // overlap rule as indexVoid/indexedCandidates (PERF-01/03) -- 32 cells over
+  // the longest dimension, 1-unit inclusive pad, original order restored --
+  // but keyed by whole ELEMENT (several rings each, looked up by ordinal)
+  // rather than by individual Clipper path. Rebuilt from scratch whenever an
+  // element's bounds change (mergeGreenRemainder invalidates it after a grow,
+  // below) so a later piece's query always sees the current grown shape, an
+  // exact rescan rather than a stale approximation; rebuilding is cheap
+  // (bounding-box arithmetic only, no Clipper calls).
+  let landcoverElementIndex = null;
+  function landcoverElementIndexFor() {
+    if (landcoverElementIndex) return landcoverElementIndex;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const geo of landcoverElementGeometry) {
+      if (!geo.bounds) continue;
+      if (geo.bounds.x0 < x0) x0 = geo.bounds.x0; if (geo.bounds.x1 > x1) x1 = geo.bounds.x1;
+      if (geo.bounds.y0 < y0) y0 = geo.bounds.y0; if (geo.bounds.y1 > y1) y1 = geo.bounds.y1;
     }
-    if (!best) return; // unreachable for a green-open piece, but stay safe
+    if (x0 === Infinity) { landcoverElementIndex = { cells: new Map(), cellSize: 1, minCellX: 0, minCellY: 0, maxCellX: -1, maxCellY: -1 }; return landcoverElementIndex; }
+    const cellSize = Math.max(1, Math.ceil(Math.max(x1 - x0 + 1, y1 - y0 + 1) / 32));
+    const cellOf = value => Math.floor(value / cellSize);
+    const cells = new Map();
+    let minCellX = Infinity, minCellY = Infinity, maxCellX = -Infinity, maxCellY = -Infinity;
+    for (let ordinal = 0; ordinal < landcoverElementGeometry.length; ordinal++) {
+      const bounds = landcoverElementGeometry[ordinal].bounds;
+      if (!bounds) continue;
+      const cx0 = cellOf(bounds.x0), cx1 = cellOf(bounds.x1), cy0 = cellOf(bounds.y0), cy1 = cellOf(bounds.y1);
+      if (cx0 < minCellX) minCellX = cx0; if (cx1 > maxCellX) maxCellX = cx1;
+      if (cy0 < minCellY) minCellY = cy0; if (cy1 > maxCellY) maxCellY = cy1;
+      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+        const key = cx + ',' + cy;
+        let bucket = cells.get(key);
+        if (!bucket) { bucket = []; cells.set(key, bucket); }
+        bucket.push(ordinal);
+      }
+    }
+    landcoverElementIndex = { cells, cellSize, minCellX, minCellY, maxCellX, maxCellY };
+    return landcoverElementIndex;
+  }
+  // landcoverElements ordinals whose element bounds can overlap subjectBounds,
+  // deduplicated and restored to original array order -- same pad-1 inclusive
+  // overlap rule as indexedCandidates. A bbox that cannot touch the piece can
+  // never contribute a positive-area intersection, so filtering here never
+  // changes which element wins, only how many are measured to find out.
+  function candidateElementOrdinals(subjectBounds) {
+    const index = landcoverElementIndexFor();
+    if (!subjectBounds || index.maxCellX < index.minCellX) return [];
+    const pad = 1, cellOf = value => Math.floor(value / index.cellSize);
+    const cx0 = Math.max(index.minCellX, cellOf(subjectBounds.x0 - pad));
+    const cx1 = Math.min(index.maxCellX, cellOf(subjectBounds.x1 + pad));
+    const cy0 = Math.max(index.minCellY, cellOf(subjectBounds.y0 - pad));
+    const cy1 = Math.min(index.maxCellY, cellOf(subjectBounds.y1 + pad));
+    if (cx0 > cx1 || cy0 > cy1) return [];
+    const seen = new Set(), candidates = [];
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const bucket = index.cells.get(cx + ',' + cy);
+      if (!bucket) continue;
+      for (const ordinal of bucket) {
+        if (seen.has(ordinal)) continue;
+        seen.add(ordinal);
+        const bounds = landcoverElementGeometry[ordinal].bounds;
+        if (bounds.x1 < subjectBounds.x0 - pad || bounds.x0 > subjectBounds.x1 + pad || bounds.y1 < subjectBounds.y0 - pad || bounds.y0 > subjectBounds.y1 + pad) continue;
+        candidates.push(ordinal);
+      }
+    }
+    candidates.sort((a, b) => a - b);
+    return candidates;
+  }
+
+  function mergeGreenRemainder(pieceSubject, pieceBounds) {
+    const greenMergeStarted = benchmark ? Date.now() : 0;
+    const remainder = Clipper.Clipper.PolyTreeToPaths(subtractVoid(pieceSubject, fallbackVoid));
+    if (!remainder.length) { if (benchmark) benchmarkTimings.classificationGreenMerge += Date.now() - greenMergeStarted; return; }
+    // Largest-overlap landcover element in this piece takes the remainder.
+    // The retained-reference route (runtimeOptimizations:false) scans every
+    // element unfiltered, exactly like before PERF-04, for exact benchmark
+    // parity.
+    const candidateOrdinals = runtimeOptimizations
+      ? candidateElementOrdinals(pieceBounds || pathsBounds(pieceSubject))
+      : landcoverElementGeometry.map((_, ordinal) => ordinal);
+    let best = null, bestArea = 0;
+    for (const ordinal of candidateOrdinals) {
+      let area = 0;
+      for (const sp of landcoverElementGeometry[ordinal].scaledRings) area += intersectArea(pieceSubject, [sp]);
+      if (area > bestArea) { bestArea = area; best = landcoverElements[ordinal]; }
+    }
+    if (!best) { if (benchmark) benchmarkTimings.classificationGreenMerge += Date.now() - greenMergeStarted; return; } // unreachable for a green-open piece, but stay safe
     const unionClipper = new Clipper.Clipper();
     for (const p of remainder) if (p.length >= 3) unionClipper.AddPath(p, ptSubject, true);
-    for (const ring of best.rings) {
-      const sp = scaleRing(ring);
-      if (sp.length >= 3) unionClipper.AddPath(sp, ptSubject, true);
-    }
+    for (const sp of landcoverElementGeometry[best.index].scaledRings) unionClipper.AddPath(sp, ptSubject, true);
     const merged = new Clipper.Paths();
     unionClipper.Execute(ctUnion, merged, NZ, NZ);
-    if (!merged.length) return;
+    if (!merged.length) { if (benchmark) benchmarkTimings.classificationGreenMerge += Date.now() - greenMergeStarted; return; }
     // Mutate the element's rings so a second piece merging into the same
     // element builds on the grown shape, and the final rings ship once.
     best.rings = merged.map(p => p.map(pt => [pt.X / SCALE, pt.Y / SCALE]));
+    // Keep the pre-scaled cache and the element grid in step with the grown
+    // shape (its bounds usually grow), so a later piece's candidate query
+    // finds it exactly, never a stale approximation.
+    landcoverElementGeometry[best.index] = scaleLandcoverElementRings(best.rings);
+    landcoverElementIndex = null; // force a rebuild before the next query
     mergedLandcover.add(best.index);
+    if (benchmark) benchmarkTimings.classificationGreenMerge += Date.now() - greenMergeStarted;
   }
 
   // Standalone buildings for green-dominant open land. A piece the
@@ -1567,7 +1671,15 @@ self.onmessage = function(event) {
     }
     return scaledBuildingRings;
   }
+  // Thin timed wrapper (PERF-04): emitPieceBuildingsImpl has several early
+  // returns, so wrapping the call is simpler and less error-prone than
+  // threading a benchmark accumulator through every exit path.
   function emitPieceBuildings(pieceSubject, pieceNet) {
+    const buildingsStarted = benchmark ? Date.now() : 0;
+    emitPieceBuildingsImpl(pieceSubject, pieceNet);
+    if (benchmark) benchmarkTimings.classificationBuildings += Date.now() - buildingsStarted;
+  }
+  function emitPieceBuildingsImpl(pieceSubject, pieceNet) {
     const rings = getScaledBuildingRings();
     if (!rings.length) return;
     // bbox prefilter against the piece's outer ring, exact clip decides.
@@ -1643,7 +1755,10 @@ self.onmessage = function(event) {
         const outerRing = outer.map(p => [p.X / SCALE, p.Y / SCALE]);
         const holeRings = holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
         const pieceBounds = pathsBounds(pieceSubject);
-        if (isUrbanPiece(pieceSubject, pieceNet, subjectBuildingArea(outerRing, holeRings), gateBuildings, pieceBounds)) {
+        const signalStarted = benchmark ? Date.now() : 0;
+        const verdict = isUrbanPiece(pieceSubject, pieceNet, subjectBuildingArea(outerRing, holeRings), gateBuildings, pieceBounds);
+        if (benchmark) benchmarkTimings.classificationSignal += Date.now() - signalStarted;
+        if (verdict.urban) {
           // Already the exact block shape — emit verbatim, with the same floor
           // guards emitTree applies (nested solids are classified by this walk).
           if (pieceNet >= tinyGuard) {
@@ -1654,11 +1769,14 @@ self.onmessage = function(event) {
           // Urban-side mass split only: the countryside remainder
           // (gateBuildings=true) owns its buildings via the hamlet machinery
           // and keeps its deliberately-cream remainder (quays, floodplain).
-          if (!gateBuildings && isGreenOpenPiece(pieceSubject, pieceNet, pieceBounds)) {
-            mergeGreenRemainder(pieceSubject);
+          if (!gateBuildings && isGreenOpenPiece(verdict)) {
+            mergeGreenRemainder(pieceSubject, pieceBounds);
             emitPieceBuildings(pieceSubject, pieceNet);
           } else {
-            emitTree(subtractVoid(pieceSubject, fallbackVoid), 'fallback', blocks);
+            const subtractStarted = benchmark ? Date.now() : 0;
+            const fallbackTree = subtractVoid(pieceSubject, fallbackVoid);
+            if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - subtractStarted;
+            emitTree(fallbackTree, 'fallback', blocks);
           }
         }
       }
@@ -1667,6 +1785,14 @@ self.onmessage = function(event) {
   }
 
   const classificationStarted = benchmark ? Date.now() : 0;
+  // Non-overlapping benchmark-only subphase accumulators (PERF-04): signal =
+  // isUrbanPiece calls (which absorb isGreenOpenPiece's cost too, now a free
+  // verdict lookup); subtract = subtractVoid calls made directly in this loop
+  // (fallback/hamlet/remainder/block trees); greenMerge/buildings = the total
+  // cost of mergeGreenRemainder/emitPieceBuildings, INCLUDING their own
+  // internal subtractVoid work, timed once at their own definitions rather
+  // than double-counted here.
+  if (benchmark) Object.assign(benchmarkTimings, { classificationSignal: 0, classificationSubtract: 0, classificationGreenMerge: 0, classificationBuildings: 0 });
   for (const face of rawFaces) {
     const netAreaScaled = face.netAreaScaled;
     const faceSubject = face.subject;
@@ -1692,7 +1818,9 @@ self.onmessage = function(event) {
         intersectClipper.AddPaths(clusterPolys, ptClip, true);
         const hamletPaths = new Clipper.Paths();
         intersectClipper.Execute(ctIntersection, hamletPaths, NZ, NZ);
+        const hamletSubtractStarted = benchmark ? Date.now() : 0;
         const hamletTree = subtractVoid(hamletPaths, blockVoid);
+        if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - hamletSubtractStarted;
         // Ground each blob against the rural place nodes: only a blob with a
         // qualifying node in range paints as a hamlet (and takes its name);
         // ungrounded blobs are dropped so their area falls back to the cream
@@ -1739,7 +1867,9 @@ self.onmessage = function(event) {
         remainderClip = new Clipper.Paths();
         clipUnion.Execute(ctUnion, remainderClip, NZ, NZ);
       }
+      const remainderSubtractStarted = benchmark ? Date.now() : 0;
       const remainderTree = subtractVoid(faceSubject, remainderClip);
+      if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - remainderSubtractStarted;
       classifyPieces(remainderTree.Childs(), true);
       continue;
     }
@@ -1753,7 +1883,10 @@ self.onmessage = function(event) {
     const holeRings = face.holes.map(h => h.map(p => [p.X / SCALE, p.Y / SCALE]));
     const buildingArea = subjectBuildingArea(outerRing, holeRings);
 
-    if (isUrbanPiece(faceSubject, netAreaScaled, buildingArea, false, faceBounds)) {
+    const faceSignalStarted = benchmark ? Date.now() : 0;
+    const faceVerdict = isUrbanPiece(faceSubject, netAreaScaled, buildingArea, false, faceBounds);
+    if (benchmark) benchmarkTimings.classificationSignal += Date.now() - faceSignalStarted;
+    if (faceVerdict.urban) {
       // Cream city block = face minus the block void, evenodd holes. A pond in
       // the block becomes a hole; a face split by a river yields two blocks.
       // Per-land-mass classification: when the void (water + green + waterway
@@ -1766,7 +1899,9 @@ self.onmessage = function(event) {
       // single-mass face takes the identical emit as before (untouched by
       // construction); gateBuildings=false keeps every building-bearing mass
       // urban, so no urban land is demoted (§3, the measured 5% abort).
+      const blockSubtractStarted = benchmark ? Date.now() : 0;
       const blockTree = subtractVoid(faceSubject, blockVoid);
+      if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - blockSubtractStarted;
       const solidMasses = blockTree.Childs().filter(n => !n.IsHole());
       if (solidMasses.length <= 1) {
         emitTree(blockTree, 'urban', blocks);
@@ -1781,11 +1916,14 @@ self.onmessage = function(event) {
       // (one grown green shape, no cream wedge) and draw their buildings;
       // everything else stays a cream patch. This is how river islands render
       // in v2: no island machinery.
-      if (isGreenOpenPiece(faceSubject, netAreaScaled, faceBounds)) {
-        mergeGreenRemainder(faceSubject);
+      if (isGreenOpenPiece(faceVerdict)) {
+        mergeGreenRemainder(faceSubject, faceBounds);
         emitPieceBuildings(faceSubject, netAreaScaled);
       } else {
-        emitTree(subtractVoid(faceSubject, fallbackVoid), 'fallback', blocks);
+        const fallbackSubtractStarted = benchmark ? Date.now() : 0;
+        const fallbackTree = subtractVoid(faceSubject, fallbackVoid);
+        if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - fallbackSubtractStarted;
+        emitTree(fallbackTree, 'fallback', blocks);
       }
     }
   }
@@ -1816,6 +1954,7 @@ self.onmessage = function(event) {
   // coarse rounding, and any remainder above ~1px² keeps the element.
   const CULL_SCALE = 100;
   const culledLandcover = [];
+  const occlusionCoverBuildStarted = benchmark ? Date.now() : 0;
   if (landcoverElements.length) {
     const scaleRingCull = ring => {
       const sp = [];
@@ -1869,7 +2008,22 @@ self.onmessage = function(event) {
     for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
     const covering = new Clipper.Paths();
     if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
-    if (covering.length) {
+    // Spatial index over the finished covering union (PERF-03): 733 landcover
+    // elements each differencing against the full city-wide union was the
+    // dominant worker cost (measured, Tilburg). A fixed-grid index over the
+    // covering paths -- same generic indexVoid/indexedCandidates helpers
+    // PERF-01/02 use for signal voids -- restores exactly the covering paths
+    // whose bounds can touch one element's bounds (1-unit pad, original
+    // ordinal order), so the difference Clipper only ever receives paths
+    // that could matter. A covering path outside an element's bounds cannot
+    // affect a Clipper difference, so dropping it changes nothing about the
+    // result -- only the work. The retained-reference route
+    // (runtimeOptimizations:false) still hands every covering path to every
+    // element, unfiltered, for exact benchmark parity.
+    const coveringIndex = covering.length ? indexVoid(covering) : null;
+    if (benchmark) benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
+    const occlusionElementDifferencesStarted = benchmark ? Date.now() : 0;
+    if (coveringIndex) {
       const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
       for (const lc of landcoverElements) {
         // A merged element carries a green-open piece's coverage remainder —
@@ -1878,9 +2032,23 @@ self.onmessage = function(event) {
         const subj = [];
         for (const ring of (lc.rings || [])) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
         if (!subj.length) continue;
+        const subjectBounds = pathsBounds(subj);
+        const candidates = runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
+        // No covering path can reach this element's bounds, so a difference
+        // Clipper would return the element unchanged -- match that exactly
+        // (own area vs EMPTY) without constructing one. A near-zero-area
+        // element with nothing overlapping it is still culled by the
+        // reference route (remArea = its own area < EMPTY), so this fast
+        // path must reproduce that, not just assume "no candidates = keep".
+        if (!candidates.length) {
+          let ownArea = 0;
+          for (const s of subj) ownArea += Math.abs(Clipper.Clipper.Area(s));
+          if (ownArea < EMPTY) culledLandcover.push(lc.index);
+          continue;
+        }
         const dc = new Clipper.Clipper();
         for (const s of subj) dc.AddPath(s, ptSubject, true);
-        for (const b of covering) dc.AddPath(b, ptClip, true);
+        for (const b of candidates) dc.AddPath(b, ptClip, true);
         const remainder = new Clipper.Paths();
         dc.Execute(ctDifference, remainder, NZ, NZ);
         let remArea = 0;
@@ -1888,6 +2056,10 @@ self.onmessage = function(event) {
         if (remArea < EMPTY) culledLandcover.push(lc.index);
       }
     }
+    if (benchmark) benchmarkTimings.occlusionElementDifferences = Date.now() - occlusionElementDifferencesStarted;
+  } else if (benchmark) {
+    benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
+    benchmarkTimings.occlusionElementDifferences = 0;
   }
 
   if (benchmark) benchmarkTimings.totalWorker = Date.now() - benchmarkStarted;

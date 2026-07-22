@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-22 — v2 city-block exports faster still
+- V2's landcover-visibility check and green-ground merge now only compare
+  against nearby city geometry instead of the whole map, cutting a warm
+  Tilburg export's worker time from about 39 s to about 3 s on top of the
+  2026-07-21 speedup. Map geometry and classification rules are unchanged.
+
 ### 2026-07-21 — Faster v2 city-block exports
 - V2 now avoids hamlet-shape work when no countryside face exists, and skips
   unrelated water, green, landcover and urban-signal shapes during face tests.
