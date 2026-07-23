@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-23 — Metro tunnels now render subtly on v2 exports
+- Underground metro segments stay on the map but no longer look like bold
+  surface lines cutting through streets, parks and water: v2 drops the white
+  casing halo, thins the stroke, dashes it, and lowers the opacity, while
+  keeping each line's own colour so it stays traceable underground.
+
 ### 2026-07-22 — v2 city-block exports faster still
 - V2's landcover-visibility check and green-ground merge now only compare
   against nearby city geometry instead of the whole map, cutting a warm

@@ -3118,6 +3118,49 @@ self.onmessage = function(event) {
       }
       return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
     }
+    // ── Metro tunnel treatment (AF-05d, v2-only) ────────────────────────────
+    // Coen's decision (2026-07-23): keep tunnels in the visible Metro layer,
+    // but paint them far more subtly than surface track — the audit's
+    // "ondergrondse metro leest als bovengrondse kaartinhoud" finding traced
+    // to v1's white 24×sf casing halo under the 16.5×sf coloured fill, the
+    // same bold double-stroke used for at-grade track. Tunnels here drop the
+    // casing entirely, use a thinner dashed single stroke (dashes are the
+    // conventional transit-map signal for "underground") and paint at low
+    // opacity. The line's own colour stays (no grey rail_service-style mute):
+    // unlike a depot spur, a metro tunnel IS the public route, so a rider
+    // tracing a coloured line across the city still needs to see which line
+    // continues below ground. Grouped per line for the same reason — one
+    // generic "tunnel" bucket would erase that identity.
+    function renderMetroTunnelGroup(tunnelWays, ctx) {
+      const sf = getScaleFactor(ctx.W), eps = getEps();
+      const lineMap = new Map();
+      tunnelWays.forEach(el => {
+        if (el.type !== 'way' || !el.geometry?.length) return;
+        const key = el.tags?.ref || el.tags?.name || el.tags?.colour || el.tags?.color || '_default';
+        if (!lineMap.has(key)) lineMap.set(key, { color: el.tags?.colour || el.tags?.color || '#999999', ways: [] });
+        lineMap.get(key).ways.push(el);
+      });
+      let groups = '';
+      lineMap.forEach((line, key) => {
+        let paths = '';
+        line.ways.forEach((el, i) => {
+          const s = dpSimplify(el.geometry.map(g => ctx.pr(g.lat, g.lon)), eps);
+          if (s.length < 2) return;
+          let d = `M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
+          for (let j = 1; j < s.length; j++) d += `L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
+          const name = el.tags?.name || el.tags?.ref || key;
+          const pid = ctx.uid(safeName(name !== '_default' ? `${name}_tunnel` : `metro_tunnel_${el.id || i}`));
+          const lbl = escXml(`${name !== '_default' ? name : 'Metro'} (tunnel)`);
+          paths += `\n      <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
+        });
+        if (!paths) return;
+        const lidBase = safeName(key !== '_default' ? key : 'metro_default');
+        const gid = ctx.uid(`metro_${lidBase}_tunnel`);
+        const llbl = escXml(`Metro — ${key !== '_default' ? key : 'Metro line'} (tunnel)`);
+        groups += `\n  <g id="${gid}" inkscape:label="${llbl}" inkscape:groupmode="layer" fill="none" stroke="${line.color}" stroke-width="${(7 * sf).toFixed(2)}" stroke-linecap="butt" stroke-linejoin="round" stroke-dasharray="${(9 * sf).toFixed(2)},${(6 * sf).toFixed(2)}" opacity="0.4">${paths}\n  </g>`;
+      });
+      return groups;
+    }
     // ── Metro service filter + ref normalization (AF-05c) ─────────────────
     // Two v2-only, v1-frozen rules over the metro fetch, both measured on the
     // Paris bbox (167 subway ways):
@@ -3127,8 +3170,8 @@ self.onmessage = function(event) {
     //     schematic line map has no use for depot geometry; the depot AREA
     //     still shows via the landuse=railway fallback patch. Unlike rail/tram
     //     above, tunnels are NOT filtered here — metro tunnel main ways render
-    //     deliberately (pending AF-05d), so this branch must not touch
-    //     isTunnelElement.
+    //     deliberately, split out and restyled by renderMetroTunnelGroup below
+    //     (AF-05d), so this branch must not drop isTunnelElement ways.
     //  2. Ref normalization: v1's buildMetroLayer groups by
     //     ref||name||colour||color, so a way carrying `name` but no `ref`
     //     fragments its line into a second, differently-coloured group
@@ -3184,7 +3227,20 @@ self.onmessage = function(event) {
           : { ...tags, colour: stableColor };
         return { ...el, tags: stableTags };
       });
-      return renderLayerSVG({ layer: result.layer, data: { elements: processed } }, ctx);
+      // AF-05d split: surface ways still go through v1's buildMetroLayer
+      // untouched (byte-identical output for any frame with no tunnel ways),
+      // tunnel ways get the muted per-line treatment above. Appended as
+      // sibling line-groups inside the same outer "metro" layer wrapper, so
+      // the editor still shows one "Metro / subway" layer.
+      const surfaceWays = processed.filter(el => !isTunnelElement(el));
+      const tunnelWays = processed.filter(el => isTunnelElement(el) && elementInBbox(el, ctx.b));
+      const surfaceSvg = renderLayerSVG({ layer: result.layer, data: { elements: surfaceWays } }, ctx);
+      const tunnelGroups = renderMetroTunnelGroup(tunnelWays, ctx);
+      if (!tunnelGroups) return surfaceSvg;
+      if (!surfaceSvg) {
+        return `  <g id="metro" inkscape:label="Metro / subway" inkscape:groupmode="layer">${tunnelGroups}\n  </g>\n`;
+      }
+      return surfaceSvg.replace(/\n {2}<\/g>\n$/, `${tunnelGroups}\n  </g>\n`);
     }
     return renderLayerSVG(result, ctx);
   }

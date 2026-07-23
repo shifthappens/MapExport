@@ -114,7 +114,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
-| Ondergrondse metro als zichtbare overlay | NEEDS_COEN | AF-05d beslisgate; huidige keuze is bewust in de engine |
+| Ondergrondse metro als zichtbare overlay | FIXED | AF-05d (2026-07-23): Coen koos "zichtbaar maar subtieler"; geen casing, gestreepte lijn, lagere opacity, lijnkleur behouden; `tests/metro-tunnel.mjs` |
 | Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): aparte water-/groenclips; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
@@ -429,11 +429,32 @@ AF-08/netwerksessie; AF-04 blijft open tot die gate.*
   nul significante kale renderdekking. De Paris-crop toont geen technische
   serviceblobs of dubbele memberlijnen; overlevende publiekslijnen blijven
   visueel onderscheiden. Gate `PASS`.*
-- [ ] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
+- [x] **AF-05d — metro-tunnelbesluit.** `NEEDS_COEN`: kies expliciet tussen
   (a) tunnels in de zichtbare Metro-laag behouden maar veel subtieler maken,
   (b) tunnels standaard verbergen en als editorlaag bewaren, of (c) alleen
   relevante route-/stationinformatie tonen. De huidige bewuste tunneluitzondering
-  mag niet stilzwijgend als “bugfix” verdwijnen.
+  mag niet stilzwijgend als “bugfix” verdwijnen. *Besluit (Coen, 2026-07-23):
+  optie (a). Afgerond dezelfde dag: v2 splitst metro-tunnelways na de
+  AF-05c-service-/refpas eruit en rendert ze via een nieuwe v2-only functie in
+  plaats van v1's `buildMetroLayer` — geen witte casing-halo, één 7×sf
+  gestreepte stroke (dash = gangbare transitkaart-conventie voor "ondergronds")
+  op opacity 0.4, lijnkleur behouden (niet grijs zoals `rail_service`, want een
+  tunnel IS de publiekslijn). Per lijn gegroepeerd als sibling van de bestaande
+  `metro_<lijn>`-groep (`metro_<lijn>_tunnel`), teruggespliced in dezelfde
+  buitenste Metro-laagwrapper; een frame zonder tunnels blijft byte-identiek
+  aan v1. Offline bewijs: nieuwe `tests/metro-tunnel.mjs` (18 checks: gemengde
+  lijn met zowel oppervlak- als tunnelsegment, volledig ondergrondse lijn,
+  synthese-pad zonder oppervlaktemetro, byte-identiek zonder tunnels,
+  determinisme); twee bestaande `tests/metro-dedup.mjs`-checks aangepast aan de
+  nieuwe groepsnaam/structuur (waren stilzwijgend achterhaald, niet gebroken).
+  Cached Paris-vergelijking (dezelfde crop, cache-only, 10/10 hits, 0.000% bare,
+  0 lintfouten) bevestigt het audit-beeld direct: bij Place de Rungis toont de
+  vóór-versie metrolijn 6's korte tunnellus als dikke ononderbroken lijn die de
+  rotonde/het park volledig overtekent; de ná-versie toont dezelfde lus als
+  dunne gestreepte lijn, terwijl het echte verhoogde spoor elders in de crop
+  onveranderd dik/vol blijft. ENGINE-V2.md §4/§7 geamendeerd. Door O
+  geïmplementeerd; externe ChatGPT-agentreview volgt buiten deze sessie (geen
+  Claude-reviewer gespawned, op Coens instructie).*
 
 **Acceptatie:** Oulu/Paris-yards lezen als spoorinfrastructuur en niet als zwarte
 moirémassa; een gewoon spoor blijft herkenbaar; metro heeft geen dubbele

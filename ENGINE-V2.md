@@ -255,9 +255,26 @@ Load-bearing relations, do not reorder casually:
   painting a second palette-coloured fragment group. Names shared by multiple
   refs are deliberately not guessed. The fallback palette is assigned against
   the original group keys before filtering, so removing a service/fragment
-  group never recolours unrelated surviving public lines. Main metro tunnels
-  remain visible pending AF-05d; v1 is unchanged. Guarded offline by
-  `tests/metro-dedup.mjs`.
+  group never recolours unrelated surviving public lines. v1 is unchanged.
+  Guarded offline by `tests/metro-dedup.mjs`.
+- **Metro tunnel treatment** (AF-05d, v2-only, Coen 2026-07-23): tunnels stay
+  in the visible Metro layer — not hidden, not a route-only schematic — but
+  paint far more subtly than surface track. The audit's "ondergrondse metro
+  leest als bovengrondse kaartinhoud" finding traced to v1's white 24×sf
+  casing halo under the 16.5×sf coloured fill, the same bold double-stroke
+  used for at-grade track. Tunnel ways are split out after the AF-05c
+  service-filter/ref-normalization pass and render through a v2-only
+  function instead of v1's `buildMetroLayer`: no casing, a single 7×sf
+  dashed stroke (dashes are the conventional transit-map cue for
+  "underground") at opacity 0.4, keeping the line's own colour (not muted to
+  grey like `rail_service`) — unlike a depot spur, a tunnel IS the public
+  route, so a rider tracing a coloured line still needs to see which line
+  continues below ground. Grouped per line, spliced back in as sibling
+  groups inside the same outer Metro layer v1 built for the surface ways
+  (regex-anchored injection before the wrapper's closing tag; a frame with
+  no surface metro ways at all synthesizes the wrapper). A frame with no
+  tunnel ways renders byte-identical to v1. Guarded offline by
+  `tests/metro-tunnel.mjs`.
 
 ## 5. AREA_FEATURES and the named-green rule
 
@@ -424,6 +441,12 @@ Inside the Metro layer, AF-05c keeps the existing ref-based line subgroup IDs
 stable and folds an unambiguously named ref-less member into that same group.
 Technical `service=*` geometry gets no SVG object at all; an ambiguous name
 keeps its own subgroup rather than being merged into the wrong public line.
+A line's tunnel segments (AF-05d) get their own group, `metro_<line>_tunnel`,
+a sibling of that line's regular `metro_<line>` group directly under the
+Metro layer (not nested inside it) — a designer can select, restyle or
+delete a line's underground portion without touching its surface track.
+Named tunnel paths keep their name with a "(tunnel)" suffix; unnamed ones
+read "Metro (tunnel)".
 
 Rural settlement names render as their own **"Place names"** layer
 (`id="place_labels"`, AF-04), built from the place_nodes fetch that also

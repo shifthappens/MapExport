@@ -72,6 +72,10 @@ echo "== metro-dedup (offline, engine v2 public-line grouping + service filter) 
 node tests/metro-dedup.mjs
 
 echo
+echo "== metro-tunnel (offline, engine v2 AF-05d tunnel treatment) =="
+node tests/metro-tunnel.mjs
+
+echo
 echo "== editor-structure (offline, AF-07a tram labels + city-blocks sub-groups) =="
 node tests/editor-structure.mjs
 

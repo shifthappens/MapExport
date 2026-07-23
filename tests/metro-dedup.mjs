@@ -16,6 +16,12 @@
 //     shallow copy, never mutating the cached element. A name mapping to
 //     more than one distinct ref is ambiguous and is never merged.
 //
+// Tunnel ways are NOT filtered here (unlike service ways) — they still
+// render, but AF-05d pulls them into their own muted per-line group instead
+// of v1's full casing+fill treatment. That styling/splice contract has its
+// own dedicated coverage in tests/metro-tunnel.mjs; this file only checks
+// that a tunnel way still produces SOME output post-dedup.
+//
 // Fixtures modeled on the measured Paris subway bbox (167 ways): a two-way
 // main line (ref+name), a ref-less straggler sharing that line's name, an
 // unnamed service=yard way, a named service=spur way, a ref+name-carrying
@@ -108,7 +114,8 @@ const namedSpur = way({ railway: 'subway', service: 'spur', name: 'Raccordement 
 const crossoverRefCarrying = way({ railway: 'subway', service: 'crossover', ref: '6', name: 'Métro 6' },
   [pt(0.24, 0.55), pt(0.24, 0.60)]);
 
-// Tunnel main way — must still render in v2 (pending AF-05d).
+// Tunnel main way — must still render in v2, in its own muted tunnel group
+// (AF-05d; see tests/metro-tunnel.mjs for the styling/splice contract itself).
 const tunnelMain = way({ railway: 'subway', ref: '7', name: 'Métro 7', tunnel: 'yes' },
   [pt(0.30, 0.05), pt(0.30, 0.45)]);
 
@@ -206,8 +213,11 @@ check('ambiguous straggler still renders as its own fragment (by name key)',
 check('ambiguous straggler group differs from metro_1 / metro_2',
   !group1.includes('metro_M_tro_X') && !group2.includes('metro_M_tro_X'));
 
-// ── (e) byte-identical to v1 for clean input (no service, no stragglers) ──
-const cleanFixture = [mainA, mainB, tunnelMain];
+// ── (e) byte-identical to v1 for clean input (no service, no stragglers,
+// no tunnels — AF-05d gives tunnel ways their own v2-only treatment, so a
+// tunnel way in the fixture would no longer match v1's output byte-for-byte;
+// that split is covered separately in tests/metro-tunnel.mjs) ─────────────
+const cleanFixture = [mainA, mainB];
 const ctxClean = X.buildSVGContext(bbox, W, null, { illustratorCompatible: false });
 const expectedMetro = X.renderLayerSVG({ layer: metroLayer, data: { elements: clone(cleanFixture) } }, ctxClean);
 const svgClean = X2.buildSVG(buildResults(cleanFixture), bbox, W, null, { illustratorCompatible: false });
@@ -224,13 +234,30 @@ check('v1 builder: unnamed service=yard way still renders untouched',
 check('v1 builder: named spur way keeps rendering', v1Metro.includes('Raccordement'));
 check('v1 builder: crossover way keeps rendering', v1Metro.includes('Métro 6'));
 
-// ── (g) tunnel main ways still render in v2 ───────────────────────────────
-check('tunnel main way (ref 7) still renders in v2', svg.includes('metro_7') && svg.includes('Métro 7'));
+// ── (g) tunnel main ways still render in v2, in their own tunnel group ────
+// (full styling/splice contract covered in tests/metro-tunnel.mjs; here we
+// just confirm AF-05c's service-filter/dedup pass doesn't eat the tunnel way
+// and that v1 stays frozen — it still renders ref 7 with the full,
+// un-muted casing+fill signature the tunnel treatment deliberately departs
+// from).
+const v2Tunnel7 = extractGroup(svg, 'metro_7_tunnel');
+check('tunnel main way (ref 7) renders in its own metro_7_tunnel group',
+  v2Tunnel7.length > 0 && v2Tunnel7.includes('Métro 7'));
+check('no surface metro_7 group exists (ref 7 has no surface ways in this fixture)',
+  !svg.includes('<g id="metro_7"'));
 const v1Metro7 = extractGroup(v1MixedSvg, 'metro_7');
-const v2Metro7 = extractGroup(svg, 'metro_7');
-const strokeColor = group => group.match(/_fill"[^>]*stroke="([^"]+)"/)?.[1];
-check('surviving public-line palette colour stays stable after service groups drop',
-  strokeColor(v2Metro7) === strokeColor(v1Metro7) && !!strokeColor(v2Metro7));
+check('v1 stays frozen: tunnel way still gets the full un-muted casing+fill group',
+  v1Metro7.includes('metro_7_casing'));
+// The AF-05c palette-stability guarantee: v2's stableColors map is built from
+// v1's own would-be assignment across the UNFILTERED element set, so ref 7
+// must land on the same colour it would get from v1 rendering everything
+// (service ways included) — not a colour shifted by the dropped groups. Ref
+// 7 is tunnel-only in this fixture, so its surviving v2 colour now lives on
+// the tunnel group rather than a `_fill` sub-group.
+const v1Color7 = v1Metro7.match(/_fill"[^>]*stroke="([^"]+)"/)?.[1];
+const v2TunnelColor7 = v2Tunnel7.match(/<g[^>]*\sstroke="([^"]+)"/)?.[1];
+check('surviving public-line palette colour stays stable after service groups drop (ref 7)',
+  !!v1Color7 && v1Color7 === v2TunnelColor7);
 
 // ── (h) no duplicate SVG ids ──────────────────────────────────────────────
 check('no duplicate SVG ids (mixed fixture)', findDuplicates(extractIds(svg)).length === 0);

@@ -1,40 +1,45 @@
 # Active checkpoint
 
-- **Updated:** 2026-07-22
+- **Updated:** 2026-07-23
 - **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`, tussen maintenance
   Sprint 2 (`COMPLETE`) en Sprint 3 (`PLANNED`).
-- **Unit:** v2 face-runtime optimizations — PERF-03 + PERF-04 — `COMPLETE`
-  (2026-07-22; implemented, independently reviewed, one confirmed reliability
-  finding fixed and re-verified — see plan's Result section).
+- **Unit:** AF-05d — metro-tunnelbesluit — `COMPLETE` (2026-07-23; Coen koos
+  optie (a) "zichtbaar maar subtieler", O implementeerde en verifieerde
+  dezelfde dag).
 - **Owner/route:** O direct; geometry/classification invariants require the
   engine-v2 contract to remain exact.
-- **Completed checkpoint:** PERF-03 (spatial index over the occlusion-cull
-  covering union) and PERF-04 (spatial index + verdict reuse for
-  mergeGreenRemainder/isUrbanPiece/isGreenOpenPiece) are implemented per
-  `plans/2026-07-21_v2-face-runtime-next-optimizations.md`. Warm Tilburg
-  worker time: 38.8 s (PERF-01/02 baseline) → ~3.1 s median (96.8% reduction
-  from the original 97.6 s pre-PERF-01 baseline). Reference-vs-optimized
-  parity confirmed by SHA-256/diff on real exports for all seven validation
-  cities (Tilburg, Ghent, Paris, Bremerhaven, Oulu, Nièvre, Erfurt) — every
-  trail SVG differs from the pre-session committed version by exactly the
-  export-date metadata line. PERF-04's measured saving (~350 ms) was smaller
-  than the plan's ~1–2 s estimate; reported honestly per the plan's own
-  instruction rather than chased with unplanned `subtractVoid` indexing (see
-  the plan's "Result" section for the full accounting). Full details, phase
-  timings and command evidence: see the "Result (2026-07-22)" section
-  appended to the plan.
-- **Next action:** Resume the roadmap task selected by Coen.
-- **Changed for current unit:** `engine-v2.js`, `tests/v2-face-runtime-benchmark.mjs`,
-  `CHANGELOG.md`, the implementation plan and `plans/ACTIVE.md`, plus the
-  newest validation SVG per city (all seven, date-stamp-only diff).
-- **Latest checks:** `node --check engine-v2.js`; `node
-  tests/v2-face-runtime-benchmark.mjs` (extended fixture: occlusion cull +
-  mergeGreenRemainder spatial-index scenarios, exact reference parity);
-  `OFFLINE_ONLY=1 bash tests/smoke.sh` (full suite, exit 0); `node
-  tests/real-export.mjs <city> --engine=v2` for all seven cities (all pass
-  export/lint/coverage gates, 0.000% bare pixels); `FACE_RUNTIME_OPTIMIZATIONS=0`
-  vs default byte-for-byte SVG comparison for all seven cities.
+- **Completed checkpoint:** metro-tunnelways renderen nu via een nieuwe
+  v2-only functie (`renderMetroTunnelGroup` in `engine-v2.js`) in plaats van
+  v1's `buildMetroLayer`: geen witte casing-halo, één 7×sf gestreepte stroke
+  op opacity 0.4, lijnkleur behouden. Per lijn gegroepeerd als sibling
+  `metro_<lijn>_tunnel` van de bestaande `metro_<lijn>`-groep, teruggespliced
+  in dezelfde buitenste Metro-laagwrapper; een frame zonder tunnels blijft
+  byte-identiek aan v1. Nieuwe `tests/metro-tunnel.mjs` (18 checks) dekt
+  gemengde lijn, volledig-ondergrondse lijn, surface-empty synthesepad en
+  byte-identiteit zonder tunnels; twee bestaande `tests/metro-dedup.mjs`-checks
+  aangepast aan de nieuwe groepsnaam (waren stilzwijgend achterhaald, niet
+  gebroken). Cached Paris cache-only vergelijking (zelfde crop vóór/ná via
+  `git stash` van alleen `engine-v2.js`) bevestigt het audit-beeld direct bij
+  Place de Rungis: vóór = dikke ononderbroken lijn 6-tunnellus over rotonde/
+  park; ná = dunne gestreepte lijn, echt verhoogd spoor elders onveranderd
+  dik/vol. ENGINE-V2.md §4/§7 geamendeerd. Progressiematrix + AF-05d-checkbox
+  in de roadmap bijgewerkt (NEEDS_COEN → FIXED).
+- **Next action:** Resume the roadmap task selected by Coen. Open items:
+  AF-02/03/04's cached-exportgate (uitgesteld naar AF-08), AF-07c
+  (Countryside/Parks & green, `NEEDS_COEN`), AF-07d (parkgrond boven city
+  blocks, implementatie), AF-08 (zeven-steden-eindpoort).
+- **Changed for current unit:** `engine-v2.js`, `tests/metro-dedup.mjs`
+  (2 checks + comments updated), `tests/metro-tunnel.mjs` (new), `tests/smoke.sh`,
+  `CHANGELOG.md`, `ENGINE-V2.md`, the roadmap plan and `plans/ACTIVE.md`, plus
+  the newest Paris validation SVG (date-stamp + metro-tunnel-group diff only).
+- **Latest checks:** `node --check engine-v2.js`; `node tests/metro-dedup.mjs`;
+  `node tests/metro-tunnel.mjs`; `OFFLINE_ONLY=1 bash tests/smoke.sh` (full
+  suite, exit 0); `node tests/real-export.mjs paris --engine=v2` (cache-only,
+  10/10 hits, 0 lint issues, 0.000% bare pixels); visual before/after crop
+  comparison in-browser at the same coordinates.
 - **Decisions/blockers:** none open. The unrelated cache rate-limit marker
-  remains modified (pre-existing, untouched by this unit).
+  remains modified (pre-existing, untouched by this unit). No Claude reviewer
+  subagent spawned for this unit — Coen confirmed an external ChatGPT agent
+  will review the work instead.
