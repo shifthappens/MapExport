@@ -207,15 +207,18 @@ and fallback patches both carry one).
 ## 4. Paint order (bottom → top) and why
 
 ```
-landcover       unnamed farmland/wood/grass tint (countryside + fallback holes, see §5)
 city_blocks     urban cream + hamlet blobs
 fallback_blocks the Uncategorized coverage patches
 water_bodies    incl. the synthetic sea
 waterways       stroked rivers/canals/streams
+landcover       unnamed farmland/wood/grass tint, clipped to its visible remainder (§5)
 parks           named green
 parks_recreation recreation grounds — golf/dog park/sports centre/allotments (§5)
 roads → rail → tram → metro → labels
 ```
+
+The last three form one "Parks & green" render layer (AF-07c) — landcover
+(Countryside) is the first child, then named parks, then recreation grounds.
 
 `transit_stops` is deliberately **not** in v2's layer set (since 2026-07-12):
 the dot symbols cluttered the plate without wayfinding value at this scale.
@@ -223,9 +226,21 @@ v1's layer registry keeps the layer untouched.
 
 Load-bearing relations, do not reorder casually:
 
-- **landcover below blocks**: unnamed woods/meadows must not show inside
-  cities (v1's named-green rule); they surface only where blocks don't paint
-  — countryside faces and fallback holes.
+- **landcover in the Parks & green band, clipped** (AF-07c, Coen 2026-07-23):
+  Countryside used to paint at the very bottom so unnamed woods/meadows stayed
+  invisible inside cities (v1's named-green rule), surfacing only through
+  countryside faces and fallback holes. Coen chose to make "Parks & green" one
+  real render layer, so landcover now paints just below named parks. To keep the
+  rule — and every pixel — intact it no longer relies on paint order for
+  occlusion: the face worker clips each landcover element to its visible
+  remainder = element minus the opaque cover (city blocks ∪ named parks ∪
+  recreation ∪ water bodies ∪ waterway strokes), so the layer is disjoint from
+  everything that used to paint over it and its z-position no longer matters.
+  Fallback blocks are deliberately NOT in that cover (the fallback void already
+  subtracts landcover, so landcover still shows through fallback holes). This is
+  a paint-only clip: no void, classification or coverage figure changes, and the
+  rendered raster is identical within sub-pixel antialiasing (Tilburg before/
+  after: 0 diff blobs at/above the 3×3 mm floor, 0.000% bare preserved).
 - **blocks below water**: a pond in a block is a hole + water paint, no
   heuristic.
 - **junction infill paints first** within the roads layer (the single
@@ -304,26 +319,56 @@ anything that reads cream is neither painted nor rowed.
   would flip genuinely urban faces to fallback en masse. The paint set
   (landcover + grass) and the signal set (landcover only) are split in the face
   worker for exactly this reason. As a
-  paint-only optimization the face worker culls landcover elements that lie
-  fully under the **opaque layers painted above landcover** (§4): a Clipper
-  difference on a finer grid (SCALE=100) of the element minus the covering
-  union, empty → dropped from the render. The covering set is the opaque upper
-  layers — urban + hamlet **city blocks** (cream), **named parks** (green,
-  fillOpacity 1), **recreation grounds** (same opaque green, AF-03b) and
-  **water bodies** (opaque since everything went opaque, 2026-07-12). A wood fully inside a named forest/park was invisible yet
-  survived the old city-blocks-only cull (Tilburg's "invisible forest"); parks
-  in the covering set drop it. Deliberately **excluded**: fallback blocks (the
-  fallback void already subtracts landcover, so a fallback patch is holed
-  exactly where landcover paints — it can never cover it, by construction);
-  waterway strokes and roads (opaque but thin — a river line or street rarely
-  covers a whole landcover polygon, so omitting them only ever KEEPS ink, the
-  conservative direction). Each covering layer contributes its region with its
-  own holes punched (a block's pond, a lake's island) before the regions union,
-  so a hole one layer leaves that another fills stays counted as covered. Any
-  remainder above ~1px² keeps the element, and the cull never touches a
-  subtraction void — so it removes only ink another opaque layer already covers
-  and the coverage promise (§1) is unaffected by construction (measured: Tilburg
-  drops 902 of 3082 paint elements, Erfurt 186 of 265, at 0.000% bare).
+  paint-only pass the face worker computes, per landcover element, a Clipper
+  difference on a finer grid (SCALE=100) of the element minus the **opaque cover
+  painted around landcover** (§4). An element fully under the cover is **culled**
+  (dropped from the render); one the cover only PARTLY hides is **clipped** to
+  the remainder, so it paints exactly its visible shape (AF-07c — this is what
+  lets Countryside sit in the Parks & green band instead of the very bottom
+  without overpainting anything). The covering set is the opaque layers that
+  ACTUALLY PAINT (a `coverPaints` flag per layer, AF-07c P1) — urban + hamlet
+  **city blocks** (cream, only with City blocks on), **named parks** (green,
+  fillOpacity 1), **recreation grounds** (same opaque green, AF-03b), **water
+  bodies** (opaque since everything went opaque, 2026-07-12) and, since AF-07c,
+  **waterway strokes** (the same buffered stroke the renderer paints, so the blue
+  line stays visible now that landcover paints above the Waterways layer). A layer
+  that is switched off is not painted and so is not subtracted — the clip only
+  hides Countryside behind ink that is really there. This also fixes the
+  City-blocks-off case: the face worker normally runs only when City blocks is on,
+  but Countryside still paints in the Parks & green band above water, so with
+  City blocks off (and water/waterways on) a **clip-only** worker pass runs — no
+  faces, blocks or merges, just this clip against the painted cover (which then
+  excludes the unpainted blocks). The worker's result travels to
+  `applyLandcoverOcclusion` **as one whole object** — `computeFacesAsync` resolves
+  with the payload spread, and `doExportV2` never destructures it into per-field
+  locals. That is deliberate and load-bearing: the AF-07c P1 bug was a
+  hand-listed field set that forgot `culledLandcover`, so fully-water-covered
+  Countryside still painted, and no per-end unit test can see a field dropped
+  from such a list. Keep the hand-off object-shaped; `tests/landcover-clip.mjs`
+  Part E guards it with a fake worker. A wood fully
+  inside a named forest/park was invisible yet survived the old
+  city-blocks-only cull (Tilburg's "invisible forest"); parks in the covering set
+  drop it. Deliberately **excluded**: fallback blocks (the fallback void already
+  subtracts landcover, so a fallback patch is holed exactly where landcover
+  paints — it can never cover it, by construction) and roads (opaque but thin,
+  and painted far above this band, so they cover landcover exactly as they always
+  did without needing a clip). A merged element (green-remainder grow) **is**
+  clipped too: its grown shape is `element ∪ (piece − fallbackVoid)`, and the
+  fallback void subtracts only the block VOID (water/green), never the opaque
+  cream blocks/buildings — so the grown ring overlaps them. That was harmless
+  when landcover painted at the bottom, but in the Parks & green band an
+  unclipped merge would hide the standalone buildings on green-open land (Oulu).
+  So a merged element is clipped to the same cover and its clipped grown rings
+  ride back through `greenGroundMerges` (keeping the merge's seam stroke); the
+  block/building paints where the green was trimmed, so coverage is unaffected.
+  Each covering layer contributes its region with its own holes punched (a
+  block's pond, a lake's island) before the regions union, so a hole one layer
+  leaves that another fills stays counted as covered. The pass never touches a
+  subtraction void — it only
+  removes or trims ink another opaque layer already covers — so the coverage
+  promise (§1) is unaffected by construction (measured: Tilburg drops 313 of 733
+  paint elements and clips 252 more, at 0.000% bare, before/after rasters
+  identical within sub-pixel antialiasing).
 - **Recreation grounds** (v2-only, AF-03b): `leisure=golf_course|dog_park|
   sports_centre` plus nameless `landuse=allotments` (a properly named
   allotments already passes the green gate row above) form category
@@ -463,14 +508,31 @@ network (`motorway|trunk|primary|secondary(_link)`) through a local
 corridor grid that no other label family consults. Fixed anchors: a label
 is fully on-canvas or skipped, like feature labels.
 
-Adjacent-in-paint-order layers may share a parent layer group when that moves
-no paint — pure panel organization. Two exist: **"Water"** (water bodies +
-waterways) and, since AF-03b, **"Parks & green"** (`id="parks_green"`) holding
-**"Named parks"** (the v1 parks group, `id` stays `"parks"`, label rewritten
-v2-side so it doesn't repeat the parent's name) and **"Recreation grounds"**
-(`id="parks_recreation"`). "Countryside" (landcover) deliberately stays a
-separate top-level layer — four layers separate it from the parks band, so
-nesting it would reorder paint (Coen, 2026-07-14).
+Adjacent-in-paint-order layers may share a parent layer group. **"Water"**
+(water bodies + waterways) is pure panel organization — it moves no paint.
+**"Parks & green"** (`id="parks_green"`, since AF-03b) holds, in paint order,
+**"Countryside"** (the landcover group, `id` stays `"landcover"`), **"Named
+parks"** (the v1 parks group, `id` stays `"parks"`, label rewritten v2-side so
+it doesn't repeat the parent's name) and **"Recreation grounds"**
+(`id="parks_recreation"`). Countryside joined this parent in AF-07c (Coen
+2026-07-23), superseding the 2026-07-14 call to keep it a separate bottom layer:
+it is now one true render layer, made safe by clipping landcover to its visible
+remainder in the worker (§5) so the move reorders no visible pixel. The parent
+is where the designer selects, recolours or deletes all of the map's green at
+once; each child stays independently selectable. Its **selection switch** is
+merged too (Coen 2026-07-23): in v2 the one "Parks & green" checkbox controls all
+of this group — named parks, recreation grounds, Countryside AND Sand
+(`isSelectedRenderLayer` maps landcover/beach to the parks switch, joining
+recreation). The shared layer panel is v1's and still *renders* a separate
+"Countryside" checkbox — v1 keeps its own toggle, and `script.js` stays frozen
+per §9. So the redundant row is hidden from v2's own file instead:
+`applyMergedCountrysideVisibility` (in `engine-v2.js`, which the deploy strips
+from the production index) hides the `#lyr-landcover` row whenever v2 is the
+selected engine, and shows it again for v1. The input stays in the DOM (default
+on), so `getSelectedLayers` still reports landcover and `isSelectedRenderLayer`
+folds it into the parks switch — the visibility change is UI-only. Guarded by
+`tests/landcover-clip.mjs` (Part D). At cutover the row can be dropped from the
+registry outright.
 
 ## 8. v1 parity quirks, kept deliberately
 

@@ -11,6 +11,21 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-23 — Countryside folds into one "Parks & green" layer on v2 exports
+- V2's "Countryside" (farmland, woods, grass tint) is now a child of the
+  "Parks & green" layer alongside "Named parks" and "Recreation grounds",
+  instead of a separate layer at the very bottom of the stack — so a designer
+  can find, restyle or hide all of the map's green in one place. The map looks
+  the same: Countryside is clipped to the parts that were already visible
+  (never showing inside cities or over water), so the change moves the layer in
+  the editor without repainting a single pixel.
+- The "Parks & green" checkbox now also controls Countryside and Sand in v2, so
+  one switch turns all of the map's green on or off. The now-redundant separate
+  "Countryside" checkbox is hidden from the layer panel while v2 is selected (it
+  stays for v1).
+- Countryside no longer paints over water when "City blocks" is switched off,
+  including where the water fully covers it.
+
 ### 2026-07-23 — Metro tunnels now render subtly on v2 exports
 - Underground metro segments stay on the map but no longer look like bold
   surface lines cutting through streets, parks and water: v2 drops the white

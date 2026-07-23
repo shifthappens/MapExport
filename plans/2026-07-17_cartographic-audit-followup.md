@@ -118,7 +118,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): aparte water-/groenclips; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
-| Countryside versus Parks & green | DEFERRED_DESIGN | Oud CF-03; AF-07c levert alleen beslissing, geen naïeve merge |
+| Countryside versus Parks & green | FIXED | AF-07c (2026-07-23): Coen koos optie (b); Countryside geknipt tot zichtbare rest (worker occlusion-clip) en genest onder "Parks & green" als eerste kind — één renderlaag, één paintpositie, rasterisatie-identiek; merged green ook geknipt (Oulu-gebouwenregressie gevonden+verholpen); `tests/editor-structure.mjs` uitgebreid; 7-steden cache-only sweep 0.000% bare |
 | Parken en stedelijk groen verdwijnen onder city blocks | OPEN | AF-07d: aparte diagnose en contract voor Piushaven en Cobbenhagenpark |
 
 Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
@@ -515,9 +515,78 @@ Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
   beide engines) geeft de paneelnaam een "⚠ "-prefix; kaarttekst en
   Illustrator-uitvoer ongewijzigd. `tests/technical-names.mjs` (33 checks) in
   smoke.sh; ENGINE-V2.md §7 geamendeerd. Door O direct geïmplementeerd.*
-- [ ] **AF-07c — Countryside/Parks & green.** Neem het open CF-03-besluit over.
+- [x] **AF-07c — Countryside/Parks & green.** Neem het open CF-03-besluit over.
   O legt met Coen vast of dit één zichtbare editorgroep met twee paintposities
   blijft of werkelijk één renderlaag wordt. Zonder besluit geen implementatie.
+  *Besluit 2026-07-23: Coen koos optie (b) — werkelijk één renderlaag met één
+  paintpositie, niet enkel een editor-groepering. Implementatie moet dus de
+  paint-order (Countryside onderaan vs. Parks & green als block-hole bovenaan),
+  de void-/hole-rol en de coverage-belofte herontwerpen, niet alleen labels
+  samenvoegen. Implementatie nog te doen.*
+
+  **Implementatie-ontwerp (O, 2026-07-23) — clip-and-move, pixel-identiek.**
+  De enige haalbare gemeenschappelijke paintpositie is de parks-band: named
+  parks MOETEN boven city blocks blijven (named-green-bovenaan-regel, §4), dus
+  Countryside gaat OMHOOG naar die band, niet parks omlaag. Om `landcover` naar
+  boven te verplaatsen zonder één zichtbare pixel te veranderen, wordt elk
+  landcover-element **geknipt tot zijn zichtbare rest** = element − de opake
+  dekkingsunie C, met C = city blocks ∪ named parks ∪ recreation ∪ water bodies
+  ∪ **waterway-strokes**. De occlusion-cull (face worker, ENGINE-V2 §5) berekent
+  die difference vandaag al per element (`element − covering` op CULL_SCALE=100)
+  maar gebruikt hem alleen om volledig verborgen elementen te droppen; de
+  wijziging is de geknipte geometrie te BEWAREN als de te schilderen vorm.
+  Waterway-strokes zitten NIET in de huidige cull-C en moeten worden toegevoegd:
+  in de nieuwe positie schildert Countryside boven de Waterways-laag, dus zonder
+  die subtractie zou een beek/rivier door een bos onder de bostint verdwijnen
+  (complement-regel §3 — subtracteer de stroke exact zoals hij geverfd wordt,
+  `waterwayStrokePaths`, zodat de blauwe lijn doorloopt).
+
+  Omdat Countryside al onzichtbaar was onder blocks, is het eindresultaat
+  **rasterisatie-identiek**: acceptatiecriterium is dat de v2-SVG vóór/ná alleen
+  in laagstructuur + geknipte landcover-paden verschilt en op een magenta pagina
+  0.000% bare blijft. Geen classificatie, geen void/coverage-berekening en geen
+  block-hole-rol van named parks/recreation verandert — alleen z-positie +
+  clip van de landcover-PAINT.
+
+  Decompositie (elk offline testbaar):
+  - **Inc. 1 (geometrie, gedrag-behoudend):** worker geeft per landcover-element
+    de geknipte rest (element − C incl. waterways) terug i.p.v. alleen een
+    cull-boolean; `renderLandcover` schildert die rest. Nog steeds op de
+    bodempositie → pixel-identiek (weggeknipte delen worden toch al door C
+    overschilderd). Dit isoleert het geometrie-/complement-risico.
+  - **Inc. 2 (verplaatsing, structureel):** `landcover` in `layerOrder` vlak
+    vóór `parks` zetten en in `buildSVG` als eerste kind van de bestaande
+    `parks_green`-parent nesten (naast "Named parks"/"Recreation grounds").
+    Omdat de paint na Inc. 1 disjunct is van C, is de move pixel-identiek.
+  - `_mergedRings`-elementen (green-remainder merge): hun gegroeide vorm ligt in
+    ONgedekte rest (daarom gegroeid), dus element − C laat hem intact; clip ook
+    op merged toepassen of merged bewust overslaan — bewijzen dat er geen gat
+    heropent. Grass-rijen (category 'grass') volgen dezelfde behandeling.
+  - Checkbox/selectie: `landcover` blijft een eigen child-checkbox onder de
+    "Parks & green"-parent (zoals recreation nu al onder parks nest); Sand blijft
+    `landcover` erven. Geen selectie-semantiek wijzigen — nog te bevestigen door
+    Coen of de checkbox óók moet samensmelten.
+  - Docs: ENGINE-V2 §4 (paint-order-lijst + load-bearing relaties), §5 (cull →
+    clip) en §7 ("Parks & green"-parent bevat nu Countryside) amenderen;
+    CHANGELOG-entry; offline structuurtest uitbreiden.
+  - **Gate:** verplichte AF-08-stijl cached render-coverage sweep op de zeven
+    steden — 0.000% bare, nul dubbele IDs, geen water/paint-order-regressie.
+
+  **Afgerond 2026-07-23 (lokaal geverifieerd).** Beide increments geïmplementeerd
+  in `engine-v2.js`; `tests/real-export.mjs` (eigen post-worker glue) doorlust
+  `clippedLandcover`. Belangrijke vondst tijdens verificatie: `_mergedRings`
+  (green-remainder grow) mochten NIET worden overgeslagen bij het knippen — de
+  gegroeide vorm subtraheert alleen de block-VOID (water/green), niet de
+  cream-blocks/standalone buildings, dus op de nieuwe positie overschilderde
+  ongeknipte merged-green de gebouwen (zichtbaar in Oulu). Fix: merged-elementen
+  worden nu óók tegen de dekkingsunie geknipt en shippen hun geknipte gegroeide
+  rings via `greenGroundMerges` (seam behouden). Bewijs: 7-steden cache-only
+  v2-sweep allemaal 0.000% bare (10/10 cache-hits, nul Overpass); offline suite
+  10/10 PASS incl. nieuwe `editor-structure`-nestchecks en benchmark
+  reference-pariteit; before/after raster-diff Tilburg (5249px) 0 diff-blobs ≥
+  3×3mm-drempel (alleen 1px-AA-randen), Oulu 4 dunne outline-blobs (<2%
+  fill-ratio, geen compacte regio) + visueel bevestigd dat de gebouwen terug
+  zijn. ENGINE-V2 §4/§5/§7 + CHANGELOG bijgewerkt. Externe ChatGPT-review volgt.
 - [ ] **AF-07d — Parkgrond zichtbaar boven city blocks.** Isoleer de
   selectie- en bindregel voor echte stedelijke parken van de algemene
   countryside/green-laag. Reproduceer met de lokale Tilburg-cache: het

@@ -223,10 +223,38 @@ check('Illustrator mode: sub-groups present, no inkscape: attributes leak',
   /<g id="city_blocks_hamlets"[ >]/.test(svgI) && /<g id="city_blocks_buildings"[ >]/.test(svgI)
   && /<g id="tram_casing"[ >]/.test(svgI) && !svgI.includes('inkscape:'));
 
+// ── (6) AF-07c: Countryside nests inside the "Parks & green" parent ──────
+// A closed forest polygon (Countryside) plus a named park (Named parks) must
+// render as one "Parks & green" layer, Countryside first, both as children of
+// the parent — not as a separate top-level "landcover" layer.
+const ring = [pt(0.10, 0.10), pt(0.10, 0.30), pt(0.25, 0.30), pt(0.25, 0.10), pt(0.10, 0.10)];
+const parkRing = [pt(0.40, 0.40), pt(0.40, 0.60), pt(0.55, 0.60), pt(0.55, 0.40), pt(0.40, 0.40)];
+const greenResults = [
+  { layer: X2.landcoverLayer, data: { elements: [way({ landuse: 'forest' }, ring)] } },
+  { layer: X2.parksLayer, data: { elements: [way({ leisure: 'park', name: 'Testpark' }, parkRing)] } },
+];
+const svgGreen = X2.buildSVG(greenResults, bbox, W, null, { illustratorCompatible: false });
+const parksGreen = extractGroup(svgGreen, 'parks_green');
+check('Parks & green parent group present',
+  /^<g id="parks_green" inkscape:label="Parks &amp; green"/.test(parksGreen));
+check('Countryside (landcover) is nested inside the Parks & green parent',
+  parksGreen.includes('<g id="landcover" inkscape:label="Countryside"'));
+check('Named parks (v1 parks group, relabelled) is nested inside the parent',
+  parksGreen.includes('<g id="parks" inkscape:label="Named parks"'));
+check('paint order inside the parent: Countryside before Named parks',
+  parksGreen.indexOf('<g id="landcover"') !== -1
+  && parksGreen.indexOf('<g id="landcover"') < parksGreen.indexOf('<g id="parks"'));
+check('landcover is NOT emitted as a second top-level layer (only inside the parent)',
+  (svgGreen.match(/<g id="landcover"/g) || []).length === 1);
+check('the forest paints its landcover fill (nesting moved no paint)',
+  /<g id="landcover"[\s\S]*?<path[^>]*fill="/.test(parksGreen));
+check('green document has zero duplicate SVG ids',
+  findDuplicates(extractIds(svgGreen)).length === 0);
+
 console.log('');
 if (failures) {
   console.log(`editor-structure: ${failures} check(s) FAILED`);
   process.exit(1);
 } else {
-  console.log('PASS — editor-structure: tram sub-groups labelled; hamlets/standalone buildings grouped, paint untouched');
+  console.log('PASS — editor-structure: tram sub-groups labelled; hamlets/standalone buildings grouped; Countryside nests in Parks & green; paint untouched');
 }

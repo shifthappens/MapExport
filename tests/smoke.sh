@@ -100,6 +100,10 @@ echo "== v2-cutterless-worker (real ClipperLib worker; SKIPs if no clipper cache
 node tests/v2-cutterless-worker.mjs
 
 echo
+echo "== landcover-clip (real worker; AF-07c occlusion clip geometry; SKIPs w/o clipper) =="
+node tests/landcover-clip.mjs
+
+echo
 echo "== v2-face-runtime-benchmark (real worker parity + opt-in phase timings) =="
 node tests/v2-face-runtime-benchmark.mjs
 

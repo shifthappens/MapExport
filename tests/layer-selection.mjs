@@ -48,9 +48,24 @@ for (const disabled of ids) {
   const plan = X.EngineV2.planLayers(selected);
   assert.equal(plan.selectedIds.has(disabled), false, `v2 records disabled ${disabled}`);
   const renderedIds = X.EngineV2.filterResultsForSelection(sampleResults, selected).map(result => result.layer.id);
-  assert.equal(renderedIds.includes(disabled), false, `v2 omits disabled ${disabled} from the SVG`);
-  if (disabled === 'parks') assert.equal(renderedIds.includes('parks_recreation'), false, 'v2 recreation follows Parks & green');
-  if (disabled === 'landcover') assert.equal(renderedIds.includes('beach'), false, 'v2 sand follows Countryside');
+  // AF-07c: Countryside is folded into "Parks & green", so in v2 the Parks &
+  // green switch controls landcover, recreation AND sand at the MODEL level —
+  // this is the fold that stays true no matter what the landcover checkbox says.
+  // In the UI, v2's own file hides the Countryside row entirely (see
+  // applyMergedCountrysideVisibility, guarded in tests/landcover-clip.mjs); the
+  // frozen v1 panel keeps its separate toggle. Every OTHER checkbox still
+  // controls the SVG.
+  if (disabled === 'landcover') {
+    assert.equal(renderedIds.includes('landcover'), true, 'v2 Countryside follows Parks & green regardless of the (hidden) landcover checkbox');
+    assert.equal(renderedIds.includes('beach'), true, 'v2 Sand follows Parks & green, so the landcover checkbox does not hide it');
+  } else {
+    assert.equal(renderedIds.includes(disabled), false, `v2 omits disabled ${disabled} from the SVG`);
+  }
+  if (disabled === 'parks') {
+    assert.equal(renderedIds.includes('parks_recreation'), false, 'v2 recreation follows Parks & green');
+    assert.equal(renderedIds.includes('landcover'), false, 'v2 Countryside follows Parks & green');
+    assert.equal(renderedIds.includes('beach'), false, 'v2 Sand follows Parks & green');
+  }
 
   if (['rail', 'tram', 'metro', 'transit_stops', 'water_labels', 'street_labels'].includes(disabled)) {
     assert.equal(plan.fetchLayerIds.includes(disabled), false, `v2 does not fetch disabled ${disabled}`);
@@ -75,6 +90,27 @@ assert.equal(
 
 const selectedAreaChildren = X.EngineV2.filterResultsForSelection(sampleResults, all).map(result => result.layer.id);
 assert.equal(selectedAreaChildren.includes('parks_recreation'), true, 'v2 recreation remains with selected Parks & green');
-assert.equal(selectedAreaChildren.includes('beach'), true, 'v2 sand remains with selected Countryside');
+assert.equal(selectedAreaChildren.includes('landcover'), true, 'v2 Countryside remains with selected Parks & green');
+assert.equal(selectedAreaChildren.includes('beach'), true, 'v2 sand remains with selected Parks & green');
+
+// AF-07c P1: the landcover clip must be planned independently of City blocks.
+// With City blocks OFF but Parks & green (Countryside) + water ON, the worker
+// must still run a clip-only pass, and its covering set must mark only painted
+// layers (no blocks). With water AND waterways off there is nothing below
+// Countryside to overpaint, so no clip pass is needed.
+const noBlocks = setSelected(ids.filter(id => id !== 'city_blocks'));
+const noBlocksPlan = X.EngineV2.planLayers(noBlocks);
+assert.equal(noBlocksPlan.needsBlocks, false, 'City blocks off');
+assert.equal(noBlocksPlan.needsLandcoverClip, true, 'Countryside is clipped even with City blocks off (water paints below it)');
+assert.equal(noBlocksPlan.coverPaints.blocks, false, 'covering set excludes blocks when City blocks is off');
+assert.equal(noBlocksPlan.coverPaints.water, true, 'covering set includes water when Water bodies is on');
+
+const greenOnly = setSelected(['parks']);
+const greenOnlyPlan = X.EngineV2.planLayers(greenOnly);
+assert.equal(greenOnlyPlan.needsLandcoverClip, false, 'no clip pass when nothing paints below Countryside (no water/waterways)');
+
+const blocksPlan = X.EngineV2.planLayers(all);
+assert.equal(blocksPlan.needsLandcoverClip, false, 'no separate clip pass when City blocks is on (the block worker already clips)');
+assert.equal(blocksPlan.coverPaints.blocks, true, 'covering set includes blocks when City blocks is on');
 
 console.log(`layer-selection: ${ids.length} v1/v2 toggles honour fetch and render selection`);

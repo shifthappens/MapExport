@@ -180,7 +180,7 @@ function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
   let out = { blocks: [], needsBuildings: false };
   const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
   w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [], greenGroundMerges: msg.greenGroundMerges || [], timings: msg.timings }; };
+  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks, needsBuildings: !!msg.needsBuildings, culledLandcover: msg.culledLandcover || [], clippedLandcover: msg.clippedLandcover || [], greenGroundMerges: msg.greenGroundMerges || [], timings: msg.timings }; };
   w.importScripts = () => vm.runInContext(clipperSrc, w); // ignore URL, eval cached source
   vm.createContext(w);
   vm.runInContext(workerSrc, w); // defines self.onmessage, loads ClipperLib
@@ -292,25 +292,14 @@ if (engineV2) {
   // Paint set = [...landcover, ...grass]; count it (not the signal subset) so
   // before/after are comparable.
   const landcoverBefore = (areaRenderResults.find(r => r.layer.id === 'landcover')?.data.elements || []).length;
-  // Green-remainder merges (before the cull filter reindexes): a merged
-  // element paints the worker's grown rings — its shape unioned with the
-  // coverage remainder of the green-open piece(s) it lies in. Mirrors
-  // doExportV2 in engine-v2.js.
-  if (faceResult.greenGroundMerges && faceResult.greenGroundMerges.length) {
-    const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
-    if (lcResult) {
-      for (const { index, rings } of faceResult.greenGroundMerges) {
-        const el = lcResult.data.elements[index];
-        if (el) lcResult.data.elements[index] = { ...el, _mergedRings: rings };
-      }
-    }
-    console.log(`landcover merge: ${faceResult.greenGroundMerges.length} element(s) grown over green-open coverage remainders`);
-  }
-  if (faceResult.culledLandcover && faceResult.culledLandcover.length) {
-    const cull = new Set(faceResult.culledLandcover);
-    const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
-    if (lcResult) lcResult.data.elements = lcResult.data.elements.filter((_, i) => !cull.has(i));
-  }
+  // Apply the worker's landcover occlusion (merges, clips, culls) through the
+  // engine's own shared helper — the same call doExportV2 makes — so this
+  // harness cannot drift from the production glue (that drift is exactly how a
+  // fully-covered element once survived the clip-only pass, AF-07c P1).
+  const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
+  if (lcResult) lcResult.data.elements = X2.applyLandcoverOcclusion(lcResult.data.elements, faceResult);
+  if (faceResult.greenGroundMerges?.length) console.log(`landcover merge: ${faceResult.greenGroundMerges.length} element(s) grown over green-open coverage remainders`);
+  if (faceResult.clippedLandcover?.length) console.log(`landcover clip: ${faceResult.clippedLandcover.length} element(s) clipped to visible remainder under Parks & green cover`);
   const landcoverAfter = (areaRenderResults.find(r => r.layer.id === 'landcover')?.data.elements || []).length;
   console.log(`landcover cull: ${landcoverBefore} -> ${landcoverAfter} elements (${landcoverBefore - landcoverAfter} fully hidden under city blocks)`);
   const n = k => v2Blocks.filter(b => (b.kind || 'urban') === k).length;

@@ -192,11 +192,16 @@ const EngineV2 = (() => {
   // export) but the same z-band: both stay BELOW water/waterways/parks so a
   // missed overlap can never show cream over water.
   const layerOrder = [
-    'landcover',
     'city_blocks',
     'fallback_blocks',
     'water_bodies',
     'waterways',
+    // Countryside (landcover) paints here, at the bottom of the Parks & green
+    // band (AF-07c) — its elements are clipped to the visible remainder under
+    // the opaque cover (blocks/parks/recreation/water/waterway strokes), so this
+    // z-position is pixel-identical to the old bottom position while making
+    // Countryside a real child of the "Parks & green" parent (see buildSVG).
+    'landcover',
     'parks',
     'parks_recreation',
     'beach',
@@ -209,12 +214,14 @@ const EngineV2 = (() => {
     'street_labels',
   ];
 
-  // v2-only paint groups inherit the closest user-facing layer switch. They
-  // have no separate checkbox, so recreation is part of Parks & green and sand
-  // is part of Countryside.
+  // v2 folds Countryside into the "Parks & green" layer (AF-07c, Coen
+  // 2026-07-23), so a single Parks & green switch controls all of v2's green:
+  // named parks, recreation grounds, Countryside (landcover) and Sand (beach).
+  // The shared panel still carries a v1 "Countryside" checkbox (v1 keeps its own
+  // separate toggle, frozen); in v2 that checkbox no longer gates Countryside —
+  // the Parks & green checkbox does. Recreation already followed Parks & green.
   function isSelectedRenderLayer(id, selectedIds) {
-    if (id === recreationLayer.id) return selectedIds.has(parksLayer.id);
-    if (id === beachLayer.id) return selectedIds.has(landcoverLayer.id);
+    if (id === recreationLayer.id || id === landcoverLayer.id || id === beachLayer.id) return selectedIds.has(parksLayer.id);
     return selectedIds.has(id);
   }
 
@@ -226,8 +233,28 @@ const EngineV2 = (() => {
   function planLayers(selectedLayerIds = getAllSelectedLayers().map(layer => layer.id)) {
     const selectedIds = new Set(selectedLayerIds);
     const needsBlocks = selectedIds.has(cityBlocksLayer.id);
+    // Countryside (landcover) now follows the Parks & green switch (AF-07c).
+    const landcoverPaints = isSelectedRenderLayer(landcoverLayer.id, selectedIds);
     const needsAreaFeatures = needsBlocks ||
-      ['water_bodies', 'waterways', 'parks', 'landcover'].some(id => selectedIds.has(id));
+      ['water_bodies', 'waterways', 'parks'].some(id => selectedIds.has(id));
+    // Which opaque layers actually paint at/below Countryside, so the worker's
+    // occlusion clip subtracts ONLY painted cover (AF-07c P1). Blocks paint only
+    // with City blocks on; green/recreation follow Parks & green; water/waterways
+    // their own switches. Countryside sits above water/waterways and below/beside
+    // parks/recreation, so water and waterways are the layers it could overpaint.
+    const coverPaints = {
+      blocks: needsBlocks,
+      water: selectedIds.has(waterBodiesLayer.id),
+      waterways: selectedIds.has(waterwaysLayer.id),
+      green: selectedIds.has(parksLayer.id),
+      recreation: selectedIds.has(parksLayer.id),
+    };
+    // The occlusion clip needs the face worker. With City blocks ON it already
+    // runs (block computation). With City blocks OFF, Countryside still paints in
+    // the Parks & green band above water/waterways, so it must be clipped there
+    // too or it would paint over them — run a clip-only worker pass. No painted
+    // water/waterway means nothing below Countryside to overpaint, so skip it.
+    const needsLandcoverClip = landcoverPaints && !needsBlocks && (coverPaints.water || coverPaints.waterways);
     const directLayers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer];
     const fetchLayers = directLayers.filter(layer => selectedIds.has(layer.id));
     // Roads are also the block cutter, but are not rendered unless selected.
@@ -240,6 +267,8 @@ const EngineV2 = (() => {
     return {
       selectedIds,
       needsBlocks,
+      needsLandcoverClip,
+      coverPaints,
       fetchLayers,
       fetchLayerIds: fetchLayers.map(layer => layer.id),
     };
@@ -958,6 +987,15 @@ self.onmessage = function(event) {
   const cutterLines = data.cutterLines;
   const buildingCenters = data.buildingCenters;
   const clusterRings = data.clusterRings;
+  // clipOnly (AF-07c P1): City blocks is OFF but Countryside still paints in the
+  // Parks & green band, so it must be clipped against the painted water/parks or
+  // it overpaints them. In this mode we skip all face/block/hamlet/merge work and
+  // only run the occlusion clip (computeOcclusion) with no blocks and no merges.
+  const clipOnly = data.clipOnly === true;
+  // coverPaints marks which opaque cover layers actually paint, so the clip
+  // subtracts ONLY painted cover (absent → all true, for the full-export path and
+  // the offline harnesses that predate this field).
+  const coverPaints = data.coverPaints || { blocks: true, water: true, waterways: true, green: true, recreation: true };
   // Rural place nodes ({x,y,tier,name}, in export px), for grounding hamlet
   // blobs against attested settlements (see the hamlet face loop below).
   const placeNodes = data.placeNodes || [];
@@ -1361,6 +1399,17 @@ self.onmessage = function(event) {
       netAreaScaled, subject, bounds,
       isCountryside: intersectArea(subject, openLandVoid, bounds) / landArea >= COUNTRYSIDE_MIN_OPEN_SHARE,
     };
+  }
+
+  // clipOnly (AF-07c P1): City blocks is off, so there are no blocks, hamlets or
+  // green-remainder merges to compute — only the landcover clip against the
+  // painted water/parks cover. Skip the whole face pipeline and run the clip with
+  // empty blocks and no merges, so Countryside does not overpaint water/waterways
+  // in the Parks & green band.
+  if (clipOnly) {
+    const occ = computeOcclusion([], new Set());
+    self.postMessage({ type: 'done', blocks: [], culledLandcover: occ.culledLandcover, clippedLandcover: occ.clippedLandcover, greenGroundMerges: occ.greenGroundMerges });
+    return;
   }
 
   const countrysideStarted = benchmark ? Date.now() : 0;
@@ -1930,30 +1979,38 @@ self.onmessage = function(event) {
 
   if (benchmark) benchmarkTimings.classificationIntersections = Date.now() - classificationStarted;
 
-  // ── Occlusion cull: landcover fully hidden under painted OPAQUE layers ──
-  // Landcover sits at the BOTTOM of the paint order (§4). A landcover polygon
-  // whose whole area lies under the union of the OPAQUE layers painted above it
-  // is invisible, so it is dropped from PAINT only. This never touches any
-  // subtraction void (blockVoid/fallbackVoid are already built), so coverage —
-  // the geometric lint and the render check — is unaffected: the cull only
-  // removes ink another opaque layer already covers. Covering set = the opaque
-  // painted layers above landcover: urban + hamlet city blocks (cream), named
-  // parks (green, fillOpacity 1) and water bodies (opaque since 2026-07-12 —
-  // preset.waterOp is 1). Deliberately EXCLUDED: fallback blocks (fallbackVoid
-  // already subtracts landcover, so a fallback patch is holed exactly where
-  // landcover paints — it can never cover it, by construction); waterway strokes
-  // and roads (opaque but thin — a river line or street rarely covers a whole
-  // landcover polygon, so omitting them only keeps ink, never adds a bare gap:
-  // conservative). Water is semi-consequential here mainly for woods that run
-  // into a lake/dock; the big new win is a wood fully inside a NAMED forest/park
-  // (Tilburg's "invisible forest" observation). Each covering layer contributes
-  // its region with HOLES already punched (a pond hole in a block, an island
-  // hole in a lake) BEFORE the regions are unioned, so a hole in one layer that
-  // another layer fills over stays counted as covered. A finer grid than the
-  // cutter's SCALE (100 vs 10) so the "is it empty?" test does not cull on
-  // coarse rounding, and any remainder above ~1px² keeps the element.
+  // ── Occlusion clip: landcover under the painted opaque cover (§5, AF-07c) ──
+  // Countryside (landcover) paints in the Parks & green band, above water and
+  // waterways. Each element is measured against the union of the opaque cover
+  // PAINTED at/below it, on a finer grid than the cutter (CULL_SCALE 100 vs SCALE
+  // 10). Fully covered → dropped (culledLandcover); partly covered → clipped to
+  // the visible remainder (clippedLandcover), so the layer is disjoint from that
+  // cover and its z-position moves no pixel; nothing covering it → raw geometry,
+  // unchanged. The covering set follows coverPaints (AF-07c P1) so only layers
+  // that actually paint are subtracted: city blocks (cream, City blocks on),
+  // named parks + recreation (opaque green), water bodies, and waterway strokes
+  // (the same buffered stroke the renderer paints, so a river through a wood keeps
+  // its blue line). Deliberately EXCLUDED even when painted: fallback blocks (the
+  // fallback void already subtracts landcover, so a fallback patch is holed
+  // exactly where landcover paints — it can never cover it) and roads (thin, and
+  // painted far above this band). A MERGED element (green-remainder grow) is
+  // clipped too, not skipped — its grown shape overlaps opaque blocks/buildings
+  // the merge did not subtract and would hide them here (Oulu); its clipped grown
+  // rings ride back via greenGroundMerges (keeping the merge seam). Each covering
+  // layer contributes its region with its own holes punched before the union, so
+  // a hole one layer leaves that another fills stays covered. The pass never
+  // touches a subtraction void — only removes or trims ink another opaque layer
+  // already covers — so coverage (§1) is unaffected. Any remainder above ~1px²
+  // keeps the element. Called from the normal path with the real blocks/merges,
+  // and from the clipOnly path (City blocks off) with none.
+  function computeOcclusion(blocks, mergedLandcover) {
   const CULL_SCALE = 100;
   const culledLandcover = [];
+  const clippedLandcover = [];
+  // Merged (green-remainder) elements paint through greenGroundMerges, not
+  // clippedLandcover, so their clipped grown rings ride back separately (index →
+  // px rings; [] means fully covered → paints nothing). Keeps the merge seam.
+  const mergedClipRings = new Map();
   const occlusionCoverBuildStarted = benchmark ? Date.now() : 0;
   if (landcoverElements.length) {
     const scaleRingCull = ring => {
@@ -1975,9 +2032,11 @@ self.onmessage = function(event) {
     };
     // Block region (urban + hamlet + standalone buildings): union of outers
     // minus their pond holes. Buildings are opaque cream above landcover too,
-    // so landcover fully under one is just as invisible.
+    // so landcover fully under one is just as invisible. Only when City blocks
+    // actually paints (coverPaints.blocks) — with it off, blocks are empty here
+    // anyway (clipOnly), but the flag keeps the covering set honest.
     const blockOuters = [], blockHoles = [];
-    for (const blk of blocks) {
+    if (coverPaints.blocks) for (const blk of blocks) {
       if (blk.kind !== 'urban' && blk.kind !== 'hamlet' && blk.kind !== 'building') continue;
       const o = pathDToRing(blk.outer, CULL_SCALE); if (o) blockOuters.push(o);
       for (const hd of (blk.holes || [])) { const h = pathDToRing(hd, CULL_SCALE); if (h) blockHoles.push(h); }
@@ -1998,14 +2057,25 @@ self.onmessage = function(event) {
     }
     // Named parks + water bodies arrive as oriented rings (holes as negatives).
     // Recreation grounds paint the same opaque park green above blocks, so
-    // they occlude landcover exactly like named parks do (AF-03b).
-    const greenRegion = unionOrientedRings([greenPolys]);
-    const waterRegion = unionOrientedRings([waterPolys]);
-    const recreationRegion = unionOrientedRings([recreationPolys]);
+    // they occlude landcover exactly like named parks do (AF-03b). Each is in the
+    // covering set only when its layer actually paints (coverPaints, AF-07c P1).
+    const greenRegion = coverPaints.green ? unionOrientedRings([greenPolys]) : new Clipper.Paths();
+    const waterRegion = coverPaints.water ? unionOrientedRings([waterPolys]) : new Clipper.Paths();
+    const recreationRegion = coverPaints.recreation ? unionOrientedRings([recreationPolys]) : new Clipper.Paths();
+    // Waterway strokes join the covering set (AF-07c): Countryside paints ABOVE
+    // the Waterways layer, so a river/stream crossing a wood must clip the wood
+    // (else the wood tint would hide the blue line). Subtract the same buffered
+    // stroke the renderer paints (complement rule §3). waterwayStrokePaths are
+    // built at SCALE (10); rescale to CULL_SCALE (100) — an exact integer ×10.
+    const CULL_RESCALE = CULL_SCALE / SCALE;
+    const waterwayRegion = [];
+    if (coverPaints.waterways) for (const wp of waterwayStrokePaths) {
+      if (wp.length >= 3) waterwayRegion.push(wp.map(p => ({ X: p.X * CULL_RESCALE, Y: p.Y * CULL_RESCALE })));
+    }
     // Covering union of the opaque regions.
     const coverClipper = new Clipper.Clipper();
     let hasCover = false;
-    for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
+    for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion, waterwayRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
     const covering = new Clipper.Paths();
     if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
     // Spatial index over the finished covering union (PERF-03): 733 landcover
@@ -2025,36 +2095,58 @@ self.onmessage = function(event) {
     const occlusionElementDifferencesStarted = benchmark ? Date.now() : 0;
     if (coveringIndex) {
       const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
+      const cullPathsToRings = (paths) => {
+        const rings = [];
+        for (const p of paths) {
+          const r = [];
+          for (const pt of p) r.push([pt.X / CULL_SCALE, pt.Y / CULL_SCALE]);
+          if (r.length >= 3) rings.push(r);
+        }
+        return rings;
+      };
       for (const lc of landcoverElements) {
-        // A merged element carries a green-open piece's coverage remainder —
-        // definitionally exposed ink, never cullable.
-        if (mergedLandcover.has(lc.index)) continue;
+        // A merged element (green-remainder grow) is clipped too, NOT skipped:
+        // its grown rings fill a green-open coverage remainder that the merge
+        // built by subtracting only the block VOID (water/green), so the grown
+        // shape still overlaps opaque city blocks and standalone buildings.
+        // Painted below blocks that was harmless; now that landcover paints in
+        // the Parks & green band, an unclipped merge would hide those buildings
+        // (Oulu). Clip it to the same cover and ship the clipped grown rings back
+        // through greenGroundMerges (keeping its seam stroke); never cull it.
+        const isMerged = mergedLandcover.has(lc.index);
         const subj = [];
         for (const ring of (lc.rings || [])) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
         if (!subj.length) continue;
+        // rawArea (naive sum of |ring area|, double-counting any self-overlap) is
+        // always >= the true normalized area, so it is both a safe cull floor
+        // (rawArea < EMPTY ⇒ normalized area is too) and a safe "was anything
+        // cut?" ceiling (remArea < rawArea - EMPTY ⇒ the cover genuinely removed
+        // ink; when it did not, keep the raw geometry rather than re-quantize).
+        let rawArea = 0;
+        for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
         const subjectBounds = pathsBounds(subj);
         const candidates = runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
-        // No covering path can reach this element's bounds. A difference
-        // Clipper with zero clip paths just normalizes the subject (NonZero
-        // fill), same as the reference route effectively gets when none of
-        // its candidates geometrically touch the subject -- so building one
-        // here would be exact, just usually wasted work. Two cheap, EXACT
-        // shortcuts cover the common cases without it:
-        //  - rawArea (naive sum of |ring area|, double-counts any overlap
-        //    between the element's own rings) is always >= the true
-        //    normalized area, so rawArea < EMPTY proves the normalized area
-        //    is too -- safe to cull.
-        //  - a single ring cannot overlap itself, so rawArea IS the exact
-        //    normalized area; if that is >= EMPTY, safe to keep.
-        // A multi-ring element whose rawArea lands >= EMPTY is genuinely
-        // ambiguous (over-count could hide a true area below EMPTY) and
-        // falls through to the real Clipper normalization below, exactly
-        // reproducing what the reference route would compute.
+        // No covering path can reach this element's bounds, so it is never
+        // clipped (nothing covers it). A merged element just keeps its full grown
+        // rings (greenGroundMerges default). A plain element can still be a
+        // sub-EMPTY crumb to cull: rawArea (an over-count) settles the two easy
+        // cases exactly — below EMPTY ⇒ cull; a single ring cannot self-overlap so
+        // rawArea is its exact area ⇒ keep. A multi-ring element >= EMPTY is
+        // ambiguous (over-count could hide a true area below EMPTY), so normalize
+        // it (union == its true painted region) and cull only if genuinely empty
+        // — exactly what the reference route computes via a difference here.
         if (!candidates.length) {
-          let rawArea = 0;
-          for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
+          if (isMerged) continue;
           if (rawArea < EMPTY) { culledLandcover.push(lc.index); continue; }
           if (subj.length <= 1) continue;
+          const nc = new Clipper.Clipper();
+          for (const s of subj) nc.AddPath(s, ptSubject, true);
+          const norm = new Clipper.Paths();
+          nc.Execute(ctUnion, norm, NZ, NZ);
+          let normArea = 0;
+          for (const p of norm) normArea += Math.abs(Clipper.Clipper.Area(p));
+          if (normArea < EMPTY) culledLandcover.push(lc.index);
+          continue;
         }
         const dc = new Clipper.Clipper();
         for (const s of subj) dc.AddPath(s, ptSubject, true);
@@ -2063,7 +2155,22 @@ self.onmessage = function(event) {
         dc.Execute(ctDifference, remainder, NZ, NZ);
         let remArea = 0;
         for (const p of remainder) remArea += Math.abs(Clipper.Clipper.Area(p));
-        if (remArea < EMPTY) culledLandcover.push(lc.index);
+        if (remArea < EMPTY) {
+          // Fully covered. A plain element is culled; a merged one ships empty
+          // rings so its grown green paints nothing where the cover already fills.
+          if (isMerged) mergedClipRings.set(lc.index, []);
+          else culledLandcover.push(lc.index);
+          continue;
+        }
+        // The cover partly hides this element: paint the clipped remainder (px,
+        // back from CULL_SCALE) so the layer is disjoint from what paints above
+        // it. A merged element always ships its clipped grown rings; a plain one
+        // only when the cover genuinely cut it (else it keeps its raw geometry).
+        if (isMerged) mergedClipRings.set(lc.index, cullPathsToRings(remainder));
+        else if (remArea < rawArea - EMPTY) {
+          const rings = cullPathsToRings(remainder);
+          if (rings.length) clippedLandcover.push({ index: lc.index, rings });
+        }
       }
     }
     if (benchmark) benchmarkTimings.occlusionElementDifferences = Date.now() - occlusionElementDifferencesStarted;
@@ -2071,11 +2178,17 @@ self.onmessage = function(event) {
     benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
     benchmarkTimings.occlusionElementDifferences = 0;
   }
+  const greenGroundMerges = [...mergedLandcover].map(index => ({ index, rings: mergedClipRings.has(index) ? mergedClipRings.get(index) : landcoverElements[index].rings }));
+  return { culledLandcover, clippedLandcover, greenGroundMerges };
+  } // end computeOcclusion
 
+  const occ = computeOcclusion(blocks, mergedLandcover);
   if (benchmark) benchmarkTimings.totalWorker = Date.now() - benchmarkStarted;
   self.postMessage({
-    type: 'done', blocks: blocks, culledLandcover: culledLandcover,
-    greenGroundMerges: [...mergedLandcover].map(index => ({ index, rings: landcoverElements[index].rings })),
+    type: 'done', blocks: blocks,
+    culledLandcover: occ.culledLandcover,
+    clippedLandcover: occ.clippedLandcover,
+    greenGroundMerges: occ.greenGroundMerges,
     ...(benchmark ? { timings: benchmarkTimings } : {}),
   });
 };
@@ -2325,6 +2438,11 @@ self.onmessage = function(event) {
   function computeFacesAsync(cutterResults, buildingElements, classified, pr, W, H, onProgress, opts = {}) {
     return new Promise((resolve, reject) => {
       const data = prepareFaceData(cutterResults, buildingElements, classified, pr, W, H, opts.bbox, opts.placeNodeElements);
+      // coverPaints tells the worker which opaque cover layers actually paint, so
+      // the landcover clip subtracts only painted cover; clipOnly skips the whole
+      // face pipeline and runs just that clip (City blocks off — see AF-07c P1).
+      if (opts.coverPaints) data.coverPaints = opts.coverPaints;
+      if (opts.clipOnly) data.clipOnly = true;
       // No early-out on empty cutters. A bbox with no block-cutting roads (open
       // countryside, a paths-only or tunnels-only frame) still owes the coverage
       // promise (ENGINE-V2.md §1): the worker cuts the frame rectangle minus an
@@ -2350,7 +2468,13 @@ self.onmessage = function(event) {
         if (e.data.type === 'progress' && onProgress) onProgress(e.data.msg, e.data.pct);
         if (e.data.type === 'done') {
           worker.terminate();
-          resolve({ blocks: e.data.blocks, culledLandcover: e.data.culledLandcover || [], greenGroundMerges: e.data.greenGroundMerges || [] });
+          // Resolve with the worker's whole payload (minus the message tag), not
+          // a hand-listed subset: a field left out here would silently never
+          // reach applyLandcoverOcclusion — that is exactly how the AF-07c P1
+          // cull got lost. Only the array defaults are spelled out, so callers
+          // can rely on them being present.
+          const { type, ...payload } = e.data;
+          resolve({ culledLandcover: [], clippedLandcover: [], greenGroundMerges: [], ...payload });
         }
       };
       worker.onerror = function(err) {
@@ -2717,12 +2841,15 @@ self.onmessage = function(event) {
     [...elements].sort((a, z) => approxDeg2(z) - approxDeg2(a)).forEach((el) => {
       const cf = coverFill(el.tags || {});
       if (!cf) return;
+      // Both worker-supplied ring sets are already projected px. _mergedRings is
+      // the element grown over a green-open coverage remainder; _clippedRings is
+      // the element cut down to its visible remainder under the opaque Parks &
+      // green cover (AF-07c), so the layer stays disjoint from what paints above
+      // it. A given element carries at most one (the merge loop skips clipping).
+      const workerRings = el._mergedRings || el._clippedRings;
       let d = '';
-      if (el._mergedRings) {
-        // Grown shape from the worker: the element's own rings unioned with
-        // the coverage remainder of the green-open piece(s) it lies in.
-        // Already projected px at the void's simplification tolerance.
-        d = el._mergedRings.map(ring => 'M' + ring.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z').join(' ');
+      if (workerRings) {
+        d = workerRings.map(ring => 'M' + ring.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z').join(' ');
       } else if (el.type === 'way') d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area_large, true);
       else if (el.type === 'relation' && el.members) {
         const { outer, inner } = stitchMultipolygonRings(el.members);
@@ -3304,20 +3431,20 @@ self.onmessage = function(event) {
     // tree organization for the designer's layers panel. Buffered here and
     // flushed in place (either child may be absent on inland/dry areas).
     //
-    // "Countryside" (landcover) is deliberately NOT pulled into that green
-    // parent: it sits at the bottom band so it hides under city blocks and
-    // shows only through rural faces, while "Parks & green" sits near the top.
-    // Four layers separate them, and an SVG parent group needs contiguous
-    // children, so nesting the two would have to reorder paint. Coen's call
-    // (2026-07-14): leave them as separate top-level layers rather than change
-    // the render for panel tidiness.
-    //
-    // Named parks + Recreation grounds (AF-03b) ARE adjacent in the paint
-    // order, so — exactly like Water above — they share one "Parks & green"
-    // parent without moving a single paint. The inner v1 parks group keeps
-    // id="parks" but its label (v1 calls the layer itself "Parks & green") is
-    // rewritten to "Named parks" so the panel reads Parks & green → Named
-    // parks / Recreation grounds instead of repeating the parent's name.
+    // "Parks & green" is now one true render layer (AF-07c, Coen 2026-07-23,
+    // superseding the 2026-07-14 two-layer call): Countryside (landcover), Named
+    // parks and Recreation grounds are contiguous in the paint order and share
+    // one parent. Countryside used to paint at the very bottom (invisible under
+    // city blocks, showing only through rural faces); its elements are now
+    // clipped to the visible remainder under the opaque cover (blocks/parks/
+    // recreation/water/waterway strokes — see the worker's occlusion clip), so
+    // painting them here, at the bottom of this band, is pixel-identical to the
+    // old position while making Countryside a real child of this group. Paint
+    // order within the parent: Countryside → Named parks → Recreation grounds.
+    // The inner v1 parks group keeps id="parks" but its label (v1 calls the layer
+    // itself "Parks & green") is rewritten to "Named parks" so the panel reads
+    // Parks & green → Countryside / Named parks / Recreation grounds instead of
+    // repeating the parent's name.
     let pendingWater = null;
     const flushWater = () => {
       if (pendingWater === null) return;
@@ -3340,7 +3467,9 @@ self.onmessage = function(event) {
         continue;
       }
       flushWater();
-      if (result.layer.id === parksLayer.id || result.layer.id === recreationLayer.id) {
+      // Countryside sorts just before Named parks (layerOrder), so it buffers
+      // into the shared "Parks & green" parent as its first child (AF-07c).
+      if (result.layer.id === landcoverLayer.id || result.layer.id === parksLayer.id || result.layer.id === recreationLayer.id) {
         if (result.layer.id === parksLayer.id) {
           layerSVG = layerSVG.replace('<g id="parks" inkscape:label="Parks &amp; green"', '<g id="parks" inkscape:label="Named parks"');
         }
@@ -3373,6 +3502,55 @@ self.onmessage = function(event) {
     return ctx.illustratorCompatible
       ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
       : wrapSVG(layersSVG, ctx, physicalWidthMm);
+  }
+
+  // Apply the face worker's landcover occlusion results to the landcover render
+  // elements. This is the SINGLE source of that glue, shared by doExportV2 and
+  // the headless harness (tests/real-export.mjs), so the two can never drift —
+  // that drift is exactly how a fully-covered element once survived the
+  // clip-only pass (AF-07c P1: the clip-only branch destructured clippedLandcover
+  // but not culledLandcover, so water-covered Countryside still painted). Order
+  // mirrors how the worker builds the results and MUST be kept:
+  //   1. greenGroundMerges → paint the grown rings (_mergedRings);
+  //   2. clippedLandcover  → paint the visible remainder (_clippedRings), never
+  //      over a merged element (a merge already owns that remainder);
+  //   3. culledLandcover   → drop fully-hidden elements — this reindexes, so it
+  //      is last.
+  // Returns the possibly-filtered elements array; callers assign it back.
+  function applyLandcoverOcclusion(elements, { culledLandcover = [], clippedLandcover = [], greenGroundMerges = [] } = {}) {
+    let out = elements;
+    for (const { index, rings } of greenGroundMerges) {
+      const el = out[index];
+      if (el) out[index] = { ...el, _mergedRings: rings };
+    }
+    for (const { index, rings } of clippedLandcover) {
+      const el = out[index];
+      if (el && !el._mergedRings) out[index] = { ...el, _clippedRings: rings };
+    }
+    if (culledLandcover.length) {
+      const cull = new Set(culledLandcover);
+      out = out.filter((_, i) => !cull.has(i));
+    }
+    return out;
+  }
+
+  // AF-07c: in v2 the "Parks & green" switch also controls Countryside, so the
+  // separate "Countryside" checkbox is redundant and must not appear in the UI.
+  // The removal lives entirely here — the frozen v1 script.js keeps rendering the
+  // row (§9), and this whole file is stripped from the production index, so v1
+  // and production still get their own Countryside toggle. While v2 is the
+  // selected engine the row is hidden; its input stays in the DOM (default on),
+  // so getSelectedLayers still reports landcover and isSelectedRenderLayer folds
+  // it into the parks switch. `doc` is injectable for the unit test; at runtime
+  // it defaults to the page document.
+  function applyMergedCountrysideVisibility(doc) {
+    const d = doc || (typeof document !== 'undefined' ? document : null);
+    if (!d) return;
+    const input = d.getElementById('lyr-landcover');
+    const row = input && (input.closest ? input.closest('.layer-row') : null);
+    if (!row) return;
+    const v2on = !!(d.getElementById('engine-v2-toggle') || {}).checked;
+    row.style.display = v2on ? 'none' : '';
   }
 
   // Browser-side v2 orchestration. Mirrors v1's doExport shape and honours
@@ -3523,7 +3701,13 @@ self.onmessage = function(event) {
     // Faces are private input for the City blocks checkbox. When it is off,
     // skip the worker entirely: other selected layers do not need hidden block
     // geometry or its supporting OSM data.
-    let blocks = [], culledLandcover = [], greenGroundMerges = [];
+    // Hold the worker's result as ONE object and hand it to
+    // applyLandcoverOcclusion whole. Deliberately not destructured into
+    // per-field locals: the AF-07c P1 bug was a destructuring that forgot
+    // culledLandcover, and no unit test can catch a field dropped from such a
+    // list. Passing the object through means there is no field list to forget —
+    // whatever the worker reports reaches the glue.
+    let blocks = [], faceResult = {};
     let placeNodeElements = [];
     if (layerPlan.needsBlocks) {
       // Faces stage. The cutter reads roads; buildings classify faces and seed
@@ -3542,34 +3726,44 @@ self.onmessage = function(event) {
         progress.setStage('faces', 'active', { detail: msg });
         progress.bar(55 + Math.round(pct * 0.25));
       };
-      ({ blocks, culledLandcover, greenGroundMerges } = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements }));
+      faceResult = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements, coverPaints: layerPlan.coverPaints });
+      blocks = faceResult.blocks || [];
+    } else if (layerPlan.needsLandcoverClip) {
+      // City blocks off, but Countryside still paints in the Parks & green band
+      // above painted water/waterways — run a clip-only worker pass so it is
+      // clipped to its visible remainder instead of overpainting them (AF-07c
+      // P1). No cutter/faces/blocks/merges: only the landcover clip, against the
+      // painted cover (coverPaints excludes blocks here).
+      progress.setStage('faces', 'active', { detail: 'Clipping countryside…' });
+      const { pr, H } = makeProjector(bbox, widthPx);
+      const onFaceProgress = (msg, pct) => { progress.setStage('faces', 'active', { detail: msg }); progress.bar(55 + Math.round(pct * 0.25)); };
+      // The whole result carries through, culledLandcover included: an element
+      // the painted water fully hides is culled by the worker, not clipped, and
+      // must still be dropped or it paints over the water (the AF-07c P1 bug).
+      faceResult = await computeFacesAsync([], [], classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements: [], coverPaints: layerPlan.coverPaints, clipOnly: true });
+      progress.setStage('faces', 'done', { meta: 'Countryside clipped', detail: '' });
     } else {
       progress.setStage('faces', 'done', { meta: 'City blocks off', detail: '' });
     }
-    // Green-remainder merges (paint-only, before the cull filter reindexes):
-    // a merged element paints the worker's grown rings — its own shape unioned
-    // with the coverage remainder of the green-open piece(s) it lies in — so
-    // the unmapped gaps inside a green piece belong to the green polygon
-    // itself instead of becoming cream "Residential" patches beside it.
-    if (greenGroundMerges && greenGroundMerges.length) {
+    // Apply the worker's landcover occlusion (green-remainder merges, partial
+    // clips, full culls) through the one shared helper, so this path and the
+    // headless harness cannot drift. Merges paint the grown rings (unmapped gaps
+    // inside a green piece belong to the green polygon, not cream "Residential"
+    // patches beside it); clips paint the visible remainder so the whole layer
+    // sits disjoint in the Parks & green band; culls drop fully-hidden elements —
+    // INCLUDING in the clip-only City-blocks-off pass, where Countryside fully
+    // under painted water must be removed or it overpaints the water (AF-07c P1).
+    {
       const landcoverResult = areaRenderResults.find(r => r.layer.id === landcoverLayer.id);
       if (landcoverResult) {
-        for (const { index, rings } of greenGroundMerges) {
-          const el = landcoverResult.data.elements[index];
-          if (el) landcoverResult.data.elements[index] = { ...el, _mergedRings: rings };
-        }
+        landcoverResult.data.elements = applyLandcoverOcclusion(landcoverResult.data.elements, faceResult);
       }
-      progress.log(`landcover: ${greenGroundMerges.length} element${greenGroundMerges.length === 1 ? '' : 's'} grown over green-open coverage remainders`);
-    }
-    // Occlusion cull (paint-only): drop landcover elements the worker found
-    // fully hidden under the city blocks. Indices are into classified.landcover,
-    // which is the SAME array the landcover render result holds — filter it in
-    // place so the cull touches paint alone (voids/coverage stay as computed).
-    if (culledLandcover && culledLandcover.length) {
-      const cull = new Set(culledLandcover);
-      const landcoverResult = areaRenderResults.find(r => r.layer.id === landcoverLayer.id);
-      if (landcoverResult) landcoverResult.data.elements = landcoverResult.data.elements.filter((_, i) => !cull.has(i));
-      progress.log(`landcover: ${cull.size} element${cull.size === 1 ? '' : 's'} culled (fully hidden under city blocks)`);
+      const merges = faceResult.greenGroundMerges || [];
+      const clips = faceResult.clippedLandcover || [];
+      const culls = new Set(faceResult.culledLandcover || []);
+      if (merges.length) progress.log(`landcover: ${merges.length} element${merges.length === 1 ? '' : 's'} grown over green-open coverage remainders`);
+      if (clips.length) progress.log(`landcover: ${clips.length} element${clips.length === 1 ? '' : 's'} clipped to visible remainder under Parks & green cover`);
+      if (culls.size) progress.log(`landcover: ${culls.size} element${culls.size === 1 ? '' : 's'} culled (fully hidden under city blocks)`);
     }
     const urbanBlocks = blocks.filter(b => (b.kind || 'urban') === 'urban').length;
     const hamletBlocks = blocks.filter(b => b.kind === 'hamlet').length;
@@ -3631,10 +3825,24 @@ self.onmessage = function(event) {
     });
   }
 
+  // Hide the redundant "Countryside" row while v2 is the active engine. Runs
+  // after v1's renderLayers() (script.js registers its DOMContentLoaded handler
+  // first, so it populates the layer list before this fires) and again whenever
+  // the engine toggle flips. Guarded so the vm-based unit tests (no document) and
+  // any non-browser load skip it.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('DOMContentLoaded', () => {
+      applyMergedCountrysideVisibility();
+      const toggle = document.getElementById('engine-v2-toggle');
+      if (toggle) toggle.addEventListener('change', () => applyMergedCountrysideVisibility());
+    });
+  }
+
   return {
     layers, layerOrder, buildSVG, doExport,
     // Exposed for the headless test harness (tests/real-export.mjs).
     FACE_WORKER_SRC, prepareFaceData, computeFacesAsync, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
+    landcoverLayer, parksLayer, recreationLayer, applyLandcoverOcclusion, applyMergedCountrysideVisibility,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
     planLayers, filterResultsForSelection,
     // Building-fetch padding (cause A) — shared with the headless harness.
