@@ -3400,19 +3400,9 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
 function wrapSVG(layersSVG, ctx, physicalWidthMm) {
   const { b, W, H, preset } = ctx;
   const date = new Date().toISOString().slice(0, 10);
-  // Inkscape restores its last view (zoom/center) from sodipodi:namedview,
-  // which only Inkscape itself writes. Without one — as with any
-  // programmatically-generated SVG — it has nothing to fit-to-page from and
-  // falls back to a generic ~1% zoom. Faking a namedview with a zoom guessed
-  // against a nominal window fixes that first-open zoom for most screens; it
-  // isn't a pixel-perfect fit (the real window size isn't known at export
-  // time), but it beats the ~1% fallback by roughly 20x.
-  const INKSCAPE_NOMINAL_VIEWPORT_PX = 900;
-  const namedviewZoom = (INKSCAPE_NOMINAL_VIEWPORT_PX / Math.max(W, H)).toFixed(4);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.0.dtd"
      xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:cc="http://creativecommons.org/ns#"
      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -3420,16 +3410,6 @@ function wrapSVG(layersSVG, ctx, physicalWidthMm) {
      height="${H}"
      viewBox="0 0 ${W} ${H}"
      inkscape:document-units="px">
-  <sodipodi:namedview
-     id="namedview-map-export"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:zoom="${namedviewZoom}"
-     inkscape:cx="${W/2}"
-     inkscape:cy="${H/2}"
-     inkscape:current-layer="map-content"/>
   <metadata><rdf:RDF><cc:Work rdf:about=""><dc:title>Map Export — ${date}</dc:title><dc:source>© OpenStreetMap contributors (ODbL)</dc:source><dc:description>Bbox: ${b.south.toFixed(5)},${b.west.toFixed(5)},${b.north.toFixed(5)},${b.east.toFixed(5)} | Style: ${activePreset}${physicalWidthMm ? ` | Print size: ${physicalWidthMm}mm × ${(physicalWidthMm*H/W).toFixed(1)}mm @ 300dpi` : ''}</dc:description></cc:Work></rdf:RDF></metadata>
   <defs>
     <clipPath id="map-clip">

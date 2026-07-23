@@ -11,11 +11,6 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
-### 2026-07-23 — Exports open pre-zoomed in Inkscape
-- Standards-based SVG exports (v1 and v2) now include a `sodipodi:namedview`
-  block with a guessed zoom/center, so Inkscape opens them fit to the page
-  instead of its ~1% fallback zoom for files it didn't save itself.
-
 ### 2026-07-22 — v2 city-block exports faster still
 - V2's landcover-visibility check and green-ground merge now only compare
   against nearby city geometry instead of the whole map, cutting a warm
