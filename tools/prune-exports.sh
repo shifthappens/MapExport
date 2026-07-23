@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Keep exports/ as a thin trail: the newest SVG per city, and nothing older
-# than 7 days. Exports are megabytes each and git keeps every blob forever, so
-# the working tree is deliberately capped at one snapshot per city rather than
-# every intermediate dev run. Removals are staged with `git rm`; new keepers
-# are staged with `git add`, so the caller just has to commit.
+# Keep exports/ as a thin trail: the newest 3 SVGs per city, so there's
+# something to compare across runs. Exports are megabytes each and git keeps
+# every blob forever, so the working tree is deliberately capped per city
+# rather than every intermediate dev run. Removals are staged with `git rm`;
+# new keepers are staged with `git add`, so the caller just has to commit.
 #
 # Run by .github/workflows/prune-exports.yml (daily) and safe to run by hand.
 # Written for bash 3.2 (macOS default) and both BSD/GNU coreutils: no
@@ -11,9 +11,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-# Keep snapshots dated on/after the cutoff (7 days ago). GNU date on CI, BSD
-# date on macOS.
-cutoff=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
+KEEP_PER_CITY=3
 
 shopt -s nullglob
 files=(exports/map-useit-*.svg)
@@ -25,8 +23,8 @@ fi
 # Map every file to a city key: strip the trailing -YYYY-MM-DD (with the
 # optional -HHMMSS of the legacy/web-app format, and any suffix like
 # -illustrator after it), the map-useit- prefix, and an engine -v2 marker, so
-# v1 and v2 of one city collapse to the same key and only the newest survives.
-# A cityless legacy file yields an empty key and is dropped below.
+# v1 and v2 of one city collapse to the same key and only their newest N
+# survive. A cityless legacy file yields an empty key and is dropped below.
 map=$(mktemp)
 for f in "${files[@]}"; do
   base=${f##*/}
@@ -37,18 +35,13 @@ for f in "${files[@]}"; do
   printf '%s\t%s\n' "$key" "$f" >> "$map"
 done
 
-# For each city key, keep its newest snapshot if that snapshot is within the
-# window. Lexical sort equals chronological within a key (identical prefix, then
-# a zero-padded timestamp). Empty keys word-split away, dropping cityless files.
+# For each city key, keep its newest KEEP_PER_CITY snapshots. Lexical sort
+# equals chronological within a key (identical prefix, then a zero-padded
+# timestamp). Empty keys word-split away, dropping cityless files.
 keep=$(mktemp)
 for key in $(cut -f1 "$map" | sort -u); do
-  newest=$(awk -F'\t' -v k="$key" '$1==k{print $2}' "$map" | sort | tail -1)
-  d=$(printf '%s' "$newest" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-  [ -n "$d" ] || continue
-  if [ "$d" \< "$cutoff" ]; then
-    continue
-  fi
-  printf '%s\n' "$newest" >> "$keep"
+  [ -n "$key" ] || continue
+  awk -F'\t' -v k="$key" '$1==k{print $2}' "$map" | sort | tail -n "$KEEP_PER_CITY" >> "$keep"
 done
 
 removed=0

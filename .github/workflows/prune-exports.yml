@@ -1,9 +1,9 @@
 name: Prune exports
 
-# Keep the committed exports/ trail thin: newest SVG per city, nothing older
-# than 7 days. Runs daily and on demand, and commits the pruning straight to
-# main. This never builds or deploys anything — deploy stays a separate,
-# manual-only workflow (deploy.yml, workflow_dispatch).
+# Keep the committed exports/ trail thin: newest 3 SVGs per city, so there's
+# something to compare across runs. Runs daily and on demand, and commits the
+# pruning straight to main. This never builds or deploys anything — deploy
+# stays a separate, manual-only workflow (deploy.yml, workflow_dispatch).
 on:
   schedule:
     - cron: '23 4 * * *' # 04:23 UTC daily
@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prune to newest-per-city, 7-day window
+      - name: Prune to newest 3 per city
         run: bash tools/prune-exports.sh
 
       - name: Commit and push if anything changed
@@ -33,5 +33,5 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "chore: prune exports to newest-per-city trail"
+          git commit -q -m "chore: prune exports to newest 3 per city"
           git push
