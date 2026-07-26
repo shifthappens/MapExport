@@ -2,19 +2,14 @@
 // emitted by a real export is unique across the WHOLE document, for both
 // engines (v1's buildSVG in script.js, v2's buildSVG in engine-v2.js).
 //
-// Regression target: before the ME AF-01 fix, several builders allocated
-// their own id-uniqueness scope PER CALL instead of per document (roads,
-// rail, metro — metro even reset it per LINE, so two metro lines sharing a
-// member name collided silently — tram, water_bodies, landcover, parks, and
-// engine-v2's waterways/landcover/beach), and feature labels (`feat_...`)
-// had no dedup at all. A repeated street/tram/rail/metro name, or a repeated
-// named water/park feature, produced two SVG elements with the SAME id —
-// which editors (Illustrator/Inkscape) silently collapse into one object,
-// losing data. This test builds small synthetic (but geometrically real)
-// Overpass-shaped element sets that hit every one of those collision
-// classes, runs them through the real builders via a vm sandbox of the
-// actual script.js (+ engine-v2.js), and asserts zero duplicate ids and
-// build-to-build determinism.
+// Regression target: before AF-01 most builders allocated their id scope per
+// CALL instead of per document — metro even reset it per line — and feature
+// labels had no dedup at all. A repeated street or water feature name then
+// produced two elements with the same id, which Illustrator and Inkscape
+// silently collapse into one object, losing data. The fixtures are synthetic
+// but geometrically real Overpass-shaped sets hitting every collision class,
+// run through the real builders in a vm sandbox; the assertions are zero
+// duplicate ids and build-to-build determinism.
 import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';

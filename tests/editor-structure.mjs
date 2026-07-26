@@ -1,16 +1,16 @@
-// tests/editor-structure.mjs — offline check for the AF-07a editor structure:
+// tests/editor-structure.mjs — offline check for the editor layer tree:
 //
-// (1) The shared tram builder's casing/fill sub-groups carry readable panel
-//     labels ("Tram casings" / "Tram fills", matching the roads layer's
-//     "Road casings" / "Road fills") — both engines share this builder.
-// (2) Engine v2's City blocks layer groups hamlet blobs under "Hamlets"
-//     (`city_blocks_hamlets`) and standalone buildings under "Standalone
-//     buildings" (`city_blocks_buildings`); urban blocks stay direct
-//     children. Pure panel organization — same cream paint, same per-path
-//     ids/labels/strokes, no sub-group emitted for an absent kind.
+// (1) AF-07a: the shared tram builder's casing/fill sub-groups carry readable
+//     panel labels, matching the roads layer's.
+// (2) AF-07a: v2's City blocks layer groups hamlet blobs under "Hamlets" and
+//     standalone buildings under "Standalone buildings", with urban blocks as
+//     direct children and no sub-group for an absent kind.
+// (3) AF-07c: Countryside and Parks nest inside one "Parks & green" parent, in
+//     that paint order, with landcover no longer a top-level layer.
 //
-// Loads script.js + engine-v2.js in ONE vm sandbox (same trick as
-// rail-service.mjs) and drives v1's buildTramLayer plus EngineV2.buildSVG.
+// All three are pure panel organization: same paint, same per-path ids and
+// labels. Loads script.js + engine-v2.js in ONE vm sandbox, like
+// rail-service.mjs.
 import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';

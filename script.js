@@ -162,16 +162,13 @@ let activePreset = 'useit';
 //  PRINT SIZE — derived from the bbox shape, not user-picked
 // ════════════════════════════════════════════════════════════════
 // USE-IT city maps aren't one fixed shape — city footprints vary too much to
-// snap to a grid. What IS fixed is the largest page a USE-IT team ever prints
-// a plattegrond within: 67.5 x 40.5cm (or that rotated, for a tall bbox). We
-// fit the bbox's true geographic aspect ratio inside that envelope — as large
-// as possible without exceeding it on either edge — which sets the physical
-// size baked into the export (and with it, via getScaleFactor, how thick
-// roads/labels render relative to the geography).
-// A team that needs a bigger (gigantic-city, 6-square) or smaller (inset)
-// final size just scales the vector output afterward in Illustrator/InDesign
-// — stroke widths and label sizes scale right along with it, so the result
-// is identical to having exported at that size directly.
+// snap to a grid. What IS fixed is the largest page a team ever prints a
+// plattegrond within: 67.5 x 40.5cm, rotated for a tall bbox. The bbox's true
+// geographic aspect ratio is fitted inside that envelope, which sets the
+// physical size baked into the export and with it, via getScaleFactor, how
+// thick roads and labels render against the geography.
+// A team needing a bigger or smaller final size scales the vector output
+// afterwards; stroke widths and label sizes scale along with it.
 const PRINT_ENVELOPE_MAX_MM = 675; // long edge, 67.5cm (5 squares)
 const PRINT_ENVELOPE_MIN_MM = 405; // short edge, 40.5cm (3 squares)
 const PRINT_DPI = 300;
@@ -191,14 +188,12 @@ function getPhysicalSizeMm(b) {
 //  LAYER REGISTRY
 // ════════════════════════════════════════════════════════════════
 // ── Island-green exception ────────────────────────────────────────
-// The parks layer hides nameless green city-wide — a deliberate stylistic
-// choice: a USE-IT map shows named destinations, not every verge or street
-// tree. The one place that rule produces a WRONG result is a river/lake island
-// (an inner ring of a water multipolygon): if its real green cover happens to
-// be nameless, hiding it leaves the island a blank hole in the map. So the
-// parks query ALSO fetches these nameless land-cover tags as *candidates*, and
-// pruneIslandGreens keeps only the ones that actually fall inside an island —
-// everything else is dropped before it can render or punch a city block.
+// The parks layer hides nameless green city-wide, deliberately: a USE-IT map
+// shows named destinations, not every verge or street tree. That rule goes
+// wrong on a river or lake island, where nameless green cover leaves the island
+// a blank hole. So the parks query also fetches these land-cover tags as
+// candidates, and pruneIslandGreens keeps only the ones actually inside an
+// island — the rest are dropped before they can render or punch a block.
 const ISLAND_GREEN = {
   leisure: new Set(['park', 'garden']),
   landuse: new Set(['grass', 'village_green', 'meadow', 'forest']),
@@ -227,18 +222,14 @@ function parksNamedGate(el) {
     || /^(forest|cemetery|allotments|recreation_ground)$/.test(el.tags.landuse || '')
     || el.tags.natural === 'wood' || el.tags.amenity === 'grave_yard' || el.tags.tourism === 'zoo';
 }
-// Does a feature name read administrative/technical rather than editorial on a
-// public map? Proven against the pinned seven-city validation corpus
-// (2026-07-19): the only such names that reach rendered text are the Paris
-// cadastral provisional street designations ("Voie FI/13", "Place FO/13",
-// "Passage Commun AA/13" — letter code + "/" + district number) and bare
-// ref-like codes as the whole name ("BAD 2"). These are legitimate OSM names
-// (FO/13 even carries a wikidata tag), so they are never dropped: the label
-// builders keep rendering them and only prefix the editor-panel name
-// (inkscape:label, via editorPanelName below) with "⚠ " so a designer reviews
-// them in the layers panel instead of shipping them unseen. Illustrator mode
-// has no panel-label attribute and is untouched. Warning-only by design —
-// widen the patterns only with corpus evidence, never into a per-city list.
+// Does a feature name read administrative rather than editorial on a public
+// map? Measured against the seven-city corpus (2026-07-19): only Paris
+// cadastral designations ("Place FO/13" — letter code, slash, district number)
+// and bare ref codes ("BAD 2") reach rendered text. These are legitimate OSM
+// names, one even carrying a wikidata tag, so nothing is dropped: the label
+// builders still render them and only the editor-panel name gets a "⚠ " prefix,
+// so a designer reviews them instead of shipping them unseen. Warning-only by
+// design — widen the patterns on corpus evidence, never into a per-city list.
 function isTechnicalName(name) {
   const n = String(name || '').trim();
   // Cadastral scheme: the name ENDS in a short capital letter code, a slash
@@ -337,16 +328,12 @@ const LAYER_REGISTRY = [
       overpassQuery:(b)=>`wr["leisure"~"^(park|garden)$"](${b});wr["landuse"~"^(grass|village_green|meadow|forest)$"](${b});wr["natural"~"^(wood|scrub|wetland|heath)$"](${b});wr["leisure"~"^(nature_reserve|recreation_ground)$"]["name"](${b});wr["landuse"~"^(cemetery|allotments|recreation_ground)$"]["name"](${b});wr["amenity"="grave_yard"]["name"](${b});wr["tourism"="zoo"]["name"](${b});`,
       tagFilter:el=>parksNamedGate(el)||isIslandGreenCandidate(el) },
     { id:'landcover',    label:'Countryside',       hint:'Farmland & woods outside built-up areas', color:'#9ec98f', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
-      // Rural land cover, fetched WITHOUT a name gate — the deliberate
-      // "named destinations only" style rule (see parks above) is an URBAN
-      // rule; in the countryside the fields and woods ARE the map. It paints
-      // at the very bottom of LAYER_ORDER, so inside a city every one of
-      // these polygons sits under the curb-to-curb block fill and stays
-      // invisible — city output is unchanged. Only where the block cutter
-      // classifies a face as countryside (see BLOCK_WORKER_SRC) does the
-      // face stay unfilled and this layer show through. Named forests are
-      // excluded here (!parksNamedGate) — those belong to parks, which also
-      // labels them; without the exclusion the same polygon would paint twice.
+      // Rural land cover, fetched WITHOUT a name gate: "named destinations
+      // only" is an urban rule, and in the countryside the fields and woods ARE
+      // the map. It paints at the very bottom of LAYER_ORDER, so in a city
+      // these polygons sit under the block fill and stay invisible; only a face
+      // the cutter calls countryside lets them show. Named forests are excluded
+      // because parks already paints and labels them.
       overpassQuery:(b)=>`wr["landuse"~"^(farmland|meadow|orchard|vineyard|forest)$"](${b});wr["natural"~"^(wood|scrub|heath)$"](${b});`,
       tagFilter:el=>el.type!=='node'&&!parksNamedGate(el)&&(/^(farmland|meadow|orchard|vineyard|forest)$/.test(el.tags?.landuse||'')||/^(wood|scrub|heath)$/.test(el.tags?.natural||'')) },
   ]},
@@ -452,14 +439,12 @@ const ROAD_WIDTHS = {
 };
 // Small path classes render as ONE dashed stroke in the casing colour — no
 // casing, no white fill, no street labels — so they can't be mistaken for
-// streets (which bound city blocks; these don't). Dash code: long dash =
-// cycleway, short dash = footway, fine thin dash = dirt path, wide short
-// rungs = steps. w/dash are map px and scale with sf — the old ROAD_WIDTHS
-// dash strings were unscaled, which is why these classes used to render as
-// solid mini-streets at print sizes. Over water every path is overprinted
-// white; over green only cycleways and named paths get that orientation aid.
-// Anonymous trails are hidden there, so dense cemetery mapping cannot form a
-// technical hatch; their ordinary styling remains unchanged everywhere else.
+// streets, which bound city blocks where these don't. Dash code: long dash =
+// cycleway, short = footway, fine thin = dirt path, wide rungs = steps. w/dash
+// are map px and scale with sf, unlike the old unscaled ROAD_WIDTHS dashes that
+// printed as solid mini-streets. Over water every path is overprinted white;
+// over green only cycleways and named paths get that orientation aid, so dense
+// cemetery mapping cannot form a technical hatch.
 const PATH_STYLES = {
   cycleway: { w:5.5, dash:[24,9] },
   footway:  { w:4.5, dash:[13,8] },
@@ -1179,13 +1164,11 @@ async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
 // onProgress (optional) is invoked during the fetch with the payload
 //   { phase: 'waiting',     elapsed,  endpoint }   // every ~500ms before first byte
 //   { phase: 'downloading', received, total, endpoint }  // per streamed chunk
-// Overpass has no mid-query progress, so 'waiting' is just elapsed time on
-// the request (server-side compute + network latency). Once bytes arrive we
-// stream the body via a ReadableStream reader so we can surface real
-// download size — Content-Length is usually absent (chunked), so total=0.
-// Both combined-tile fetchers throw OverpassFetchError on failure (typed
-// attempt history, `summary()` for messages) — the export orchestrator turns
-// that into an ExportFailure with the tile context attached.
+// Overpass has no mid-query progress, so 'waiting' is just elapsed time on the
+// request. Once bytes arrive the body streams through a reader so the real
+// download size shows; Content-Length is usually absent, hence total=0. Both
+// combined-tile fetchers throw OverpassFetchError, which the orchestrator turns
+// into an ExportFailure with the tile context attached.
 async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgress=null) {
   const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
   // §1.1: strip statements superseded by another layer in THIS fetch.
@@ -1372,16 +1355,13 @@ const RESERVED_SVG_IDS = [
   'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
   'tram_fill', 'water', 'water_bodies', 'water_clip', 'water_labels', 'waterways',
 ];
-// Document-wide id allocator. uid(base, ...suffixes) reserves `base` AND
-// every `base+suffix` atomically: it walks base, base_2, base_3, … until it
-// finds a candidate where the candidate itself and every candidate+suffix
-// are all still free, registers all of them, and returns the candidate. This
-// is what lets a caller safely emit derived ids like `${pid}_casing` after
-// the fact — even against an adversarial name that literally IS "X casing" —
-// without a second collision check. One allocator per document (threaded via
-// ctx.uid from buildSVGContext), never a module-global: builds can interleave
-// across awaits with unrelated previews. The set starts with the reserved
-// structural ids above, so allocated ids can never shadow a literal one.
+// Document-wide id allocator. uid(base, ...suffixes) reserves `base` and every
+// `base+suffix` atomically, so a caller can emit a derived id like
+// `${pid}_casing` afterwards without a second collision check — even against a
+// name that literally IS "X casing". One allocator per document, threaded via
+// ctx.uid, never a module global: builds interleave across awaits with
+// unrelated previews. It starts from the reserved structural ids above, so an
+// allocated id can never shadow a literal one.
 function makeUidGen() {
   const used = new Set(RESERVED_SVG_IDS);
   return (base, ...suffixes) => {
@@ -1508,14 +1488,12 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   });
   if (!byType.size) return '';
   const types=[...byType.keys()].sort((a,b)=>(ROAD_DRAW_ORDER.indexOf(a)||50)-(ROAD_DRAW_ORDER.indexOf(b)||50));
-  // Two-pass rendering: ALL casings first (wider, darker), then ALL fills
-  // (narrower, lighter). SVG paint order = document order, so casings must all
-  // precede all fills for road borders to sit under crossing roads at every
-  // intersection — this is why casing and fill are NOT paired per street.
-  // Within each pass we sub-group by highway= class (kept in ROAD_DRAW_ORDER so
-  // minor classes still paint under major ones) and order streets alphabetically
-  // inside each class, so a designer can grab a whole class at once or find one
-  // named street fast. Casings and fills mirror the same class+alpha order.
+  // Two-pass rendering: ALL casings first, then ALL fills. SVG paint order is
+  // document order, so every casing must precede every fill for road borders to
+  // sit under crossing roads at an intersection — which is why casing and fill
+  // are never paired per street. Each pass sub-groups by highway= class in
+  // ROAD_DRAW_ORDER and sorts streets alphabetically inside it, so a designer
+  // can grab a class at once or find one street fast.
   let casingGroups='', fillGroups='', pathGroups='', pathWaterGroups='', pathGreenGroups='', pathGreenMuteGroups='';
   const waterClipDs = ctx?.waterClipDs || [];
   const greenClipDs = ctx?.greenClipDs || [];
@@ -1856,16 +1834,12 @@ const stampPolyline=(grid,pts,r)=>{for(let i=1;i<pts.length;i++)for(const p of f
 
 // Compact, multilingual street-name abbreviations, applied ONLY when the full
 // name will not fit (so a tight street can still carry a path-following label).
-// Suffix rules match the glued compound endings used by Germanic/Scandinavian
-// languages; the rest match standalone type-words and honorifics. The tokens
-// are distinct enough across languages that the whole set can be applied
-// without knowing the country, and anything unmatched is left as-is. This is a
-// bounded table, not an exhaustive per-country database.
 // Curated from the OSM Name finder/Abbreviations list, European languages only.
-// Suffix rules (anchored with $) match the glued compound endings of Germanic /
-// Scandinavian languages; the rest match standalone type-words and honorifics
-// with word boundaries. Distinct enough across languages that the whole set can
-// be applied safely; anything unmatched is left as-is.
+// Suffix rules (anchored with $) match the glued compound endings of Germanic
+// and Scandinavian languages; the rest match standalone type-words and
+// honorifics on word boundaries. The tokens are distinct enough across
+// languages to apply the whole set without knowing the country, and anything
+// unmatched is left as-is. A bounded table, not a per-country database.
 const ABBREV=[
   // ── compound suffixes (Dutch / German / Scandinavian, glued to the name) ──
   [/straat$/i,'str.'],[/stra(ß|ss)e$/i,'str.'],[/stræde$/i,'str.'],
@@ -1951,15 +1925,14 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // Street names that already own at least one fully visible label (across
   // all of the street's runs) — the precondition for clipped bonus repeats.
   const fullyVisibleNames=new Set();
-  // Curvature over an arc: total heading change (degrees) — how much a label
-  // placed there would wrap — plus the sharpest turn concentrated inside any
-  // window of `win` px of arc. Sums the turn at every actual path vertex in
-  // range (so a kink/hairpin is caught, not stepped over). The distinction
-  // matters typographically: 60° spread over a gentle arc reads fine, but the
-  // same 60° inside a couple of glyph widths jams the letters on the bend's
-  // inside and tears a gap on its outside ("DOC TOR") — and that holds
-  // whether the turn sits at one vertex or is spread over a tight elbow of
-  // several vertices, which is why a per-vertex max is not enough.
+  // Curvature over an arc: total heading change in degrees, plus the sharpest
+  // turn concentrated inside any window of `win` px. Summed at every real path
+  // vertex, so a hairpin is caught rather than stepped over. Both numbers are
+  // needed typographically: 60° over a gentle arc reads fine, but the same 60°
+  // inside a couple of glyph widths jams the letters on the inside of the bend
+  // and tears a gap on the outside ("DOC TOR") — and that happens whether the
+  // turn is one vertex or a tight elbow of several, so a per-vertex max would
+  // miss it.
   const bendOver=(pp,arcLens,s0,s1,win)=>{
     let bend=0; const vs=[];
     for(let i=1;i<pp.length-1;i++){
@@ -2026,16 +1999,15 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // QuickLook and Illustrator don't, which made labels sit on/above their
   // street in exactly the renderers designers use.
   const CAP_HALF=0.36;
-  // Low-pass a label baseline for per-glyph layout (Illustrator pipeline).
-  // Resamples the polyline at uniform arc-length steps of fontSize/4, then
-  // runs a pinned-endpoint [1,2,1]/4 relaxation enough times that the
-  // effective Gaussian sigma is ~0.9em — bends narrower than a glyph are
-  // typographic noise and get spread across neighbouring letters instead of
-  // being swallowed whole by one. (Each relaxation pass adds 1/2 sample² of
-  // variance, so rounds = 2·(sigma/step)² with sigma=0.9em, step=0.25em.)
-  // The inward pull this causes on a genuine bend is ~sigma²/(2·radius) —
-  // sub-pixel on ordinary street curvature, and still well under capHeight
-  // on the tightest label-worthy bends.
+  // Low-pass a label baseline for per-glyph layout (Illustrator pipeline). A
+  // bend narrower than a glyph is typographic noise: per-glyph layout samples
+  // the tangent locally, so one letter would swallow a whole 8-11° bend while
+  // its neighbours stay flat and the word reads as dancing along the street.
+  // Smoothing to an effective sigma of ~0.9em spreads it over neighbouring
+  // letters instead. (Each relaxation pass adds half a sample² of variance,
+  // hence rounds = 2·(sigma/step)².) The inward pull on a genuine bend is
+  // sub-pixel on ordinary curvature and stays under capHeight on the tightest
+  // label-worthy ones.
   const smoothBaselineForGlyphLayout=(points,fontSize)=>{
     const arcLens=[0];
     for(let i=1;i<points.length;i++)
@@ -2059,27 +2031,18 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
     }
     return samples;
   };
-  // Illustrator emission for curved labels. Illustrator's <textPath> import
-  // is the single worst SVG quirk this exporter deals with: versions before
-  // 23.0.6 place the glyphs along the path but never rotate them, every
-  // version explodes the text into one point-text object per letter anyway,
-  // and percentage startOffset handling is unreliable. So the Illustrator
-  // pipeline does the glyph layout itself (the same idea as Maperitive's
-  // precision-typo mode): one rotated single-character <text> per glyph,
-  // centred on the same reading-oriented offset baseline the standard
-  // pipeline hands to <textPath>. Illustrator opens the group as plain
-  // point-text objects that render identically in every version.
+  // Illustrator emission for curved labels. Illustrator's <textPath> import is
+  // the worst SVG quirk this exporter deals with: before 23.0.6 it places the
+  // glyphs but never rotates them, every version explodes the text into one
+  // point-text object per letter anyway, and percentage startOffset is
+  // unreliable. So this pipeline lays the glyphs out itself — one rotated
+  // single-character <text> each, on the same reading-oriented baseline the
+  // standard pipeline hands to <textPath> — and Illustrator opens the group as
+  // plain point text that renders identically in every version.
   const emitCurvedLabelAsGlyphs=(hw,name,attrs,label,baseline,fs)=>{
-    // The incoming baseline is a polyline: all of its curvature sits at
-    // discrete vertices, and Chaikin corner-cutting (2 rounds) still leaves
-    // each bend concentrated in a span narrower than one glyph. A browser
-    // hides that inside <textPath>, but per-glyph layout samples the tangent
-    // locally — so one letter would swallow an entire 8–11° bend while its
-    // neighbours stay flat, which reads as letters "dancing" along the
-    // street. Low-pass the baseline first: resample at uniform arc-length
-    // steps, then relax with a [1,2,1]/4 kernel until no curvature feature
-    // is narrower than roughly a glyph width. Endpoints stay pinned, and the
-    // smoothed line deviates from the road axis by well under capHeight.
+    // The incoming baseline keeps all its curvature at discrete vertices, which
+    // a browser hides inside <textPath> but per-glyph layout does not — see
+    // smoothBaselineForGlyphLayout for why that has to be low-passed first.
     const smoothedBaseline=smoothBaselineForGlyphLayout(baseline,fs);
     const arcLens=[0];
     for(let i=1;i<smoothedBaseline.length;i++)
@@ -2148,14 +2111,12 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   const emitStraight=(hw,name,attrs,label,cx,cy,angle,fs)=>{texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" transform="rotate(${angle.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)})" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});};
 
   const MIN_STREET_M=25;          // streets shorter than this overall get no label
-  // A chosen stretch is emitted as a single rotated <text> (one editable
-  // object in Illustrator instead of one per letter) when the road never
-  // wanders more than this fraction of the font size from the span's fitted
-  // baseline. A deviation test, not a degrees test: total heading change is
-  // length-blind (a 10° drift across a long label displaces its ends by far
-  // more than across a short one), which is what used to let long straight
-  // labels veer visibly off gently-bending streets. Spans that deviate more
-  // keep <textPath> so they still follow the road.
+  // A stretch is emitted as a single rotated <text>, one editable Illustrator
+  // object instead of one per letter, when the road never wanders more than
+  // this fraction of the font size from the span's fitted baseline. Deviation,
+  // not degrees: total heading change is length-blind, so a 10° drift displaces
+  // the ends of a long label far more than a short one, which used to let long
+  // labels veer off gently bending streets. Spans beyond it keep <textPath>.
   const STRAIGHT_MAX_DEV=0.3;
   // Cycle/foot paths are "minor": a street is never labelled on one of these
   // when a real-road run of the same name exists.
@@ -2444,13 +2405,11 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
   // river for grid space it previously won and suppress its label.
   candidates.sort((a,b)=> b.sizeMetric-a.sizeMetric || (a.el.id<b.el.id?-1:a.el.id>b.el.id?1:0));
 
-  // Same-name suppression, modeled on buildLabelsLayer's nearName/recordName
-  // (script.js ~1802, local there too — this is its own local equivalent,
-  // nothing shared): a second label for the same normalized name within
-  // `gap` px of an already-placed one is dropped BEFORE it can claim grid
-  // space, so a nearby duplicate OSM segment never burns the spot a
-  // genuinely different label needs — while a long river/park may still
-  // repeat its name far away.
+  // Same-name suppression, a local equivalent of buildLabelsLayer's nearName /
+  // recordName (nothing is shared): a second label for the same normalized name
+  // within `gap` px of a placed one is dropped BEFORE it can claim grid space,
+  // so a duplicate OSM segment never burns the spot a genuinely different label
+  // needs, while a long river may still repeat its name far away.
   const gap=1000*sf;
   const placedByName=new Map();
   const nearName=(nm,x,y)=>{const a=placedByName.get(nm);if(!a)return false;for(const p of a)if(Math.hypot(x-p[0],y-p[1])<gap)return true;return false;};
@@ -2611,16 +2570,13 @@ function subtractSpans(spans, subs) {
   }
   return out;
 }
-// A point GUARANTEED to lie inside the ring and OUTSIDE every hole — the
-// midpoint of the widest land span where a horizontal line through the
-// ring's vertical middle crosses it, holes subtracted out first. Unlike the
-// area centroid, this never lands outside a concave shape (e.g. a banana-
-// curved river island), so the water-overlap check below can't wrongly
-// discard an island block whose centroid falls out in the channel — and
-// unlike a bare outer-ring scanline, it can't land inside a hole either (a
-// courtyard pond sitting dead-centre in an otherwise dry block used to pick
-// its "interior" point inside the pond and get the whole block discarded
-// as water). pts/holes: Clipper paths ([{X,Y}, ...]).
+// A point GUARANTEED to lie inside the ring and OUTSIDE every hole: the
+// midpoint of the widest land span where a horizontal line through the ring's
+// vertical middle crosses it, holes subtracted first. An area centroid can land
+// outside a concave shape like a banana-curved river island, and a bare
+// outer-ring scanline can land inside a hole — a courtyard pond dead-centre in
+// a dry block once put the "interior" point in the pond and discarded the whole
+// block as water. pts/holes: Clipper paths ([{X,Y}, ...]).
 function polyInteriorPoint(pts, holes) {
   let minY = Infinity, maxY = -Infinity;
   for (const p of pts) { if (p.Y < minY) minY = p.Y; if (p.Y > maxY) maxY = p.Y; }
@@ -2690,16 +2646,14 @@ self.onmessage = function(e) {
     if (path.length >= 3) allVoids.push(path);
   }
 
-  // Buffer waterway centerlines into standalone polygons too, kept separate
-  // from allVoids/voidClean (which also has roads/rail mixed in). Narrower
-  // canals often have no natural=water area — only this centerline — so the
-  // water-overlap safety check below needs these to catch blocks slipping
-  // through over them, not just over closed water_bodies polygons.
-  // The offset union isn't only solid rings: where waterways fork and rejoin
-  // (a river splitting around an island) the buffers close a loop and the
-  // union comes back with a HOLE ring over the enclosed dry land. Each ring
-  // therefore carries its orientation sign (+1 solid, -1 hole) so the check
-  // below can wind them instead of treating every ring as water.
+  // Buffer waterway centerlines into standalone polygons too, kept apart from
+  // allVoids/voidClean, which has roads and rail mixed in. A narrow canal often
+  // has no natural=water area at all, only this centerline, so the water-overlap
+  // check below needs them to catch blocks slipping through.
+  // The union is not all solid rings: where a river splits around an island the
+  // buffers close a loop and a HOLE ring comes back over the enclosed dry land.
+  // Each ring carries its orientation sign so the check can wind them instead of
+  // reading every ring as water.
   const waterwayVoidPolys = []; // { pts: [[x,y],...], sign: +1 | -1 }
   if (waterwayLines && waterwayLines.length) {
     const wwGroups = new Map();
@@ -3425,34 +3379,25 @@ ${layersSVG}  </g>
 }
 
 // ── Illustrator-compatible wrapper ────────────────────────────────
-// Adobe Illustrator's SVG import is a partial, buggy SVG 1.1 parser, so —
-// like Maperitive's compatibility=illustrator mode — this wrapper (together
-// with the illustratorCompatible flag in the layer builders) keeps the file
-// inside the subset Illustrator actually understands:
+// Illustrator's SVG import is a partial, buggy SVG 1.1 parser, so this wrapper
+// and the illustratorCompatible flag in the layer builders keep the file inside
+// the subset it understands:
 //
-//  1. No <textPath>: pre-23.0.6 doesn't rotate glyphs, every version
-//     explodes the text into per-letter point text, and percentage
-//     startOffset is unreliable → curved street labels are emitted glyph by
-//     glyph (emitCurvedLabelAsGlyphs), so no xmlns:xlink either.
-//  2. No paint-order (SVG 2, ignored by Illustrator) → feature-label halos
-//     are two stacked <text> elements.
-//  3. No inkscape:*/RDF metadata (parser risk, no value) → stripped below;
-//     attribution moves into an XML comment. Illustrator names layers and
-//     objects from id="" attributes, which everything already carries.
-//  4. clipPaths only at the document root <defs> (declared inline in a <g>
-//     they are unreliable) → collected via context.illustratorDefs.
-//  5. Single font name (a comma list is read as one literal name by older
-//     versions) and only real Arial styles: weights 500/600 snap to 400/700
-//     (see illustratorFontWeight).
-//  6. Artboard limit: Illustrator opens SVG at 1px = 1pt and its canvas
-//     maxes out at 16383pt (~227in) — the fixed 67.5cm print envelope
-//     (getPhysicalSizeMm) keeps every export well under that, so there's
-//     nothing to warn about at runtime.
+//  1. No <textPath> (see emitCurvedLabelAsGlyphs) — hence no xmlns:xlink.
+//  2. No paint-order, which is SVG 2 and ignored → halos are two stacked
+//     <text> elements.
+//  3. No inkscape:*/RDF metadata: parser risk, no value. Stripped below, with
+//     attribution moved into an XML comment. Illustrator names layers and
+//     objects from id="", which everything already carries.
+//  4. clipPaths only in the root <defs>; inline in a <g> they are unreliable.
+//  5. One font name — older versions read a comma list as a single literal
+//     name — and only real Arial styles, so 500/600 snap to 400/700.
+//  6. Illustrator opens SVG at 1px = 1pt on a canvas maxing out at 16383pt.
+//     The fixed 67.5cm print envelope keeps every export well under that, so
+//     nothing needs warning about at runtime.
 //
-// Everything else deliberately stays plain SVG 1.1 in BOTH pipelines: hex
-// colors only (no rgba()/hsl()), presentation attributes (no <style>/CSS
-// classes), fixed-decimal coordinates (no scientific notation), baselines
-// baked into geometry (no dominant-baseline).
+// Everything else stays plain SVG 1.1 in BOTH pipelines: hex colours, no CSS
+// classes, fixed-decimal coordinates, baselines baked into geometry.
 function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
   const { b, W, H, preset } = ctx;
   const date = new Date().toISOString().slice(0, 10);

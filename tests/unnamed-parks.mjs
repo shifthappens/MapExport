@@ -1,43 +1,29 @@
-// Offline regression guard for AF-07d: an explicit leisure=park is a park,
-// with or without a name (ENGINE-V2.md §3, AREA_FEATURES 'green' row).
+// Offline regression guard for the nameless-green contract (ENGINE-V2.md §3,
+// AREA_FEATURES 'green' row). The original bug: v2 put a nameless leisure=park
+// in the 'grass' category, which paints a tint but subtracts from no void, so
+// the city block painted straight over it and the occlusion clip then removed
+// the hidden remainder. Tilburg's Piushaven park vanished entirely.
 //
-// The bug: v2 classified a NAMELESS leisure=park into the 'grass' display
-// category. Grass paints a green tint but subtracts from no block void, so the
-// city block painted over it, and since AF-07c the occlusion clip removed the
-// hidden remainder outright. The unnamed park at Piushaven in Tilburg
-// (way/138166896, 808 m²) vanished completely.
+// The contract pinned here:
+//   1. leisure=park classifies 'green' whether named, nameless or
+//      access-restricted. 'green' is the paint AND subtraction set, so it cuts
+//      the block/fallback void and paints in the Parks & green band.
+//   2. Nameless parks stay OUT of the open-land signal — absent from
+//      `greenNamed`, the only green set feeding openLandVoid. Visibility must
+//      never change a face's urban/countryside verdict.
+//   3. The confetti guard is an area threshold on the DISSOLVED MASS, never a
+//      name, access or width filter. Pieces within GREEN_MASS_BRIDGE_M are one
+//      mass; a mass under GREEN_MASS_MIN_M2 is not painted; GREEN_PIECE_MIN_M2
+//      drops true confetti before the dissolve so tree pits cannot chain into a
+//      fake park. Named green and recreation are never gated but do anchor a
+//      mass, so a verge against a named park is kept with it.
+//   4. leisure=garden is deliberately not widened — usually a back yard.
+//   5. Nameless forest/grass/scrub is still not a park: those tags keep their
+//      own categories whatever the mass gate decides. Cobbenhagen is exactly
+//      that shape, and the gate lets its pieces survive as one mass without
+//      promoting them to parks.
 //
-// The contract this test pins down:
-//   1. leisure=park classifies 'green' — named, nameless, or access-restricted
-//      alike. 'green' is the paint AND subtraction set, so the park cuts the
-//      block/fallback void and paints in the Parks & green band.
-//   2. Nameless parks stay OUT of the open-land classification signal: they are
-//      absent from `greenNamed`, which is the only green set feeding the
-//      worker's openLandVoid (via prepareFaceData's openLandGreenPolys). AF-07d
-//      changes what is visible, never a face's urban/countryside verdict — the
-//      same discipline recreation grounds follow (AF-03b).
-//   3. The confetti guard is an area threshold, not a name, access or width
-//      filter — and since AF-07f it is measured on the DISSOLVED MASS, not on
-//      one polygon. Pieces whose outlines come within GREEN_MASS_BRIDGE_M of
-//      each other are one mass; a mass under GREEN_MASS_MIN_M2 is not painted.
-//      A separate GREEN_PIECE_MIN_M2 floor drops true confetti before the
-//      dissolve, so a line of tree pits cannot chain into a fake park.
-//      Named green and recreation grounds are never gated, but they do anchor a
-//      mass, so a verge lying against a named park is kept with it.
-//      (The real Piushaven park is below the mass threshold on its own; in the
-//      cached Tilburg bbox it is glued to neighbouring green and still paints,
-//      which is what fixture `piushavenNeighbour` reproduces here.)
-//   4. leisure=garden is deliberately NOT widened — a garden is usually a back
-//      yard, and the audit asked for parks.
-//   5. Nameless forest/grass/scrub is still NOT a park: whatever the mass gate
-//      decides, those tags keep their own categories ('landcover' for
-//      forest/wood, 'grass' for grass/scrub) and never become 'green'. Tilburg's
-//      Cobbenhagen campus is exactly that shape (54 forest ways, 953 grass, 173
-//      scrub, no name, no leisure=park in the cached bbox); AF-07f lets its
-//      pieces survive as one mass, it does not promote them to parks.
-//
-// Fixtures are real cached OSM geometry (Tilburg 51.545,5.07,51.562,5.10 and the
-// campus bboxes) inlined so the test runs with no network and no cache.
+// Fixtures are real cached OSM geometry, inlined so the test needs no network.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

@@ -122,13 +122,12 @@ restore_stash() {
 
 # Explicit refresh: really go back to Overpass for all 70 keys.
 #
-# Two things have to be out of the way for that, because the prefetcher fetches
-# only what the cache does not already answer. Pinned serving is switched off
-# with the .disabled marker, and the live entries are moved aside — an unexpired
-# live entry would otherwise be reported as a HIT and the "refresh" would fetch
-# nothing at all. They are moved, not deleted, so an interrupted or failed
-# refresh puts the cache back as it found it. The trap covers Ctrl-C too:
-# leaving .disabled behind would silently un-pin the whole validation corpus.
+# The prefetcher only fetches what the cache cannot already answer, so two
+# things must be out of the way: pinned serving (the .disabled marker) and the
+# live entries, which would otherwise be reported as HITs and leave the refresh
+# fetching nothing. Live entries are moved, not deleted, so a failed refresh
+# puts the cache back as it found it. The trap covers Ctrl-C too — a leftover
+# .disabled would silently un-pin the whole validation corpus.
 cmd_refresh() {
   local key
   mkdir -p "$PINNED_DIR"

@@ -3,12 +3,10 @@
 // bare page background (preset.bg) shows through instead of a city block,
 // water fill, or green cover.
 //
-// Independent of *why* a gap happens — the winding-vs-hole-ring bug fixed in
-// script.js on 2026-07-09 is one cause, but this check would just as well
-// catch a future bug in a different layer's void logic. It works by
-// rasterising every filled shape (city blocks, water/park areas) and every
-// stroked line (roads that cut blocks, waterways, rail) onto a coverage
-// grid, then reporting any grid cell inside the bbox that nothing touched.
+// Independent of *why* a gap happens: the winding-vs-hole-ring bug was one
+// cause, but a future bug in another layer's void logic would show up the same
+// way. Every filled shape and stroked line is rasterised onto a coverage grid,
+// and any cell inside the bbox that nothing touched is reported.
 //
 // Usage (see tests/real-export.mjs): call checkCoverage() with the same
 // `results` (post prepareBlockData, so pruneIslandGreens has already run),
@@ -136,7 +134,7 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr, countr
   for (const { layer, data: rdata } of results) {
     if (layer.id !== 'water_bodies' && layer.id !== 'parks' && layer.id !== 'parks_recreation' && layer.id !== 'landcover') continue;
     for (const el of rdata.elements) {
-      // Green-remainder merge (engine-v2 doExportV2 / real-export): a landcover
+      // Green-remainder merge (engine-v2 doExport / real-export): a landcover
       // element is grown to (element ∪ the green-open coverage remainder it lies
       // in), and renderLandcover paints THAT grown shape via el._mergedRings —
       // rings already in projected px at the void tolerance. Mark exactly what

@@ -1,26 +1,16 @@
 // Offline check of engine-v2's AREA_FEATURES table binding (no network, no
-// DOM). AF-03a bound natural=scrub|heath into the existing 'grass' paint-only
-// route (one AREA_FEATURES row) so scrub/heath land no longer falls through
-// to the cream "Uncategorized" fallback. AF-03b grew it: natural=wetland joins
-// the same grass route (field tint), and golf_course/dog_park/sports_centre/
-// allotments become the new 'recreation' category → the v2-only
-// parks_recreation layer (park green above blocks, own editor subgroup,
-// subtracts from the same voids as named parks, outside every open-land
-// signal). This test is deliberately set up to grow with later AREA_FEATURES
-// units (AF-03c): it exercises the full classify → bucket → render path, not
-// just the new rows in isolation.
+// DOM). It covers the rows added by AF-03a/b/c — scrub/heath and wetland on the
+// paint-only 'grass' route, and golf/dog park/sports centre/allotments as the
+// v2-only 'recreation' category — and exercises the full classify → bucket →
+// render path rather than the rows in isolation, so later rows can join it.
 //
 // Two harnesses:
-//  - a light vm sandbox (stubbed script.js globals) for the pure classify/
-//    bucket functions (classifyAreaTags via AREA_FEATURES, classifyAreaFeatures,
-//    buildAreaResults) — same pattern as tests/sea-sign.mjs / hamlet-grounding.mjs;
-//  - a full vm sandbox (real script.js + engine-v2.js concatenated in one vm
-//    script, DOM stubbed) for renderLandcover, which is v1 machinery
-//    (geomToPathD/safeName/escXml/PRESETS) engine-v2.js only has in scope
-//    when loaded after script.js — same concatenation tests/real-export.mjs
-//    uses. renderLandcover itself is not part of EngineV2's public return
-//    object, so the source string is patched (in memory only, not on disk)
-//    to add it to the export, the same trick sea-sign.mjs uses for buildSeaElements.
+//  - a light vm sandbox (stubbed script.js globals) for the pure classify and
+//    bucket functions, as in sea-sign.mjs;
+//  - a full sandbox with script.js and engine-v2.js concatenated for
+//    renderLandcover, which needs v1 machinery in scope. renderLandcover is not
+//    part of EngineV2's public return, so the source string is patched in
+//    memory to export it — the same trick sea-sign.mjs uses.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

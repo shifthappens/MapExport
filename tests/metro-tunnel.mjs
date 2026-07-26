@@ -1,24 +1,19 @@
 // tests/metro-tunnel.mjs — offline check for engine v2's metro tunnel
 // treatment (AF-05d).
 //
-// Coen's decision (2026-07-23): tunnels stay visible in the Metro layer but
-// paint far more subtly than surface track — no white casing halo, a
-// thinner dashed single stroke, lower opacity — while keeping the line's own
-// colour so a rider can still trace which coloured line continues
-// underground. Tunnel ways are pulled out of v1's frozen buildMetroLayer
-// call and rendered by engine-v2.js's own renderMetroTunnelGroup, then
-// spliced back in as sibling per-line groups inside the same outer "metro"
-// layer wrapper v1 built for the surface ways.
+// Coen's decision (2026-07-23): tunnels stay visible but paint far more subtly
+// than surface track — no casing halo, a thinner dashed stroke, lower opacity —
+// while keeping the line's own colour so a rider can trace which line continues
+// underground. Tunnel ways leave v1's frozen buildMetroLayer call, render
+// through renderMetroTunnelGroup, and splice back as sibling per-line groups
+// inside the same outer "metro" wrapper.
 //
-// Three shapes exercised: a line with only surface ways (unaffected, stays
-// byte-identical to v1), a line that is entirely underground (frame-wide
-// surface-empty synthesis path), and a line with BOTH a surface and a
-// tunnel segment (the splice path — proves the regex-anchored injection
-// into v1's generated wrapper produces well-formed, singly-nested markup).
+// Three shapes: a surface-only line (must stay byte-identical to v1), a fully
+// underground line (the surface-empty synthesis path), and a line with both
+// (the splice path, which proves the injection produces well-formed, singly
+// nested markup).
 //
-// Loads script.js + engine-v2.js in ONE vm sandbox (same trick as
-// metro-dedup.mjs) and drives EngineV2.buildSVG plus v1's buildMetroLayer /
-// renderLayerSVG directly.
+// Loads script.js + engine-v2.js in ONE vm sandbox, like metro-dedup.mjs.
 import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';

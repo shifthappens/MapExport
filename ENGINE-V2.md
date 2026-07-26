@@ -401,7 +401,7 @@ anything that reads cream is neither painted nor rowed.
   faces, blocks or merges, just this clip against the painted cover (which then
   excludes the unpainted blocks). The worker's result travels to
   `applyLandcoverOcclusion` **as one whole object** — `computeFacesAsync` resolves
-  with the payload spread, and `doExportV2` never destructures it into per-field
+  with the payload spread, and `doExport` never destructures it into per-field
   locals. That is deliberate and load-bearing: the AF-07c P1 bug was a
   hand-listed field set that forgot `culledLandcover`, so fully-water-covered
   Countryside still painted, and no per-end unit test can see a field dropped
@@ -590,7 +590,7 @@ per §9. So the redundant row is hidden from v2's own file instead:
 `applyMergedCountrysideVisibility` (in `engine-v2.js`, which the deploy strips
 from the production index) hides the `#lyr-landcover` row whenever v2 is the
 selected engine, and shows it again for v1. The input stays in the DOM (default
-on), so `getSelectedLayers` still reports landcover and `isSelectedRenderLayer`
+on), so `getAllSelectedLayers` still reports landcover and `isSelectedRenderLayer`
 folds it into the parks switch — the visibility change is UI-only. Guarded by
 `tests/landcover-clip.mjs` (Part D). At cutover the row can be dropped from the
 registry outright.

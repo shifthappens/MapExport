@@ -157,7 +157,7 @@ check('merged element 0 is CLIPPED off the building footprint (Oulu fix)', m0 &&
 // must actually drop those elements. The clip-only branch once destructured
 // clippedLandcover/greenGroundMerges but NOT culledLandcover, so a fully-
 // water-covered element still painted. applyLandcoverOcclusion is the one glue
-// both doExportV2 and tests/real-export.mjs call — assert it removes culled
+// both EngineV2.doExport and tests/real-export.mjs call — assert it removes culled
 // indices while applying clips and merges, so that integration can't regress.
 const glueElements = [
   { id: 'a', rings: [ring(0, 0, 10, 10)] },   // 0: partially covered → clipped
@@ -226,7 +226,7 @@ check('orchestration: culledLandcover survives the worker→caller hand-off (P1 
 check('orchestration: clipped + merged survive the hand-off too',
   orch.clippedLandcover?.[0]?.index === 3 && orch.greenGroundMerges?.[0]?.index === 4);
 // End-to-end of the two halves: what computeFacesAsync resolved, fed to the glue
-// exactly as doExportV2 now feeds it (whole object, no field list), must drop
+// exactly as EngineV2.doExport now feeds it (whole object, no field list), must drop
 // the culled element.
 const endToEnd = X2.applyLandcoverOcclusion(
   Array.from({ length: 8 }, (_, i) => ({ id: `e${i}`, rings: [ring(0, 0, 10, 10)] })),

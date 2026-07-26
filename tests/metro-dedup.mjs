@@ -1,32 +1,24 @@
 // tests/metro-dedup.mjs — offline check for engine v2's metro service filter +
 // ref normalization (AF-05c).
 //
-// Two v2-only, v1-frozen rules over the metro fetch:
-//  1. Service filter: any way carrying service=* (yard/spur/crossover/siding)
-//     is dropped from the metro layer entirely — no muted group like rail's,
-//     because the Metro layer is a schematic overlay of rider-facing lines;
-//     the depot AREA still shows via the landuse=railway fallback patch.
-//     Tunnels are NOT filtered (pending AF-05d — metro tunnel main ways
-//     render deliberately).
-//  2. Ref normalization: v1's buildMetroLayer groups by
-//     ref||name||colour||color, so a way with `name` but no `ref` fragments
-//     its line into a second, differently-coloured group. v2 pre-passes a
-//     name→ref map built from the surviving public ways carrying BOTH tags,
-//     then stamps the mapped ref onto ref-less ways sharing that name — a
-//     shallow copy, never mutating the cached element. A name mapping to
-//     more than one distinct ref is ambiguous and is never merged.
+// Two v2-only rules over the metro fetch:
+//  1. Service filter: any service=* way is dropped from the metro layer
+//     entirely — no muted group like rail's, since the Metro layer is a
+//     schematic overlay of rider-facing lines, and the depot area still shows
+//     as a fallback patch.
+//  2. Ref normalization: v1 groups by ref||name||colour, so a way with a name
+//     but no ref fragments its line into a second, differently-coloured group.
+//     v2 builds a name→ref map from the ways carrying both and stamps it onto
+//     the ref-less ones, on a shallow copy so the cached element is untouched.
+//     A name with two distinct refs is ambiguous and never merged.
 //
-// Tunnel ways are NOT filtered here (unlike service ways) — they still
-// render, but AF-05d pulls them into their own muted per-line group instead
-// of v1's full casing+fill treatment. That styling/splice contract has its
-// own dedicated coverage in tests/metro-tunnel.mjs; this file only checks
-// that a tunnel way still produces SOME output post-dedup.
+// Tunnel ways are NOT filtered — they render through their own muted per-line
+// group (AF-05d), whose styling contract lives in tests/metro-tunnel.mjs. Here
+// they only have to still produce some output after the dedup.
 //
-// Fixtures modeled on the measured Paris subway bbox (167 ways): a two-way
-// main line (ref+name), a ref-less straggler sharing that line's name, an
-// unnamed service=yard way, a named service=spur way, a ref+name-carrying
-// service=crossover way, a tunnel main way, and an ambiguous-name trio (two
-// refs sharing one name, plus a ref-less third).
+// Fixtures model the measured Paris subway bbox (167 ways): a two-way main
+// line, a ref-less straggler sharing its name, unnamed and named service ways,
+// a tunnel main way, and an ambiguous-name trio.
 //
 // Loads script.js + engine-v2.js in ONE vm sandbox (same trick as
 // rail-service.mjs) and drives EngineV2.buildSVG plus v1's buildMetroLayer /

@@ -1,20 +1,16 @@
 // tests/real-export.mjs — headless real-world export against the LIVE local stack.
 //
-// Runs script.js itself (the same source the browser loads — no build step,
-// no minification) outside a browser: fetches each layer through the running
-// cache.php, hitting Overpass on a miss and writing the result back to cache/.
-// City blocks (normally a Web Worker) are computed here in a vm sandbox with
-// ClipperLib. The assembled SVG is saved to exports/ as a committable trail,
-// named by date only (map-<preset>-<city>[-v2]-YYYY-MM-DD.svg) so same-day
-// re-exports overwrite one snapshot per city; the app's own downloads keep the
-// full HH:MM:SS timestamp. tools/prune-exports.sh keeps the newest per city
-// within a 7-day window. Minification only ever happens in
-// the GitHub Actions deploy workflow (`.github/workflows/deploy.yml`) — it is
-// not part of dev or test.
+// Runs script.js itself — the same source the browser loads, no build step —
+// outside a browser: every layer is fetched through the running cache.php,
+// hitting Overpass on a miss and writing the result back to cache/. City
+// blocks, normally a Web Worker, are computed here in a vm sandbox with
+// ClipperLib. The assembled SVG lands in exports/ as a committable trail, named
+// by date only (map-<preset>-<city>[-v2]-YYYY-MM-DD.svg) so same-day re-exports
+// overwrite one snapshot per city; the app's own downloads keep the full
+// timestamp. tools/prune-exports.sh then keeps the newest 3 per city.
 //
-// Prereqs: a webserver serving the repo at /mapexport/ on :8080 with PHP
-// support for cache.php (e.g. `php -S localhost:8080` from a directory whose
-// `mapexport/` entry points at this repo, or Coen's local `lamp start`). See
+// Prereqs: a webserver serving the repo at /mapexport/ on :8080 with PHP for
+// cache.php — `lamp start` here, plain `php -S` anywhere else. See
 // memory/reference_lamp_server.md.
 //
 // Usage:
@@ -23,21 +19,15 @@
 //   node tests/real-export.mjs 51.545,5.07,51.562,5.1
 //   node tests/real-export.mjs <city|s,w,n,e> [--record] [--illustrator]
 //
-// Print size (px width, physical mm) is derived from the bbox shape — see
-// getPhysicalSizeMm in script.js — not passed on the command line.
+// Print size follows from the bbox shape (getPhysicalSizeMm), never the command
+// line. --illustrator writes the Illustrator variant of the same export from
+// the same fetched data, with its own profile assertions.
 //
-// --illustrator additionally writes the Illustrator-compatible variant of the
-// same export (suffix `-illustrator`) from the same fetched data, with its own
-// profile assertions (no textPath/inkscape:/xlink/paint-order markup).
-//
-// This is a TEST, not just a demo: it exits non-zero when the export is
-// broken — a default-on layer under its per-city floor (tests/expectations.json),
-// zero roads/labels, or any svg-lint error (NaN, empty/mirrored/upside-down
-// labels, dangling textPath refs). --record captures this run's counts ×0.5
-// as the named city's floors; do that only on a visually APPROVED run.
-//
-// Tilburg is the gate: run + visually verify Tilburg first, and run the other
-// cities only after the Tilburg result has been approved (see tests/README.md).
+// A TEST, not a demo: it exits non-zero on a default-on layer under its
+// per-city floor (tests/expectations.json), on zero roads or labels, and on any
+// svg-lint error. --record captures this run's counts ×0.5 as the city's
+// floors, so run it only on a visually APPROVED export. Tilburg is the gate:
+// verify it first, and run the other cities only once it is approved.
 import fs from 'node:fs';
 import os from 'node:os';
 import vm from 'node:vm';
@@ -301,7 +291,7 @@ if (engineV2) {
   // before/after are comparable.
   const landcoverBefore = (areaRenderResults.find(r => r.layer.id === 'landcover')?.data.elements || []).length;
   // Apply the worker's landcover occlusion (merges, clips, culls) through the
-  // engine's own shared helper — the same call doExportV2 makes — so this
+  // engine's own shared helper — the same call EngineV2.doExport makes — so this
   // harness cannot drift from the production glue (that drift is exactly how a
   // fully-covered element once survived the clip-only pass, AF-07c P1).
   const lcResult = areaRenderResults.find(r => r.layer.id === 'landcover');
@@ -403,18 +393,14 @@ const expectations = fs.existsSync(expPath) ? JSON.parse(fs.readFileSync(expPath
 const expKey = engineV2 ? `${citySlug}-v2` : citySlug;
 const exp = expectations[expKey];
 
-// 2. coverage lint: any land in the bbox that no block/water/park/road/
-//    waterway/rail paints, so only the bare page background shows through
-//    (see plans/2026-07-07_erfurt-river-islands-not-rendering.md — this is
-//    the general form of the bug fixed twice there). The block cutter itself
-//    deliberately drops contours under 400px² as visual noise (`minArea` in
-//    BLOCK_WORKER_SRC) — every city has a few of these micro-slivers at
-//    complex junctions, and they are not the bug this check targets. The
-//    significance floor here must clear that intentional floor by a wide
-//    margin, and scale with physical print size (not raw px) so it means
-//    the same thing at any zoom: ~3x3mm on the printed sheet, comfortably
-//    bigger than a junction rounding artifact, small enough to catch a real
-//    dropped block.
+// 2. coverage lint: land in the bbox that nothing paints, so only the bare page
+//    shows through — the general form of the Erfurt river-island bug. The block
+//    cutter deliberately drops contours under 400px² as visual noise, and every
+//    city has a few such slivers at complex junctions, so the significance floor
+//    here has to clear that by a wide margin. It scales with physical print size
+//    rather than raw px, so it means the same at any zoom: ~3x3mm on paper, big
+//    enough to ignore a junction artifact, small enough to catch a dropped
+//    block.
 const pxPerMm = W / physicalWidthMm;
 const minAreaPx2 = 9 * pxPerMm * pxPerMm; // 3mm x 3mm on paper
 let significantGaps = [];

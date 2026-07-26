@@ -3,13 +3,11 @@ $CACHE_DIR = __DIR__ . '/cache/';
 $CACHE_TTL = 7 * 24 * 3600; // 7 days
 
 // Pinned entries (cache/pinned/) never expire and are never swept: the seven
-// engine-v2 validation areas must stay exportable offline forever, and refresh
-// only when a human asks for it (tools/pin-cache.sh). Before this, the pinned
-// snapshot was inert — a README told you to `cp` it back by hand — so every
-// validation export silently went back to Overpass once the 7-day TTL lapsed.
-// A pinned entry is served whenever the live copy is missing or expired; a
-// fresher live copy still wins. tools/pin-cache.sh drops the .disabled marker
-// so an explicit refresh can reach Overpass again.
+// engine-v2 validation areas must stay exportable offline forever and refresh
+// only when a human asks (tools/pin-cache.sh). A pin is served whenever the
+// live copy is missing or expired; a fresher live copy still wins. The
+// .disabled marker, which pin-cache.sh drops during a refresh, turns pinned
+// serving off so the refresh can reach Overpass.
 $PINNED_DIR = $CACHE_DIR . 'pinned/';
 $PINNED_OFF = getenv('MAPEXPORT_CACHE_IGNORE_PINNED') === '1'
     || file_exists($PINNED_DIR . '.disabled');

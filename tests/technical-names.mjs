@@ -164,7 +164,7 @@ const attrOf = (svg, textContent) => {
 // ── (e) Illustrator pipeline: no panel labels, so no ⚠ anywhere ──────────
 // The ⚠ must live ONLY in inkscape:label attributes: the Illustrator document
 // wrapper strips every inkscape:* attribute at assembly (script.js
-// buildIllustratorSVG), so nothing may put the marker in ids or text content.
+// wrapSVGIllustrator), so nothing may put the marker in ids or text content.
 {
   const grid = X.makeFootprintGrid();
   const feat = X.buildFeatureLabelsLayer([parkNode(20, 'Place FO/13', 0.3, 0.3)], pr, W, H, grid,

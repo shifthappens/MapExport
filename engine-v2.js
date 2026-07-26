@@ -1,27 +1,17 @@
 // engine-v2.js — MapExport export engine v2 (experimental).
 //
-// A second map-construction engine that coexists with v1 behind the
-// "Engine v2 (experimental)" UI toggle. v1 (the script.js pipeline) stays
-// untouched and remains the production default until v2 is validated
-// city-by-city. This file owns only the v2 assembly + orchestration; it
-// shares projection, fetch/cache plumbing, presets and SVG wrappers with v1
-// by referencing them directly (loaded as a classic script AFTER script.js,
-// so all of script.js's top-level declarations are in scope here).
+// A second map-construction engine behind the "Engine v2 (experimental)"
+// toggle. v1 (the script.js pipeline) stays the production default until v2 is
+// validated city by city. This file owns v2 assembly and orchestration only —
+// projection, fetch/cache plumbing, presets and SVG wrappers are v1's,
+// referenced directly. Loaded as a classic script AFTER script.js, so every
+// top-level declaration there is in scope here.
 //
-// The v2 model (milestones 2-6): faces = bbox minus the buffered
-// road network; a small face with a building becomes a cream
-// block, with water/green/waterway strokes subtracted mechanically (plain
-// Clipper difference, evenodd holes — NO water heuristics: no winding, no
-// island checks, no interior-point tests). Area features come from one
-// combined fetch classified through the ordered AREA_FEATURES table;
-// natural=coastline closes into a sea polygon. A final coverage fallback pass
-// paints any small buildingless face that no layer covered as cream in a
-// separate counted fallback_blocks group (this is also how river islands
-// render — no island machinery). Transit and labels run v1's own builders on
-// the shared context; squares neither cut nor paint (they read cream as land,
-// named ones get a feature label); tunnels neither draw nor bound blocks. See
-// plans/2026-07-10_export-engine-v2.md — the milestone
-// checkboxes there are the single source of truth for progress.
+// The model in one line: faces = bbox minus the buffered road network, and
+// everything else is subtraction and paint order over those faces.
+//
+// ENGINE-V2.md is the binding contract — coverage promise, complement rule,
+// paint order. Read it before changing anything here.
 
 const EngineV2 = (() => {
   // v2's flat layer list. Renderable layers reuse v1's own registry objects,
@@ -47,15 +37,13 @@ const EngineV2 = (() => {
   const waterLabelsLayer = findLayer('water_labels');
   const streetLabelsLayer = findLayer('street_labels');
 
-  // Buildings are fetched for every v2 export (bounding boxes) and serve two
-  // purposes: classifying faces (does a small face contain a building?) and
-  // forming hamlet blobs inside rural faces — and, in v2, draws standalone
-  // buildings on green-open land, which needs REAL footprints rather than the
-  // bounds rectangles v1's hamlet merge is happy with (a relation's bounds box
-  // spans its whole campus — Ghent stamped one across the Coupure). Same query
-  // as v1, geometry output; the cache key hashes overpassOut, so v1's
-  // bounds-only entries and these coexist. Fetch-only, never rendered as a
-  // layer of its own.
+  // Buildings are fetched for every v2 export: they classify faces (does a
+  // small face contain a building?), form hamlet blobs in rural faces, and
+  // draw standalone buildings on green open land. That last one needs real
+  // footprints, not the bounds rectangles v1's hamlet merge accepts — a
+  // relation's bounds box spans its whole campus (Ghent stamped one across the
+  // Coupure). The cache key hashes overpassOut, so v1's bounds-only entries
+  // coexist with these. Fetch-only, never a layer of its own.
   const buildingsLayer = { ...BLOCK_BUILDINGS_LAYER, overpassOut: 'body geom' };
 
   // The buildings fetch (and ONLY that fetch) is padded past the frame by this
@@ -93,16 +81,13 @@ const EngineV2 = (() => {
   // named-parks group (see buildSVG). Own id/label; NOT in LAYER_REGISTRY.
   const recreationLayer = { id: 'parks_recreation', label: 'Recreation grounds' };
 
-  // One combined fetch that brings back everything the AREA_FEATURES table can
-  // paint (water surfaces, named green, sports/recreation green, countryside
-  // land cover), plus the two coded exceptions (natural=coastline for the sea,
-  // linear waterways for stroked rivers/canals). Deliberately NOT fetched:
-  // cream-equivalent categories (landuse=residential/grass, gardens,
-  // flowerbeds) — the cream face below already covers that land, and fetching
-  // them is the 776-stray-patches failure mode. Fetch cost is not a design
-  // input (plan principle), so the query is written plainly for robustness.
-  // Fetch-only: its raw elements are classified into the layers above, never
-  // rendered directly. layerQHash gives it its own cache namespace for free.
+  // One combined fetch for everything the AREA_FEATURES table can paint, plus
+  // the two coded exceptions (natural=coastline for the sea, linear waterways
+  // for stroked rivers/canals). Deliberately NOT fetched: cream-equivalent
+  // categories (landuse=residential/grass, gardens, flowerbeds) — the cream
+  // face below already covers that land, and fetching them was the
+  // 776-stray-patches failure mode. Fetch-only: the raw elements are
+  // classified into the layers above, never rendered directly.
   const areaFeaturesLayer = {
     id: 'area_features', label: 'Area features', type: 'fetch',
     overpassQuery: (b) => [
@@ -314,115 +299,77 @@ const EngineV2 = (() => {
   //  AREA_FEATURES — one ordered declarative table
   //
   //  First matching row wins (specific before generic). Each row maps a tag
-  //  pattern to a category; each category maps to exactly one render layer +
-  //  paint style (the colour lives in the v1 renderer / PRESETS.useit, reused
-  //  verbatim). Adding a forgotten OSM tag later is one row, never a new code
-  //  path. Only render-DISTINCT categories get a row: anything that would paint
-  //  cream anyway is neither fetched nor listed here.
+  //  pattern to a category; each category maps to exactly one render layer and
+  //  paint style, the colour coming from the v1 renderer / PRESETS.useit. A
+  //  forgotten OSM tag is one row later, never a new code path. Only
+  //  render-DISTINCT categories get a row: what would paint cream anyway is
+  //  neither fetched nor listed.
   //
   //  Categories → layers:
   //    water     → water_bodies (blue)
   //    green     → parks        (park green)
-  //    landcover → landcover    (farmland=field tint, wood/forest=park green,
-  //                              coloured by tag inside v1's landcover renderer)
-  //    grass     → landcover    (grass-display tint; kept OUT of the open-land
-  //                              signal — see the grass rows below)
-  //    recreation→ parks_recreation (park green in the Parks & green band,
-  //                              above blocks; OUT of the open-land signal — v2-only)
-  //    beach     → beach        (Sand layer — natural=beach|sand|dune, v2-only)
+  //    landcover → landcover    (farmland=field tint, wood/forest=park green)
+  //    grass     → landcover    (grass tint; kept OUT of the open-land signal)
+  //    recreation→ parks_recreation (park green above blocks; v2-only)
+  //    beach     → beach        (Sand — natural=beach|sand|dune, v2-only)
   //
-  //  Two deliberate coded exceptions live OUTSIDE this table, not as rows:
-  //  natural=coastline (the sea, closed against the bbox) and linear waterways
-  //  (stroked lines). Both are handled in classifyAreaFeatures before the table.
+  //  Coastline and linear waterways are not rows: they are a closed-against-bbox
+  //  sea polygon and stroked lines, so classifyAreaFeatures handles both before
+  //  the table.
   //
-  //  No aeroway/military/power rows: v1 renders none of them distinct from
-  //  cream and PRESETS.useit carries no colour for them, so per the plan's
-  //  "where v1 renders them distinctly from cream" qualifier there is nothing
-  //  to port — that land falls into cream blocks like any other. Add a row here
-  //  (plus its query statement + preset colour) if a city ever needs one.
+  //  No aeroway/military/power rows — v1 renders none of them distinct from
+  //  cream and PRESETS.useit has no colour for them. Add a row (plus a query
+  //  statement and a preset colour) if a city ever needs one.
   // ════════════════════════════════════════════════════════════════
   const AREA_FEATURES = [
     { match: (t) => /^(water|bay)$/.test(t.natural || ''), category: 'water' },
     { match: (t) => /^(riverbank|dock)$/.test(t.waterway || ''), category: 'water' },
     { match: (t) => /^(reservoir|basin)$/.test(t.landuse || ''), category: 'water' },
     { match: (t) => /^(marina|swimming_pool)$/.test(t.leisure || ''), category: 'water' },
-    // Green destinations. Two ways in:
-    //  1. v1's exact named gate (name + junk-name filter), so v2 keeps the
-    //     "named green only, not every verge" look for forests, cemeteries,
-    //     gardens and nature reserves.
-    //  2. AF-07d: an explicit leisure=park, WITH OR WITHOUT a name, and
-    //     whatever its access tag. A mapper who wrote leisure=park has already
-    //     made the editorial call that this is a park; a nameless one (the
-    //     Piushaven park in Tilburg, way/138166896) is no less a park than a
-    //     named one, and a private estate or theme park is still a park. Before
-    //     AF-07d these fell into the 'grass' row below, which paints green but
-    //     cuts no hole in the city block above it — so they vanished under
-    //     cream. Being 'green' means they subtract from the block and fallback
-    //     voids and paint in the Parks & green band (complement rule, §3).
-    //     Deliberately NOT widened to leisure=garden: a garden is a private
-    //     back yard far more often than a destination, and the audit only
-    //     asked for parks. A nameless park still has to clear the AF-07f mass
-    //     gate in classifyAreaFeatures — an area threshold on the dissolved
-    //     mass, which governs every nameless green patch alike; not a name,
-    //     access or width filter.
-    // No nameless sports/recreation row: v1 never fetches pitches/sports
-    // centres, and a nameless-green row broke the named-only rule in cities
-    // (Bremerhaven review) — those elements are still fetched, but label-only.
+    // Green destinations, two ways in: v1's named gate (name + junk-name
+    // filter), and any explicit leisure=park regardless of name or access — a
+    // mapper who wrote leisure=park already made the editorial call. 'green'
+    // means it subtracts from the block and fallback voids and paints in the
+    // Parks & green band (complement rule, §3); the 'grass' rows below paint
+    // but cut nothing, so green there vanishes under cream.
+    //
+    // Not widened to leisure=garden: that is a private back yard more often
+    // than a destination. Nameless parks still face the mass gate in
+    // classifyAreaFeatures. No nameless sports/recreation row — those are
+    // fetched label-only; a nameless-green row broke the named-only look
+    // (Bremerhaven).
     { match: (t) => parksNamedGate({ type: 'way', tags: t }) || t.leisure === 'park', category: 'green' },
     // Countryside land cover: farmland/meadow → field tint, wood/forest → park
     // green. v1's landcover renderer picks the colour from the tag.
     { match: (t) => /^(farmland|meadow)$/.test(t.landuse || ''), category: 'landcover' },
     { match: (t) => t.landuse === 'forest' || t.natural === 'wood', category: 'landcover' },
-    // Grass display rows (v2-only, category 'grass'): landuse=grass/village_green
-    // and UNNAMED leisure=garden. They paint through the landcover layer
-    // (green tint) exactly like the rows above, and subtract from the fallback
-    // void so they show through fallback holes — but they are deliberately a
-    // SEPARATE category so they can be kept OUT of the open-land classification
-    // signal (the ≥0.35 share test). Grass in the signal would flip genuinely
-    // urban faces en masse: Tilburg tags 39% of its Uncategorized patches
-    // landuse=grass. Named gardens matched the green row above already, and
-    // since AF-07d EVERY leisure=park does too; the !name guard here keeps this
-    // row to the nameless gardens.
+    // Grass display rows (v2-only): landuse=grass/village_green and unnamed
+    // leisure=garden. They paint the landcover green tint and subtract from the
+    // fallback void, but stay a SEPARATE category so they are kept out of the
+    // open-land signal (the ≥0.35 share test). Grass in that signal flips
+    // genuinely urban faces en masse — Tilburg tags 39% of its Uncategorized
+    // patches landuse=grass. Named gardens and every leisure=park already
+    // matched the green row, hence the !name guard.
     { match: (t) => /^(grass|village_green)$/.test(t.landuse || ''), category: 'grass' },
     { match: (t) => t.leisure === 'garden' && !t.name, category: 'grass' },
-    // Scrub/heath: same paint-only route as the grass rows above — already
-    // fetched (label-only sweep) and already coloured by renderLandcover's
-    // coverFill (field tint, like farmland), but had no AREA_FEATURES row so
-    // it fell into the cream "Uncategorized" fallback instead of painting.
-    // Deliberately kept in category 'grass', NOT 'landcover': it paints and
-    // subtracts from the fallback void like any grass-display row, but must
-    // stay OUT of the open-land classification signal (the ≥0.35 share test)
-    // — putting it in 'landcover' would feed that signal and risks flipping a
-    // face's classification (urban block → countryside/fallback) as a side
-    // effect of this binding, unverified here (no live sweep in this sandbox).
-    // shrubbery/grassland/wetland/sand/beach/dune/shingle/bare_rock are out of
-    // scope for this row (sand/beach/dune already have their own row/layer;
-    // the rest are a later unit).
+    // Scrub/heath (AF-03a): fetched and coloured all along, but without a row
+    // it fell into the cream Uncategorized fallback instead of painting. Kept
+    // in 'grass', not 'landcover', so binding it cannot flip a face's
+    // urban/countryside verdict as a side effect.
+    // shrubbery/grassland/shingle/bare_rock are a later unit.
     { match: (t) => /^(scrub|heath)$/.test(t.natural || ''), category: 'grass' },
-    // Wetland (AF-03b): same paint-only 'grass' route as scrub/heath above —
-    // already fetched by the label-only natural sweep, coloured by
-    // renderLandcover's coverFill as the quiet field tint (like farmland), but
-    // it had no row so it fell into the cream "Uncategorized" fallback (Oulu's
-    // 5× wetland). Kept in 'grass', NOT 'landcover': it paints and subtracts
-    // from the fallback void like any grass-display row and stays OUT of the
-    // ≥0.35 open-land signal. Like scrub/heath it DOES join the paint set, so
-    // the ≥0.60 green-dominance demotion can see it — the same deliberate
-    // tradeoff as the grass rows above, and a far higher bar than open-land.
+    // Wetland (AF-03b): same 'grass' route and same reason as scrub/heath —
+    // it too fell into the cream fallback (Oulu's 5× wetland). Out of the
+    // ≥0.35 open-land signal, but it does join the paint set, so the ≥0.60
+    // green-dominance demotion can still see it.
     { match: (t) => t.natural === 'wetland', category: 'grass' },
-    // Recreation grounds (AF-03b, category 'recreation', v2-only): golf courses,
-    // dog parks, sports centres and allotments read as green destinations, not
-    // cream land (Bremerhaven's golf-course "hap" by the Bürgerpark, its 2×
-    // allotments, Oulu's dog park + sports centre). They paint preset.park in
-    // the "Parks & green" band ABOVE city blocks as their own "Recreation
-    // grounds" editor subgroup (see renderRecreation / buildSVG), and their
-    // polygons subtract from the SAME block/fallback voids named parks do
-    // (complement rule, ENGINE-V2.md §3) — but they are a SEPARATE category so
-    // they are deliberately held OUT of every open-land classification signal
-    // (openLandVoid, landcoverVoid): recreation must never change a face's
-    // urban/countryside verdict, only its paint. A NAMED landuse=allotments has
-    // already matched the green gate row above (paints preset.park too), so this
-    // row catches golf/dog/sports of any name plus the nameless allotments the
-    // audit flagged.
+    // Recreation grounds (AF-03b, v2-only): golf courses, dog parks, sports
+    // centres and allotments read as green destinations, not cream land
+    // (Bremerhaven's golf-course bite out of the Bürgerpark, Oulu's dog park).
+    // They paint preset.park above blocks in their own editor subgroup and
+    // subtract from the same voids named parks do (§3), but stay a separate
+    // category and out of every open-land signal: recreation may change a
+    // face's paint, never its urban/countryside verdict.
     { match: (t) => /^(golf_course|dog_park|sports_centre)$/.test(t.leisure || ''), category: 'recreation' },
     { match: (t) => t.landuse === 'allotments', category: 'recreation' },
     // Sand: its own paint-only overlay layer, placed after landcover and
@@ -451,48 +398,30 @@ const EngineV2 = (() => {
     return Math.abs(a.lat - z.lat) < 1e-9 && Math.abs(a.lon - z.lon) < 1e-9;
   }
 
-  // Split one area-features fetch into per-layer element buckets. Coastline and
-  // linear waterways are pulled out by their own coded paths BEFORE the table;
-  // everything else passes the closed-way/multipolygon gate, then the table.
+  // Declutter gate for nameless green. Ground OSM maps countless verges, tree
+  // pits and single-bush beds as landuse=grass; at USE-IT scale they read as
+  // green confetti (~1700 in Tilburg). What fails the gate is not painted and
+  // the block's cream shows instead — dropped patches stay in the block and
+  // fallback void, so nothing is left uncovered. Named green, recreation and
+  // farmland/wood/forest never face the gate.
   //
-  // Declutter threshold for nameless green patches (the grass-display rows, and
-  // since AF-07d the nameless leisure=park). Ground OSM maps countless tiny
-  // verges, tree pits and single-bush beds as landuse=grass; at USE-IT scale
-  // they read as green confetti (~1700 in Tilburg). Green under the threshold
-  // is not painted — the city block's cream simply shows instead. Filtered at
-  // classification so BOTH the render array and the worker void/merge see the
-  // same set (index alignment) and coverage stays intact: grass is excluded
-  // from the open-land signal already, and dropped patches leave the
-  // fallback/block void, so cream fills them rather than leaving a hole. Only
-  // nameless green is affected — named green, recreation grounds and
-  // farmland/wood/forest landcover are untouched.
-  //
-  // AF-07f: the threshold applies to a CONNECTED MASS, not to one polygon.
-  // Ground OSM chops a single park into dozens of ways — a footway, a cycleway
-  // or a flowerbed each ends one — so a per-polygon floor judged the wrong
-  // object. It threw away whole parks a piece at a time (Tilburg's Cobbenhagen
-  // campus is 457 nameless fragments, none larger than 3590 m²), while a floor
-  // low enough to keep those let ~1700 verges and tree pits through as green
-  // confetti. Dissolving first and measuring after separates the two: a park
-  // shredded by paths is one mass, a street's verges are not.
+  // It judges a CONNECTED MASS, not one polygon (AF-07f). A footway or a
+  // flowerbed ends a way, so a per-polygon floor judges the wrong object: it
+  // discarded whole parks a piece at a time (Cobbenhagen is 457 fragments, none
+  // over 3590 m²) at any floor high enough to stop the confetti.
   const GREEN_MASS_MIN_M2 = 2500;
-  // A piece this small is never painted and never joins a mass, whatever it
-  // touches. It is the old per-polygon floor, kept for a second job: without it
-  // a line of tree pits and kerb strips 5 m apart chains into one long ribbon
-  // that clears the mass threshold on summed area alone — the "verges glued
-  // into a fake park" failure AF-07e warned about. Screening the confetti out
-  // BEFORE the dissolve means only real green can bridge real green. In Tilburg
-  // it takes the painted pieces from 712 to 200 while leaving the mass count
-  // (24) and the green area (22 ha) essentially where they were.
+  // A piece this small never paints and never joins a mass. It screens the
+  // confetti out BEFORE the dissolve, so only real green can bridge real green
+  // — otherwise tree pits 5 m apart chain into a ribbon that clears the mass
+  // threshold on summed area alone. In Tilburg it takes the painted pieces from
+  // 712 to 200 while leaving the mass count and green area where they were.
   const GREEN_PIECE_MIN_M2 = 80;
   // How close two pieces must come to count as one mass. This distance IS the
-  // rule. A street that splits a city block leaves 8 m or more of ground
-  // between the green on either side, so streets still cut a mass in two; the
-  // footways and cycleways that shred a park leave 0.3 to 5 m and stop cutting.
-  // That is the line the block-boundary rule already draws (residential and up
-  // cut a block; footway/cycleway/path/steps do not). Deliberately NOT the
-  // page-space closing rejected under AF-07e, which worked at 2 to 4 mm — 9 to
-  // 19 m of ground — and glued a street's verges into a fake park.
+  // rule. A street splitting a block leaves 8 m or more, so streets still cut a
+  // mass in two; the footways and cycleways that shred a park leave 0.3 to 5 m
+  // and stop cutting — the same line the block-boundary rule draws. Not the
+  // page-space closing rejected under AF-07e: 2 to 4 mm there is 9 to 19 m of
+  // ground, which glues a street's verges into a fake park.
   const GREEN_MASS_BRIDGE_M = 6;
 
   // Outline rings of an area element, in lat/lon, split the way the gate uses
@@ -695,13 +624,12 @@ const EngineV2 = (() => {
     }
 
     // Two pieces can also be one mass without their edges ever coming close: a
-    // lawn well inside a named park touches none of its boundary. One vertex
-    // of one on the other's ground settles it, and either direction is tried,
-    // so a small polygon inside a large one is caught from the small one's
-    // side. Inside a hole is not on that ground — a courtyard cut out of a park
-    // is not part of it, and a lawn there stands on its own.
-    // One probe per OUTER ring, not one per element: a multipolygon's second
-    // island can sit inside another park while its first does not.
+    // lawn well inside a named park touches none of its boundary. One vertex of
+    // one on the other's ground settles it, tried both ways so a small polygon
+    // inside a large one is caught from its own side. Ground means outer minus
+    // inner — a courtyard cut out of a park is not part of it. One probe per
+    // OUTER ring, since a multipolygon's second island can sit inside another
+    // park while its first does not.
     for (let i = 0; i < all.length; i++) {
       if (!placed[i]) continue;
       for (const ring of outerFlat[i]) {
@@ -718,23 +646,17 @@ const EngineV2 = (() => {
       }
     }
 
-    // A mass passes if it holds a seed, or if its own ground area clears the
-    // threshold. Summing element areas over-counts where two green polygons
-    // cover the same ground (a way and a relation mapped on top of each
-    // other), which could walk one small patch past the threshold twice over;
-    // the mass's own bounding box bounds the same dissolved area from above
-    // and is tight exactly in that case. Both are upper bounds, so taking the
-    // smaller only ever drops a mass whose real area is genuinely too small.
-    // elementAreaM2 returns Infinity for an element it cannot measure, and a
-    // mass holding one stays Infinity, which keeps the old "unmeasurable green
-    // is painted" behaviour.
+    // A mass passes if it holds a seed, or if its ground area clears the
+    // threshold. Two bounds are compared and the smaller wins: summing element
+    // areas double-counts ground mapped as both a way and a relation, and the
+    // mass's bounding box is tight exactly there. Both bound the dissolved area
+    // from above, so the smaller only ever drops a mass that really is too
+    // small. elementAreaM2 returns Infinity for what it cannot measure, which
+    // keeps unmeasurable green painted.
     //
-    // The box is measured in the gate's own projection, which puts 110540 m on
-    // a degree of latitude — the honest figure, and the one the 6 m bridging
-    // distance needs. elementAreaM2 uses 111320 m on both axes. Comparing the
-    // two bounds unconverted would make the box read ~0.7% small and drop a
-    // mass sitting right on the threshold, so put the box in elementAreaM2's
-    // units before taking the smaller.
+    // The box is in the gate's projection (110540 m per degree of latitude);
+    // elementAreaM2 uses 111320 on both axes. Unconverted, the box reads ~0.7%
+    // small and drops a mass sitting right on the threshold.
     const BOX_TO_AREA_UNITS = 111320 / ky;
     const massArea = new Map();
     const massBox = new Map();
@@ -769,6 +691,9 @@ const EngineV2 = (() => {
     return kept;
   }
 
+  // Split one area-features fetch into per-layer element buckets. Coastline and
+  // linear waterways leave through their own coded paths before the table;
+  // everything else passes the closed-way/multipolygon gate, then the table.
   function classifyAreaFeatures(elements) {
     const water = [], green = [], greenNamed = [], landcover = [], grass = [], recreation = [], beach = [], waterways = [], coastline = [], labelOnly = [];
     // Nameless green is held back in `staged` until the mass gate has seen all
@@ -785,16 +710,14 @@ const EngineV2 = (() => {
       if (!(isClosedWay(el) || (el.type === 'relation' && el.members))) continue;
       const category = classifyAreaTags(tags);
       if (category === 'water') water.push(el);
-      // Green splits two ways (AF-07d). `green` is the PAINT/subtraction set —
-      // everything that paints in the Parks & green band and cuts the block and
-      // fallback voids. `greenNamed` is the narrower open-land CLASSIFICATION
-      // signal, and holds only the elements that passed v1's named gate. A
-      // nameless leisure=park joins the first but not the second, for the same
-      // reason grass and recreation stay out of that signal: AF-07d is a
-      // visibility contract, and letting newly-admitted parks feed the ≥0.35
-      // open-land share test could flip an urban face to countryside as a side
-      // effect. The nameless ones also face the AF-07f mass gate, so a 3 m²
-      // "park" on its own cannot punch a pinhole through a city block.
+      // Green splits two ways. `green` is the PAINT/subtraction set: everything
+      // painting in the Parks & green band and cutting the block and fallback
+      // voids. `greenNamed` is the narrower open-land CLASSIFICATION signal and
+      // holds only what passed v1's named gate. A nameless park joins the first
+      // but not the second, for the same reason grass and recreation stay out —
+      // visibility must never flip an urban face to countryside as a side
+      // effect. Nameless green also faces the mass gate, so a 3 m² "park"
+      // cannot punch a pinhole through a city block.
       else if (category === 'green') {
         const isNamed = parksNamedGate({ type: el.type, tags });
         if (isNamed) { staged.push({ el, bucket: 'green', named: true }); seeds.push(el); }
@@ -823,19 +746,15 @@ const EngineV2 = (() => {
 
   // ── Coastline → sea ────────────────────────────────────────────────
   // OSM tags the open sea as natural=coastline (unclosed ways, land on the LEFT
-  // of the way direction / water on the right), never as a water polygon. To
-  // fill it we stitch the coastline into chains, clip them to the export bbox,
-  // and close each chain along the bbox edge on the water side into a sea
-  // polygon that then flows through the ordinary water path (rendered as water,
-  // subtracted from blocks). Done in lat/lon space, where "water on the right"
-  // is the plain geographic convention (no projection y-flip to reason about).
+  // of the way direction, water on the right), never as a water polygon. The
+  // chains are stitched, clipped to the bbox and closed along the bbox edge on
+  // the water side into a sea polygon, which then flows through the ordinary
+  // water path. All in lat/lon space, where "water on the right" is the plain
+  // geographic convention with no projection y-flip to reason about.
   //
-  // Scope (per plans/2026-07-07_coastline-sea-fill.md): handles any number of
-  // coast crossings (estuaries, archipelagos — one shared boundary walk joins
-  // all runs) and closed island rings inside the frame (holes by orientation).
-  // Punts on a frame entirely at sea with no coastline in view (assumes land,
-  // a no-op) and on lakes-in-islands-in-lakes. Asserted offline by
-  // tests/sea-sign.mjs and against Bremerhaven/Oulu in M7 validation.
+  // Handles any number of coast crossings and closed island rings inside the
+  // frame. Punts on a frame entirely at sea with no coastline in view (assumes
+  // land) and on lakes-in-islands-in-lakes. Guarded by tests/sea-sign.mjs.
 
   const samePt = (a, b) => Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lon - b.lon) < 1e-9;
 
@@ -1058,15 +977,12 @@ const EngineV2 = (() => {
       if (innerRings.length) console.warn('engine-v2: coastline islands without a sea polygon — dropped');
       return [];
     }
-    // Name the sea. A manual override (the "Sea name" field / the
-    // --sea-name CLI flag) wins over anything OSM says. Otherwise: if every
-    // named coastline chain that stays OPEN after stitching agrees on one
-    // name, use it. Closed chains are islands and carry the island's name,
-    // never the sea's — tested on stitched chains, not raw ways, because a
-    // split island ring is open way-by-way (openChainNames above); most open
-    // coastline is unnamed (Bremerhaven's Außenweser) — with no override
-    // those keep the generic 'Sea', which only names the layer group and
-    // paints no map label (see buildAreaResults / ENGINE-V2.md §6).
+    // Name the sea. A manual override (the "Sea name" field, --sea-name) wins.
+    // Otherwise one name shared by every OPEN named chain, since closed chains
+    // are islands carrying the island's name. Judged on stitched chains, not
+    // raw ways: a split island ring is open way by way. Most open coastline is
+    // unnamed, and the generic 'Sea' only names the layer group — it paints no
+    // map label (§6).
     const override = typeof overrideName === 'string' ? overrideName.trim() : '';
     let seaName;
     if (override) {
@@ -1084,15 +1000,6 @@ const EngineV2 = (() => {
     }];
   }
 
-  // A robust interior point of the sea, for anchoring the sea's map label. The
-  // bounds centre is useless here — for a coastal frame it usually lands on
-  // land — so this walks the largest sea outer ring and returns the point
-  // farthest from every boundary (outer edge AND island holes), a cheap
-  // pole-of-inaccessibility grid probe. Returns { lat, lon } inside the water,
-  // or null if the sea has no outer ring. Lat/lon space; longitude is scaled by
-  // cos(lat) in the distance metric so the "most interior" pick stays roughly
-  // isotropic. The point-in-ring / hole tests guarantee containment regardless
-  // of the metric.
   function ringAreaLatLon(ring) {
     let a = 0;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -1144,6 +1051,12 @@ const EngineV2 = (() => {
     }
     return min;
   }
+  // A robust interior point of the sea, for anchoring its map label. The bounds
+  // centre usually lands on land in a coastal frame, so this grid-probes the
+  // largest outer ring for the point farthest from every boundary, island holes
+  // included. Longitude is scaled by cos(lat) so the pick stays roughly
+  // isotropic; the point-in-ring tests guarantee containment either way.
+  // Returns { lat, lon }, or null if the sea has no outer ring.
   function seaInteriorPoint(seaRelation) {
     const outers = (seaRelation.members || []).filter(m => m.role === 'outer' && m.geometry?.length >= 3).map(m => m.geometry);
     const inners = (seaRelation.members || []).filter(m => m.role === 'inner' && m.geometry?.length >= 3).map(m => m.geometry);
@@ -1221,35 +1134,31 @@ const EngineV2 = (() => {
   // ════════════════════════════════════════════════════════════════
   //  FACE CUTTER — Web Worker + ClipperLib
   //
-  //  Faces = bbox minus the buffered road cutter network (the same first
-  //  stage as v1). Each face is then classified by building presence alone,
-  //  then has water/green/waterway strokes subtracted mechanically:
-  //   - small face with >= 1 building  → cream city block = face minus the
-  //     block void (water + green + buffered waterway strokes), evenodd holes,
-  //   - small face with no building    → no primary block; the coverage
-  //     fallback paints face minus the fallback void (block void + landcover)
-  //     as cream, so dry river islands and data gaps are never left bare,
-  //   - large (countryside) face       → an unpainted placeholder (for the
-  //     coverage lint) plus hamlet blobs with the same block-void subtraction.
-  //  Subtraction is plain Clipper difference with the void's inner rings kept
-  //  as holes — there are NO water heuristics anywhere in here by design.
+  //  Faces = bbox minus the buffered road cutter network (v1's first stage
+  //  too), then classified by building presence alone:
+  //   - small face with a building → cream city block = face minus the block
+  //     void (water + green + buffered waterway strokes), evenodd holes,
+  //   - small face without one     → no block; the coverage fallback paints
+  //     face minus the fallback void (block void + landcover) as cream, so dry
+  //     river islands and data gaps are never left bare,
+  //   - large (countryside) face   → an unpainted placeholder for the coverage
+  //     lint, plus hamlet blobs with the same block-void subtraction.
+  //  Plain Clipper difference throughout, inner rings kept as holes. No water
+  //  heuristics anywhere in here, by design.
   // ════════════════════════════════════════════════════════════════
 
   // ── Hamlet grounding ────────────────────────────────────────────────
   // A morphological cluster blob only becomes a hamlet when OSM attests a
   // nearby rural settlement via a place node, so urban forest/harbour/park
   // faces that read as "countryside" stop growing invented cream hamlets. Two
-  // tiers, radii in ground metres (the worker converts to px via mPerPx): a
-  // settlement-tier node (place=hamlet/isolated_dwelling/farm/village) grounds
-  // a blob within HAMLET_GROUND_SETTLEMENT_M; a locality-tier node
-  // (place=locality — named but formally unpopulated, e.g. French lieux-dits)
-  // only within the tighter HAMLET_GROUND_LOCALITY_M.
+  // tiers, radii in ground metres (the worker converts via mPerPx): a
+  // settlement node (place=hamlet/isolated_dwelling/farm/village) grounds a blob
+  // within the wider radius, a place=locality — named but formally unpopulated,
+  // like French lieux-dits — only within the tighter one.
   //
-  // Radii measured on the three-city diagnosis (2026-07-12): Nievre's 59 real
-  // hamlets are all ≤928 m from a hamlet/isolated_dwelling node (≤442 m from
-  // any rural node); Bremerhaven's 36 false blobs have zero rural place nodes
-  // in the bbox; Oulu's 71 false blobs are ≥588 m from the only rural node (a
-  // locality). 1000 m / 300 m keeps all 59 real and rejects all 107 false.
+  // Measured on three cities: Nievre's 59 real hamlets all sit ≤928 m from a
+  // settlement node, while Bremerhaven's 36 and Oulu's 71 false blobs have no
+  // rural node within 588 m. 1000/300 keeps all 59 and rejects all 107.
   const HAMLET_GROUND_SETTLEMENT_M = 1000;
   const HAMLET_GROUND_LOCALITY_M = 300;
 
@@ -1679,18 +1588,14 @@ self.onmessage = function(event) {
   // the main thread; Infinity means "classify nothing as countryside".
   const bigFaceScaled = (bigFacePx2 || Infinity) * SCALE * SCALE;
 
-  // Open-land signal for big-face classification: green + landcover cover
-  // (NOT water — harbour basins sit inside dock faces and would fake a rural
-  // signal). A big face is only "countryside" if OSM actually shows open land
-  // across a real share of it; a big face without that cover is just a
-  // coarsely-roaded urban face (dock peninsulas, industrial estates) and gets
-  // the ordinary curb-to-curb treatment — hamlet blobs there invent hamlets
-  // inside the city (Bremerhaven M7 review). recreationPolys is deliberately
-  // NOT in here (nor in landcoverVoid below): a golf course or sports centre
-  // paints green but must never flip a face's urban/countryside verdict
-  // (AF-03b O-contract — recreation changes paint, not classification). Same
-  // for the nameless leisure=park admitted by AF-07d: openLandGreenPolys is the
-  // named-green subset, so a newly visible park changes paint, not the verdict.
+  // Open-land signal for big-face classification: green + landcover cover, not
+  // water — harbour basins sit inside dock faces and would fake a rural signal.
+  // A big face is only countryside if OSM shows open land across a real share
+  // of it; without that it is a coarsely-roaded urban face (dock peninsulas,
+  // industrial estates) and gets curb-to-curb treatment, since hamlet blobs
+  // there invent hamlets inside the city. Recreation is deliberately absent
+  // here and in landcoverVoid, and openLandGreenPolys is the named-green subset
+  // only: green that is merely newly visible changes paint, never the verdict.
   const openLandVoid = indexVoid(buildVoid([openLandGreenPolys, openLandPolys], null));
   const waterVoid = indexVoid(buildVoid([waterPolys], waterwayStrokePaths));
   // Urban-landuse signal (the isUrbanSignalElement set: residential/commercial/
@@ -1844,41 +1749,27 @@ self.onmessage = function(event) {
     return total;
   }
 
-  // Built-up threshold: a face is a city block only when buildings actually
-  // COVER a real share of its land, not merely when one exists. A lone house on
-  // a big green island covers ~1–2 % of it and is not built-up, so the face
-  // falls through to the open-land / urban-landuse test and reads green (its
-  // grass/wood/garden shows through the fallback holes); a genuine block — even
-  // a small one with a single house — sits well above this. Footprint is the
-  // building bbox (overestimates a rotated roof, but consistently, so the
-  // threshold holds; the fetch is unchanged). This REPLACES the old
-  // "≥1 building ⇒ urban" switch, which painted a mostly-green face with one
-  // stray building solid cream (Erfurt's Gera river islands). It is NOT the
-  // rejected green-share gate (≥35 % green flipped 10 % of Oulu): that asked
-  // "is it green", this asks "are the buildings sparse", so a leafy-but-built
-  // neighbourhood keeps real coverage and stays cream.
+  // Built-up threshold: a face is a city block only when buildings COVER a real
+  // share of its land, not merely when one exists. A lone house on a big green
+  // island covers 1-2% and is not built-up, so the face falls through to the
+  // open-land test and reads green; a genuine block, even a small one with a
+  // single house, sits well above this. Footprint is the building bbox, which
+  // overestimates a rotated roof but does so consistently. Asking "are the
+  // buildings sparse" is not the rejected "is it green" gate — a leafy but
+  // built neighbourhood keeps real coverage and stays cream.
   const BUILT_MIN_SHARE = 0.05;
-  // Returns a verdict { urban, landArea, landcoverShare } instead of a plain
-  // boolean (PERF-04): landArea and landcoverShare are measured unconditionally
-  // on every call regardless of which branch below decides the verdict, and
-  // isGreenOpenPiece needs exactly those same two numbers for the exact same
-  // subject/netScaled/subjectBounds right after a failed verdict — reusing
-  // them there means that second test costs no extra Clipper work. Branch
-  // order and every short-circuit stay exactly as before, so a passing verdict
-  // still skips the open-land/urban-landuse tests it never needed.
+  // Returns a verdict rather than a boolean: isGreenOpenPiece needs landArea and
+  // landcoverShare for the same piece right after a failed verdict, and both are
+  // measured here regardless of which branch decides.
   function isUrbanPiece(subjectPaths, netScaled, buildingArea, gateBuildings, subjectBounds) {
     const landArea = landAreaOf(subjectPaths, netScaled, subjectBounds);
     const builtUp = (buildingArea * SCALE * SCALE) / landArea >= BUILT_MIN_SHARE;
-    // Green dominance overrides built-up: when the landcover paint rows —
-    // which only show through fallback holes, so a cream block HIDES them —
-    // cover most of the piece's land, the piece is open land no matter how
-    // much of it buildings cover. The caller re-draws its buildings as
-    // standalone blocks (emitPieceBuildings) so no built fabric is lost:
-    // green ground with cream buildings on it, the way OSM depicts it
-    // (Erfurt's Gera island: 82% landcover, the mills held it cream). This is
-    // NOT the rejected all-sizes green gate (35% openland flipped 10% of
-    // Oulu): landcover-only at 60% asks "would cream erase what OSM paints
-    // here", and a demoted piece keeps its buildings visible.
+    // Green dominance overrides built-up: the landcover paint rows only show
+    // through fallback holes, so a cream block hides them. Where they cover
+    // most of the piece, it is open land however much buildings cover. The
+    // caller redraws those buildings standalone, so no built fabric is lost —
+    // green ground with cream buildings, the way OSM depicts it (Erfurt's Gera
+    // island is 82% landcover, and the mills held it cream).
     const landcoverShare = intersectArea(subjectPaths, landcoverVoid, subjectBounds) / landArea;
     if (landcoverShare >= GREEN_OPEN_MIN_SHARE) return { urban: false, landArea, landcoverShare };
     // Built-up faces stay urban and are never demoted by the open-land gate
@@ -1907,30 +1798,23 @@ self.onmessage = function(event) {
 
   const blocks = [];
 
-  // A piece the green rules read as open land: the landcover paint rows cover
-  // most of its land, so cream would hide what OSM shows. Its coverage
-  // remainder merges into its landcover (mergeGreenRemainder) and its
-  // buildings draw standalone. One shared predicate so classification,
-  // remainder handling and building emission can never disagree about which
-  // pieces are green ground. Takes the isUrbanPiece verdict for the same
-  // piece (always called right after a failed one, see isUrbanPiece) instead
-  // of a fresh subject/netScaled/subjectBounds triple, so it costs no extra
-  // Clipper work (PERF-04) — landArea and landcoverShare are exactly what
-  // isUrbanPiece already measured deciding it was not urban.
+  // A piece the green rules read as open land: landcover covers most of it, so
+  // cream would hide what OSM shows. Its coverage remainder merges into its
+  // landcover and its buildings draw standalone. One shared predicate, so
+  // classification, remainder handling and building emission can never disagree
+  // about which pieces are green ground. Takes the isUrbanPiece verdict rather
+  // than re-measuring, since that call already produced these numbers.
   function isGreenOpenPiece(verdict) {
     return verdict.landcoverShare >= GREEN_OPEN_MIN_SHARE;
   }
 
-  // Merge a green-open piece's coverage remainder INTO its landcover instead
-  // of emitting a cream patch beside it. Root cause of those patches: OSM
-  // maps a green piece as several abutting park/garden/grass polygons and
-  // leaves the slivers between them (path verges, yard gaps) unmapped — only
-  // the district-wide landuse polygon covers them, so the coverage fallback
-  // painted them cream and labelled them "Residential". Here the remainder
-  // unions into the piece's largest-overlap landcover element, growing that
-  // one painted shape over the gaps: one merged polygon in the panel, no
-  // extra patch, no colour seam, and the complement rule still holds (the
-  // piece stays exactly covered by landcover ∪ water/green holes).
+  // Merge a green-open piece's coverage remainder INTO its landcover instead of
+  // emitting a cream patch beside it. OSM maps such a piece as several abutting
+  // park/garden/grass polygons and leaves the slivers between them (path verges,
+  // yard gaps) to the district-wide landuse polygon alone, so the fallback
+  // painted them cream and labelled them "Residential". Growing the
+  // largest-overlap landcover element over the gaps gives one polygon in the
+  // panel, no colour seam, and the complement rule still holds.
   const mergedLandcover = new Set(); // element indices with a grown shape
 
   // Pre-scaled landcover element geometry (PERF-04): scaleRing(ring) used to
@@ -2052,15 +1936,12 @@ self.onmessage = function(event) {
   }
 
   // Standalone buildings for green-dominant open land. A piece the
-  // green-dominance rule keeps out of the cream (see isUrbanPiece) still owes
-  // the map its built structures — OSM shows green ground WITH buildings on
-  // it, and hiding them would trade one erasure for another. Every building
-  // footprint is clipped to the piece and emitted as its own small cream
-  // block (rendered like hamlet blobs: cream fill, building outline).
-  // Callers gate on isGreenOpenPiece — ordinary fallback pieces draw nothing
-  // here, and the countryside remainder never calls this: buildings there are
-  // the hamlet machinery's, whose grounding rules must not be resurrected
-  // around.
+  // green-dominance rule keeps out of the cream still owes the map its built
+  // structures — hiding them would trade one erasure for another. Each footprint
+  // is clipped to the piece and emitted as its own small cream block. Callers
+  // gate on isGreenOpenPiece; the countryside remainder never calls this,
+  // because buildings there belong to the hamlet machinery and its grounding
+  // rules.
   let scaledBuildingRings = null;
   function getScaledBuildingRings() {
     if (scaledBuildingRings) return scaledBuildingRings;
@@ -2133,17 +2014,13 @@ self.onmessage = function(event) {
   }
 
   // Classify each solid contour of a difference tree on its own. A passing piece
-  // IS already the exact curb-to-curb block shape (its subject minus blockVoid),
-  // so it emits verbatim as an urban block (same floor guards as emitTree); a
-  // failing piece additionally subtracts fallbackVoid (the extra landcover
-  // subtraction lets landcover show through) and emits as fallback. Shared by:
-  //   • the countryside remainder re-test (gateBuildings=true — its pieces were
-  //     all fallback before, so the open-land gate there can only ADD blocks);
-  //   • the small/medium per-land-mass split (gateBuildings=false — building
-  //     presence alone still makes a mass urban, so no mass a building already
-  //     claimed is demoted; honours the measured 5% abort, ENGINE-V2.md §3).
-  // Either way the piece's whole area paints cream except holes another layer
-  // paints, so the complement rule (§3) holds and no seam or bare sliver opens.
+  // is already the exact curb-to-curb block shape, so it emits verbatim as an
+  // urban block; a failing one subtracts fallbackVoid as well, letting landcover
+  // show through, and emits as fallback. Shared by the countryside remainder
+  // re-test (gateBuildings=true, its pieces were all fallback before, so the
+  // gate can only ADD blocks) and the per-land-mass split (gateBuildings=false,
+  // so no mass a building already claimed is demoted). Either way the piece
+  // paints cream except where another layer holes it, so §3 holds.
   function classifyPieces(nodes, gateBuildings) {
     for (const node of nodes) {
       if (node.IsHole()) continue;
@@ -2248,23 +2125,15 @@ self.onmessage = function(event) {
         }
         if (keptPaths.length) hamletPaintedPaths = keptPaths;
       }
-      // Re-test the non-hamlet remainder (cause C). After ungrounded blobs are
-      // dropped, a countryside face's dense pocket — a real city district inside
-      // a big forest/harbour/park face, or a dropped hamlet with no rural place
-      // node — must still get the building/urban-landuse test, or it paints as
-      // Uncategorized despite carrying 9–123 buildings (Bremerhaven Bürgerpark).
-      // Granularity matters: the test runs on each solid piece of face minus
-      // (block void ∪ kept hamlets) — the pieces water/green/waterways carve
-      // out — NOT on the remainder as a whole, whose open-land share is high by
-      // countryside construction and would veto every pocket. A piece that
-      // passes emits as an urban block DIRECTLY: it already is exactly the
-      // curb-to-curb block shape (face minus block void), so the complement
-      // rule (§3) holds by construction. A piece that fails additionally
-      // subtracts fallbackVoid (a superset of blockVoid; the extra landcover
-      // subtraction is the only difference) and emits as fallback — the same
-      // shape the wholesale remainder used to paint there. Either way the
-      // piece's whole area is painted cream except holes another layer paints,
-      // so no seam or bare sliver can open.
+      // Re-test the non-hamlet remainder. Once ungrounded blobs are dropped, a
+      // countryside face's dense pocket — a real city district inside a big
+      // forest or harbour face — must still face the building/urban-landuse
+      // test, or it paints Uncategorized while carrying 9 to 123 buildings
+      // (Bremerhaven Bürgerpark). Granularity is the point: the test runs per
+      // solid piece of face minus (block void ∪ kept hamlets), never on the
+      // remainder as a whole, whose open-land share is high by countryside
+      // construction and would veto every pocket. classifyPieces then emits
+      // each piece urban or fallback.
       let remainderClip = blockVoid;
       if (hamletPaintedPaths && hamletPaintedPaths.length) {
         const clipUnion = new Clipper.Clipper();
@@ -2295,16 +2164,12 @@ self.onmessage = function(event) {
     if (faceVerdict.urban) {
       // Cream city block = face minus the block void, evenodd holes. A pond in
       // the block becomes a hole; a face split by a river yields two blocks.
-      // Per-land-mass classification: when the void (water + green + waterway
-      // strokes) splits the face's land into MORE than one disjoint mass — a
-      // river island, a park-severed parcel — classify each mass on its own
-      // rather than blanket-painting them all urban. A buildingless open-land
-      // mass (the Erfurt Gera wood island, whose parent road-bounded face spans
-      // the river so whole-face metrics read urban) then paints fallback and its
-      // landcover shows through — the universal, heuristic-free island fix. A
-      // single-mass face takes the identical emit as before (untouched by
-      // construction); gateBuildings=false keeps every building-bearing mass
-      // urban, so no urban land is demoted (§3, the measured 5% abort).
+      // Where the void splits the face's land into more than one disjoint mass,
+      // each mass is classified on its own instead of all being painted urban:
+      // a buildingless open-land mass (Erfurt's Gera wood island, inside a face
+      // that spans the river and so reads urban as a whole) then paints
+      // fallback and its landcover shows through. That is the island fix, with
+      // no island machinery. A single-mass face takes the identical emit.
       const blockSubtractStarted = benchmark ? Date.now() : 0;
       const blockTree = subtractVoid(faceSubject, blockVoid);
       if (benchmark) benchmarkTimings.classificationSubtract += Date.now() - blockSubtractStarted;
@@ -2339,27 +2204,21 @@ self.onmessage = function(event) {
   // ── Occlusion clip: landcover under the painted opaque cover (§5, AF-07c) ──
   // Countryside (landcover) paints in the Parks & green band, above water and
   // waterways. Each element is measured against the union of the opaque cover
-  // PAINTED at/below it, on a finer grid than the cutter (CULL_SCALE 100 vs SCALE
-  // 10). Fully covered → dropped (culledLandcover); partly covered → clipped to
-  // the visible remainder (clippedLandcover), so the layer is disjoint from that
-  // cover and its z-position moves no pixel; nothing covering it → raw geometry,
-  // unchanged. The covering set follows coverPaints (AF-07c P1) so only layers
-  // that actually paint are subtracted: city blocks (cream, City blocks on),
-  // named parks + recreation (opaque green), water bodies, and waterway strokes
-  // (the same buffered stroke the renderer paints, so a river through a wood keeps
-  // its blue line). Deliberately EXCLUDED even when painted: fallback blocks (the
-  // fallback void already subtracts landcover, so a fallback patch is holed
-  // exactly where landcover paints — it can never cover it) and roads (thin, and
-  // painted far above this band). A MERGED element (green-remainder grow) is
-  // clipped too, not skipped — its grown shape overlaps opaque blocks/buildings
-  // the merge did not subtract and would hide them here (Oulu); its clipped grown
-  // rings ride back via greenGroundMerges (keeping the merge seam). Each covering
-  // layer contributes its region with its own holes punched before the union, so
-  // a hole one layer leaves that another fills stays covered. The pass never
-  // touches a subtraction void — only removes or trims ink another opaque layer
-  // already covers — so coverage (§1) is unaffected. Any remainder above ~1px²
-  // keeps the element. Called from the normal path with the real blocks/merges,
-  // and from the clipOnly path (City blocks off) with none.
+  // painted at or below it, on a finer grid than the cutter (CULL_SCALE 100 vs
+  // SCALE 10): fully covered drops, partly covered is clipped to the visible
+  // remainder, uncovered stays raw. That makes the layer disjoint from the cover
+  // above it, so nesting it under Parks & green moves no pixel.
+  //
+  // The covering set follows coverPaints, so only layers that actually paint
+  // subtract: city blocks, named parks and recreation, water bodies, waterway
+  // strokes. Excluded even when painted are fallback blocks (the fallback void
+  // already holes them exactly where landcover paints) and roads (thin, and far
+  // above this band). A merged element is clipped, not skipped — its grown shape
+  // overlaps opaque blocks the merge never subtracted (Oulu) — and rides back
+  // via greenGroundMerges so the merge seam survives. Each covering layer
+  // punches its own holes before the union, so a hole one layer leaves and
+  // another fills stays covered. No subtraction void is touched, so §1 coverage
+  // is unaffected.
   function computeOcclusion(blocks, mergedLandcover) {
   const CULL_SCALE = 100;
   const culledLandcover = [];
@@ -2435,18 +2294,13 @@ self.onmessage = function(event) {
     for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion, waterwayRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
     const covering = new Clipper.Paths();
     if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
-    // Spatial index over the finished covering union (PERF-03): 733 landcover
-    // elements each differencing against the full city-wide union was the
-    // dominant worker cost (measured, Tilburg). A fixed-grid index over the
-    // covering paths -- same generic indexVoid/indexedCandidates helpers
-    // PERF-01/02 use for signal voids -- restores exactly the covering paths
-    // whose bounds can touch one element's bounds (1-unit pad, original
-    // ordinal order), so the difference Clipper only ever receives paths
-    // that could matter. A covering path outside an element's bounds cannot
-    // affect a Clipper difference, so dropping it changes nothing about the
-    // result -- only the work. The retained-reference route
-    // (runtimeOptimizations:false) still hands every covering path to every
-    // element, unfiltered, for exact benchmark parity.
+    // Spatial index over the finished covering union (PERF-03). Differencing
+    // 733 landcover elements against the full city-wide union was the dominant
+    // worker cost (measured on Tilburg). A covering path outside an element's
+    // bounds cannot affect the difference, so the index hands each element only
+    // the paths that could matter — same result, less work. The reference route
+    // (runtimeOptimizations:false) still passes everything, for benchmark
+    // parity.
     const coveringIndex = covering.length ? indexVoid(covering) : null;
     if (benchmark) benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
     const occlusionElementDifferencesStarted = benchmark ? Date.now() : 0;
@@ -2462,14 +2316,9 @@ self.onmessage = function(event) {
         return rings;
       };
       for (const lc of landcoverElements) {
-        // A merged element (green-remainder grow) is clipped too, NOT skipped:
-        // its grown rings fill a green-open coverage remainder that the merge
-        // built by subtracting only the block VOID (water/green), so the grown
-        // shape still overlaps opaque city blocks and standalone buildings.
-        // Painted below blocks that was harmless; now that landcover paints in
-        // the Parks & green band, an unclipped merge would hide those buildings
-        // (Oulu). Clip it to the same cover and ship the clipped grown rings back
-        // through greenGroundMerges (keeping its seam stroke); never cull it.
+        // A merged element is clipped like any other but never culled: its grown
+        // rings ship back through greenGroundMerges, which keeps the seam
+        // stroke.
         const isMerged = mergedLandcover.has(lc.index);
         const subj = [];
         for (const ring of (lc.rings || [])) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
@@ -2483,15 +2332,12 @@ self.onmessage = function(event) {
         for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
         const subjectBounds = pathsBounds(subj);
         const candidates = runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
-        // No covering path can reach this element's bounds, so it is never
-        // clipped (nothing covers it). A merged element just keeps its full grown
-        // rings (greenGroundMerges default). A plain element can still be a
-        // sub-EMPTY crumb to cull: rawArea (an over-count) settles the two easy
-        // cases exactly — below EMPTY ⇒ cull; a single ring cannot self-overlap so
-        // rawArea is its exact area ⇒ keep. A multi-ring element >= EMPTY is
-        // ambiguous (over-count could hide a true area below EMPTY), so normalize
-        // it (union == its true painted region) and cull only if genuinely empty
-        // — exactly what the reference route computes via a difference here.
+        // Nothing covers this element, so it is never clipped — but it can still
+        // be a sub-EMPTY crumb to cull. rawArea over-counts, which settles the
+        // easy cases: below EMPTY culls, and a single ring cannot self-overlap
+        // so its rawArea is exact and it stays. A multi-ring element at or above
+        // EMPTY is ambiguous, so normalize it first and cull only if genuinely
+        // empty.
         if (!candidates.length) {
           if (isMerged) continue;
           if (rawArea < EMPTY) { culledLandcover.push(lc.index); continue; }
@@ -2648,25 +2494,19 @@ self.onmessage = function(event) {
   }
 
   // ── Urban-landuse classification signal ────────────────────────────
-  // landuse=residential/commercial/retail polygons carry no building footprints
-  // in much of OSM (dominant in Erfurt: 37/43 above-floor Uncategorized patches
-  // were residential/commercial), yet the land is plainly city — they promote a
-  // buildingless-but-covered face/mass/piece to a cream block at the existing
-  // ≥50% share threshold. amenity=parking counts as city fabric too (Coen,
-  // 2026-07-13): a parking lot is paved block-land and reads as cream on a
-  // USE-IT map. Institutional built land joined via AF-03c —
-  // landuse=institutional|education|religious (Oulu's "Institutional" fallback
-  // patch): campuses and civic grounds are city fabric the same way, already
-  // arriving through the blanket label-only landuse sweep. No thresholds moved:
-  // the ≥50% overlap test and the open-land veto apply unchanged, so a green
-  // campus cannot flip a countryside face. INDUSTRIAL — and the rest of the
-  // working-land family (brownfield, construction, depot, landfill, quarry,
-  // railway grounds) — is excluded on purpose: Bremerhaven's industrial-tagged
-  // open quays would wrongly read as cream city blocks, and industry is never
-  // silently promoted to residential (AF-03c contract); those patches stay
-  // labelled fallback under their semantic editor family (see
-  // fallbackSemanticGroup). Same discipline as building centres throughout:
-  // this signal classifies only — it never paints or cuts.
+  // Much of OSM maps a district by its landuse polygon and never its buildings
+  // (Erfurt: 37 of 43 above-floor Uncategorized patches were residential or
+  // commercial), yet the land is plainly city, so these promote a buildingless
+  // but covered face to a cream block. Parking is city fabric too (Coen,
+  // 2026-07-13): a paved lot reads as cream on a USE-IT map. Campuses and civic
+  // grounds joined via AF-03c for the same reason.
+  //
+  // Industrial and the rest of the working-land family (brownfield,
+  // construction, depot, landfill, quarry, railway grounds) are excluded on
+  // purpose: Bremerhaven's industrial-tagged open quays would read as cream
+  // blocks, and industry is never silently promoted to residential. Those stay
+  // labelled fallback under their own semantic family. Like every signal here,
+  // this one classifies only — it never paints or cuts.
   const URBAN_SIGNAL_LANDUSE = new Set(['residential', 'commercial', 'retail', 'institutional', 'education', 'religious']);
   const isUrbanSignalElement = (el) =>
     URBAN_SIGNAL_LANDUSE.has(el.tags?.landuse) || el.tags?.amenity === 'parking';
@@ -2912,15 +2752,11 @@ self.onmessage = function(event) {
     return `  <g id="city_blocks" inkscape:label="City blocks" inkscape:groupmode="layer">\n${children}\n  </g>\n`;
   }
 
-  // Render the coverage-fallback patches: cream land that no other layer covered
-  // (buildingless small faces, dry river islands, OSM data gaps). Visually
-  // identical to a city block, but its own group so gaps stay auditable and
-  // countable. Sits below water in layerOrder, same as city_blocks.
-  // Designer-facing category VALUE for an Uncategorized patch, from the tags
-  // of a label-only element found under it: the tag value only ("Railway",
-  // "Parking"), capitalized, underscores as spaces. First key wins. This is
-  // also the sub-group key renderFallbackBlocks groups patches by — the part
-  // of the label before any OSM name.
+  // Designer-facing category VALUE for an Uncategorized patch, from the tags of
+  // a label-only element found under it: the tag value alone ("Railway",
+  // "Parking"), capitalized, underscores as spaces. First key wins. Also the
+  // sub-group key renderFallbackBlocks groups patches by — the part of the label
+  // before any OSM name.
   function fallbackCategoryValue(tags) {
     for (const k of ['landuse', 'natural', 'railway', 'aeroway', 'military', 'leisure', 'amenity', 'man_made']) {
       if (tags[k]) {
@@ -2938,15 +2774,13 @@ self.onmessage = function(event) {
     return value ? value + (tags.name ? ` “${tags.name}”` : '') : null;
   }
 
-  // Semantic editor FAMILY for known built/paved/worked land (AF-03c). The
-  // audit's decision: industry, railway grounds and parking are neither green
-  // nor generic "Uncategorized" — they stay cream fallback paint (city-block
-  // style is not redesigned), but the designer panel groups them under
-  // recognizable family names instead of one raw tag value per group, so a
-  // designer can grab all working land or all paved lots at once. Per-patch
-  // labels keep the specific tag value + OSM name ("Parking “Autoranta”" under
-  // "Paved areas"). Returns null when a tag has no family; the subgroup then
-  // keeps the raw capitalized value (existing behaviour, e.g. "Residential").
+  // Semantic editor FAMILY for known built/paved/worked land (AF-03c). Industry,
+  // railway grounds and parking are neither green nor generic "Uncategorized":
+  // they keep cream fallback paint, but group under recognizable family names so
+  // a designer can grab all working land or all paved lots at once. Per-patch
+  // labels still carry the specific value and name ("Parking “Autoranta”" under
+  // "Paved areas"). Null when a tag has no family — the subgroup then keeps the
+  // raw capitalized value.
   function fallbackSemanticGroup(tags) {
     if (/^(industrial|brownfield|construction|depot|landfill|quarry)$/.test(tags.landuse || '')) return 'Working land';
     if (tags.landuse === 'railway' || tags.railway) return 'Railway grounds';
@@ -3099,7 +2933,7 @@ self.onmessage = function(event) {
     return samePt(el.geometry[0], el.geometry[el.geometry.length - 1]);
   }
 
-  // v1's roads layer group opening tag (script.js renderRoadsLayer). The
+  // v1's roads layer group opening tag (script.js buildRoadsLayer). The
   // junction-infill path is spliced in right after it, as the first child.
   const ROADS_GROUP_OPEN = '<g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">';
 
@@ -3122,19 +2956,15 @@ self.onmessage = function(event) {
   // One named path per waterway, mirroring v1's per-feature water_bodies
   // pattern: same-named ways merge into one path (a river fetched as many
   // segments becomes one "Geeste"), nameless ways carry their waterway tag as
-  // the label. v1 merges the whole layer into a single anonymous path, which
-  // editors display as "path124" — useless to a designer. Stroke attributes
-  // otherwise match v1's line emission (round caps) but paint OPAQUE: v1's
-  // 0.92 was a shine-through softening with no purpose here (no design reads
-  // through a river), and dropping it makes a waterway exactly the same blue
-  // as the water_bodies it flows into — one water colour, no faint body/way
-  // seam. The width is v2-only: it scales with export size (12 * getScaleFactor) to
-  // MATCH the cutter's waterwayLines half-width in prepareFaceData (also
-  // `12 * scaleFactor / 2`) — per the contract's complement rule (§3), the
-  // painted stroke and the subtracted void must be the same width, and a
-  // fixed 12px paint against a scaled void only agreed by coincidence at the
-  // A3@300dpi baseline (scaleFactor 1). v1 keeps the fixed-12px quirk (see
-  // ENGINE-V2.md §8) — this only touches v2's own renderer.
+  // the label. v1 merges the whole layer into one anonymous path that editors
+  // show as "path124", useless to a designer.
+  //
+  // Painted OPAQUE, unlike v1: nothing reads through a river, and the same blue
+  // as the water body it flows into leaves no faint seam. The width scales with
+  // export size to MATCH the cutter's waterwayLines half-width — §3 wants the
+  // painted stroke and the subtracted void at the same width, and v1's fixed
+  // 12px only agreed with a scaled void at the A3@300dpi baseline. v1 keeps
+  // that quirk (§8); this is v2's own renderer.
   function renderWaterways(result, ctx) {
     const elements = (result.data?.elements || []).filter(el => el.type === 'way' && el.geometry?.length >= 2);
     if (!elements.length) return '';
@@ -3163,15 +2993,12 @@ self.onmessage = function(event) {
     return `  <g id="waterways" inkscape:label="Waterways" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
   }
 
-  // Landcover paint (v2-only renderer). v1's renderLayerSVG landcover branch
-  // only paints farmland/meadow/orchard/vineyard/forest/wood/scrub/heath — it
-  // has no case for the v2 grass display rows (grass/village_green, unnamed
-  // park/garden), so those would silently not paint if routed through it. Rather
-  // than edit v1 (the contract forbids changing script.js for a v2 feature),
-  // this mirrors v1's landcover emission verbatim for the shared covers and adds
-  // the grass rows on top, all as green tint (v1's ISLAND_GREEN colour). Big
-  // polygons paint first / small on top, same as v1, so a bbox-spanning meadow
-  // import never hides the woods inside it.
+  // Landcover paint (v2-only renderer). v1's landcover branch has no case for
+  // the v2 grass display rows, which would silently not paint if routed through
+  // it, and §9 forbids editing script.js for a v2 feature — so this mirrors v1's
+  // emission for the shared covers and adds the grass rows on top. Big polygons
+  // first, small on top, same as v1, so a bbox-spanning meadow import never
+  // hides the woods inside it.
   function renderLandcover(result, ctx) {
     const elements = result.data?.elements || [];
     if (!elements.length) return '';
@@ -3272,15 +3099,13 @@ self.onmessage = function(event) {
   }
 
   // Recreation grounds (AF-03b, v2-only): golf courses, dog parks, sports
-  // centres and allotments, painted preset.park in the "Parks & green" band
-  // directly above the named-parks group (layerOrder puts 'parks_recreation'
-  // right after 'parks'; buildSVG nests both under one "Parks & green" parent).
-  // UNLIKE beach this is NOT a paint-only overlay: the same polygons feed the
-  // worker's block/fallback voids (complement rule — blocks lose exactly the
-  // shape painted here), while staying out of every classification signal.
-  // Emission mirrors renderBeach: one named path per element, self-coloured
-  // seam stroke, evenodd, area_large eps (the SAME eps collectAreaPolys used
-  // for the void, so paint and subtraction stay the same shape).
+  // centres and allotments, painted preset.park directly above the named-parks
+  // group and nested with it under one "Parks & green" parent. Unlike beach
+  // this is not a paint-only overlay — the same polygons feed the worker's
+  // block/fallback voids, so blocks lose exactly the shape painted here — while
+  // staying out of every classification signal. Emission mirrors renderBeach,
+  // at the same area_large eps collectAreaPolys used for the void, so paint and
+  // subtraction keep the same shape.
   function renderRecreation(result, ctx) {
     const elements = result.data?.elements || [];
     if (!elements.length) return '';
@@ -3320,14 +3145,10 @@ self.onmessage = function(event) {
 
   // ── Human-readable group labels for merged road/rail paths ────────
   // v1's roads_casings_<hw>/roads_fills_<hw> groups already carry an
-  // inkscape:label (v1's own TYPE_LABELS), and rail_casing/rail_sleepers/
-  // rail_tracks carry none at all. Rewriting the former in script.js would
-  // change an existing attribute's VALUE, not just add one — that fails the
-  // "diff shows only added label attributes" bar for touching v1 (per the
-  // contract's change discipline: v1 is not modified for v2 features). So
-  // this display-name scheme is applied entirely here, as a v2-only
-  // string-transform of the markup v1's buildRoadsLayer/buildRailLayer
-  // already returned — script.js itself is untouched.
+  // inkscape:label and the rail groups carry none. Rewriting the former in
+  // script.js would change an existing attribute's value, which §9 does not
+  // allow for a v2 feature — so the whole display-name scheme is a v2-only
+  // string transform of the markup v1's builders already returned.
   const ROAD_CLASS_LABELS = {
     motorway: 'Motorways', trunk: 'Motorways',
     primary: 'Main roads',
@@ -3369,14 +3190,12 @@ self.onmessage = function(event) {
   // ("Hamlet “name”"); the visible text lives here, once, so node and blob
   // never show the same name twice on the map.
   //
-  // Hierarchy (rank asc = places the grid first): village > hamlet >
-  // isolated_dwelling/farm > locality. Locality (place=locality — named but
-  // formally unpopulated land, e.g. French lieux-dits) is deliberately the
-  // decluttered tier: lowest rank, smallest/lightest italic style, and an
-  // extra spacing rule below so a lieu-dit-dense frame (Nièvre has dozens)
-  // shows a readable selection instead of 50 labels at once. Styling is
-  // provisional in the same way square labels are: neutral warm-ink text,
-  // white halo, no preset coupling yet.
+  // Hierarchy (rank asc claims the grid first): village > hamlet >
+  // isolated_dwelling/farm > locality. Locality is the decluttered tier —
+  // named but formally unpopulated land, like French lieux-dits — with the
+  // lowest rank, the lightest style and an extra spacing rule, so a lieu-dit
+  // dense frame like Nièvre shows a readable selection instead of 50 labels.
+  // Styling is provisional, like square labels: no preset coupling yet.
   const PLACE_LABEL_TIERS = {
     village:           { rank: 0, size: 32, weight: 600, color: '#4a4238', italic: false, group: 'village', groupLabel: 'Villages' },
     hamlet:            { rank: 1, size: 26, weight: 600, color: '#4a4238', italic: false, group: 'hamlet', groupLabel: 'Hamlets' },
@@ -3525,13 +3344,11 @@ self.onmessage = function(event) {
 
   // ── Two-class rail (AF-05b; decision recorded under AF-05a) ─────────────
   // A rail way carrying any service=* (yard/siding/spur/crossover) is not
-  // principal track. Drawn with the full casing+sleepers+track signature,
-  // service ways stack into the audit's black yard moiré — measured on the
-  // cached audit layers: 89% of Oulu's rail ways and 61% of Paris's rail
-  // length are service track. They render instead as ONE thin muted stroke
-  // each, in their own editor-selectable "Service tracks" group painted as
-  // the rail layer's first child, so the main lines' casings/sleepers/tracks
-  // stroke over them. Ways without service=* keep v1's signature untouched.
+  // principal track. With the full casing+sleepers+track signature these stack
+  // into the audit's black yard moiré — 89% of Oulu's rail ways and 61% of
+  // Paris's rail length are service track. They render as one thin muted stroke
+  // each, in a "Service tracks" group painted as the rail layer's first child so
+  // the main lines stroke over them. Ways without service=* are untouched.
   const isServiceTrack = (el) => !!(el.tags && el.tags.service);
 
   function renderServiceTracksGroup(serviceElements, ctx) {
@@ -3609,18 +3426,15 @@ self.onmessage = function(event) {
       return renderLayerSVG({ layer: result.layer, data: { elements: surfaceElements } }, ctx);
     }
     // ── Metro tunnel treatment (AF-05d, v2-only) ────────────────────────────
-    // Coen's decision (2026-07-23): keep tunnels in the visible Metro layer,
-    // but paint them far more subtly than surface track — the audit's
-    // "ondergrondse metro leest als bovengrondse kaartinhoud" finding traced
-    // to v1's white 24×sf casing halo under the 16.5×sf coloured fill, the
-    // same bold double-stroke used for at-grade track. Tunnels here drop the
-    // casing entirely, use a thinner dashed single stroke (dashes are the
-    // conventional transit-map signal for "underground") and paint at low
-    // opacity. The line's own colour stays (no grey rail_service-style mute):
-    // unlike a depot spur, a metro tunnel IS the public route, so a rider
-    // tracing a coloured line across the city still needs to see which line
-    // continues below ground. Grouped per line for the same reason — one
-    // generic "tunnel" bucket would erase that identity.
+    // Coen's decision (2026-07-23): keep tunnels visible, but paint them far
+    // more subtly than surface track. The audit read them as above-ground
+    // content because v1 gives them the same bold casing+fill double stroke as
+    // at-grade track. Here they drop the casing, take a thinner dashed stroke
+    // (the conventional signal for underground) and paint at low opacity.
+    //
+    // The line's own colour stays, and the groups stay per line: unlike a depot
+    // spur a metro tunnel IS the public route, so a rider tracing a coloured
+    // line still needs to see which one continues below ground.
     function renderMetroTunnelGroup(tunnelWays, ctx) {
       const sf = getScaleFactor(ctx.W), eps = getEps();
       const lineMap = new Map();
@@ -3652,29 +3466,21 @@ self.onmessage = function(event) {
       return groups;
     }
     // ── Metro service filter + ref normalization (AF-05c) ─────────────────
-    // Two v2-only, v1-frozen rules over the metro fetch, both measured on the
-    // Paris bbox (167 subway ways):
-    //  1. Service filter: any service=* way (yard/spur/crossover/siding) is a
-    //     depot track, not a rider-facing line, so it is dropped from the
-    //     metro layer entirely — no muted group like rail's (§4), because a
-    //     schematic line map has no use for depot geometry; the depot AREA
-    //     still shows via the landuse=railway fallback patch. Unlike rail/tram
-    //     above, tunnels are NOT filtered here — metro tunnel main ways render
-    //     deliberately, split out and restyled by renderMetroTunnelGroup below
-    //     (AF-05d), so this branch must not drop isTunnelElement ways.
-    //  2. Ref normalization: v1's buildMetroLayer groups by
-    //     ref||name||colour||color, so a way carrying `name` but no `ref`
-    //     fragments its line into a second, differently-coloured group
-    //     (Paris: name="Métro 5" with no ref made group `metro_M_tro_5`
-    //     beside `metro_5`). Fixed by a pre-pass: build a name→ref map from
-    //     the surviving public ways that carry BOTH tags, then stamp the
-    //     mapped ref onto ref-less ways sharing that name — via a shallow
-    //     `{...el, tags:{...}}` copy, never mutating the cached element. A
-    //     name mapping to more than one distinct ref is ambiguous and is
-    //     dropped from the map (conservative: never merge on a guess), so
-    //     that fragment keeps rendering as its own group under its raw key.
-    // For input with no service ways and no ref-less named ways this is a
-    // no-op — output stays byte-identical to v1's own renderLayerSVG call.
+    // Two v2-only rules over the metro fetch, both measured on the Paris bbox
+    // (167 subway ways):
+    //  1. Service filter: a service=* way is depot track, not a rider-facing
+    //     line, so it is dropped outright — no muted group like rail's, since a
+    //     schematic line map has no use for depot geometry, and the depot area
+    //     still shows as a fallback patch. Tunnels are NOT filtered here: they
+    //     render deliberately, restyled by renderMetroTunnelGroup above.
+    //  2. Ref normalization: v1 groups by ref||name||colour, so a way with a
+    //     name but no ref splits its line into a second, differently-coloured
+    //     group (Paris: name="Métro 5" made `metro_M_tro_5` beside `metro_5`).
+    //     A pre-pass maps name→ref from ways carrying both and stamps it onto
+    //     the ref-less ones, on a shallow copy so the cached element is never
+    //     mutated. A name with two distinct refs is ambiguous and left alone,
+    //     rather than merged on a guess.
+    // With no service ways and no ref-less named ways this is a no-op.
     if (result.layer.type === 'metro') {
       const elements = result.data?.elements || [];
       // Preserve the colour v1 assigned each original line key before any
@@ -3748,26 +3554,18 @@ self.onmessage = function(event) {
     // renderJunctionInfill / ENGINE-V2.md §2).
     const infillBlocks = results.find(r => r.layer.id === cityBlocksLayer.id)?.data?.blocks || [];
     const junctionInfill = renderJunctionInfill(infillBlocks, ctx);
-    // Named squares get a map label through the same feature-label engine
-    // parks use: a synthetic leisure=park node anchored at the square's
-    // interior point. Built here (not in doExport) so every buildSVG caller —
-    // browser and test harness alike — gets the same labels; the array is
-    // only ever read below, never mutated across calls, so a second buildSVG
-    // call (e.g. the Illustrator variant) cannot duplicate them. The interior
-    // point reuses seaInteriorPoint's pole-of-inaccessibility walk (fed the
-    // square's single outer ring), which stays inside concave plazas where a
-    // centroid would not. Styling matches park labels for now — provisional;
-    // squares may earn their own colour. Rendered as its own "square_labels"
-    // group right after water_labels in the assembly loop below (see
-    // relabelSquareGroup) — NOT injected into the water_labels elements, so
-    // the editor sees "Squares & plazas" as its own layer instead of a
-    // synthetic entry inside "Water & park names".
-    // Squares arrive on two roads-independent paths: the roads fetch
-    // (highway=pedestrian + area=yes / place=square on a street way) and the
-    // label-only area sweep (place=square with NO highway tag — never in the
-    // roads result). A plaza tagged both ways appears in both lists, so the
-    // scan dedupes by element id; the label-only elements ride in the
-    // fallback result's labelElements (classified.labelOnly).
+    // Named squares get a map label through the same feature-label engine parks
+    // use: a synthetic leisure=park node at the square's interior point, which
+    // reuses seaInteriorPoint's walk so it stays inside concave plazas where a
+    // centroid would not. Built here rather than in doExport so browser and test
+    // harness get identical labels. They render as their own "square_labels"
+    // group rather than joining the water_labels elements, so the editor shows
+    // "Squares & plazas" as a layer instead of a synthetic entry under "Water &
+    // park names". Styling matches park labels for now.
+    //
+    // Squares arrive on two independent paths — the roads fetch and the
+    // label-only area sweep (place=square with no highway tag) — so a plaza
+    // tagged both ways is in both lists and the scan dedupes by element id.
     const squareLabelNodes = [];
     const squareSeen = new Set();
     const scanSquares = (els) => {
@@ -3794,21 +3592,14 @@ self.onmessage = function(event) {
     // tree organization for the designer's layers panel. Buffered here and
     // flushed in place (either child may be absent on inland/dry areas).
     //
-    // "Parks & green" is now one true render layer (AF-07c, Coen 2026-07-23,
-    // superseding the 2026-07-14 two-layer call): Countryside (landcover), Named
-    // parks and Recreation grounds are contiguous in the paint order and share
-    // one parent. Countryside used to paint at the very bottom (invisible under
-    // city blocks, showing only through rural faces); its elements are now
-    // clipped to the visible remainder under the opaque cover (blocks/parks/
-    // recreation/water/waterway strokes — see the worker's occlusion clip), so
-    // painting them here, at the bottom of this band, is pixel-identical to the
-    // old position while making Countryside a real child of this group. Paint
-    // order within the parent: Countryside → Parks → Recreation grounds.
-    // The inner v1 parks group keeps id="parks" but its label (v1 calls the layer
-    // itself "Parks & green") is rewritten to "Parks" so the panel reads
-    // Parks & green → Countryside / Parks / Recreation grounds instead of
-    // repeating the parent's name. The subgroup was called "Named parks" until
-    // AF-07d admitted nameless leisure=park to the same group.
+    // "Parks & green" is one true render layer (AF-07c, Coen 2026-07-23):
+    // Countryside, Parks and Recreation grounds are contiguous in the paint
+    // order and share one parent. Countryside used to paint at the very bottom,
+    // invisible under city blocks; the worker's occlusion clip trims it to the
+    // visible remainder, so painting it here at the bottom of this band is
+    // pixel-identical while making it a real child of the group. The inner v1
+    // group keeps id="parks" but is relabelled "Parks", so the panel does not
+    // repeat the parent's name.
     let pendingWater = null;
     const flushWater = () => {
       if (pendingWater === null) return;
@@ -3869,12 +3660,11 @@ self.onmessage = function(event) {
   }
 
   // Apply the face worker's landcover occlusion results to the landcover render
-  // elements. This is the SINGLE source of that glue, shared by doExportV2 and
-  // the headless harness (tests/real-export.mjs), so the two can never drift —
-  // that drift is exactly how a fully-covered element once survived the
-  // clip-only pass (AF-07c P1: the clip-only branch destructured clippedLandcover
-  // but not culledLandcover, so water-covered Countryside still painted). Order
-  // mirrors how the worker builds the results and MUST be kept:
+  // elements. The SINGLE source of that glue, shared by doExport and the
+  // headless harness, so the two cannot drift — drift is exactly how a
+  // fully-covered element once survived the clip-only pass, which read
+  // clippedLandcover but not culledLandcover. The order mirrors how the worker
+  // builds the results and MUST be kept:
   //   1. greenGroundMerges → paint the grown rings (_mergedRings);
   //   2. clippedLandcover  → paint the visible remainder (_clippedRings), never
   //      over a merged element (a merge already owns that remainder);
@@ -3898,15 +3688,12 @@ self.onmessage = function(event) {
     return out;
   }
 
-  // AF-07c: in v2 the "Parks & green" switch also controls Countryside, so the
-  // separate "Countryside" checkbox is redundant and must not appear in the UI.
-  // The removal lives entirely here — the frozen v1 script.js keeps rendering the
-  // row (§9), and this whole file is stripped from the production index, so v1
-  // and production still get their own Countryside toggle. While v2 is the
-  // selected engine the row is hidden; its input stays in the DOM (default on),
-  // so getSelectedLayers still reports landcover and isSelectedRenderLayer folds
-  // it into the parks switch. `doc` is injectable for the unit test; at runtime
-  // it defaults to the page document.
+  // AF-07c: in v2 the "Parks & green" switch also controls Countryside, so its
+  // own checkbox is redundant. The removal lives here because §9 freezes the
+  // shared v1 panel — while v2 is selected the row is hidden, but its input
+  // stays in the DOM (default on), so getAllSelectedLayers still reports
+  // landcover and isSelectedRenderLayer folds it into the parks switch.
+  // `doc` is injectable for the unit test.
   function applyMergedCountrysideVisibility(doc) {
     const d = doc || (typeof document !== 'undefined' ? document : null);
     if (!d) return;
@@ -4066,11 +3853,9 @@ self.onmessage = function(event) {
     // skip the worker entirely: other selected layers do not need hidden block
     // geometry or its supporting OSM data.
     // Hold the worker's result as ONE object and hand it to
-    // applyLandcoverOcclusion whole. Deliberately not destructured into
-    // per-field locals: the AF-07c P1 bug was a destructuring that forgot
-    // culledLandcover, and no unit test can catch a field dropped from such a
-    // list. Passing the object through means there is no field list to forget —
-    // whatever the worker reports reaches the glue.
+    // applyLandcoverOcclusion whole. Not destructured into per-field locals on
+    // purpose: a destructuring that forgot culledLandcover was the AF-07c bug,
+    // and passing the object through leaves no field list to forget.
     let blocks = [], faceResult = {};
     let placeNodeElements = [];
     if (layerPlan.needsBlocks) {

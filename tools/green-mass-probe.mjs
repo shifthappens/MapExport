@@ -1,23 +1,21 @@
-// Calibration probe for the AF-07f "green mass on the page" rule — NOT a test,
-// and not loaded by the app. It answers one question with real cached OSM data:
-// if nameless green were kept or dropped by how THICK it reads on the printed
-// plate, what would survive and how much green would be left?
+// Calibration probe for the AF-07f green rule — NOT a test, not loaded by the
+// app, and NOT the rule that shipped. It measures how THICK nameless green
+// reads on the printed plate; Coen rejected that measure on 2026-07-26 ("no
+// rings") in favour of area per dissolved mass, which lives in engine-v2.js
+// (GREEN_MASS_MIN_M2 / GREEN_MASS_BRIDGE_M). Kept because the AF-07e and
+// AF-07f refutations rest on its numbers.
 //
 //   node tools/green-mass-probe.mjs <cache.json.gz> <south> <west> <north> <east>
 //   TARGETS=<osmId>,<osmId> node tools/green-mass-probe.mjs ...   # locate specific ways
 //
 // Method: rasterise every nameless green candidate onto a page-scale grid
-// (0.5 mm cells, fixed at the Tilburg validation plate's 4.67 m/mm so numbers
-// compare across bboxes), find connected components, then erode each component
-// step by step — the number of erosions it survives is its largest inscribed
-// disc, i.e. how thick it is on paper. Area alone cannot do this job: a long
-// thin verge and a compact plantsoen have the same m².
+// (0.5 mm cells, fixed at the Tilburg plate's 4.67 m/mm so numbers compare
+// across bboxes), find connected components, then erode each one step by step —
+// the erosions it survives are its largest inscribed disc.
 //
-// The "closing" loop exists to DOCUMENT a rejected idea: gluing near-touching
-// pieces together with a buffer destroys the distinction between a park made of
-// several polygons and a street full of verges (see the AF-07e note in
-// plans/2026-07-17_cartographic-audit-followup.md). Only the 0 mm row reflects
-// the chosen design — adjacency only.
+// The "closing" loop documents a rejected idea: gluing near-touching pieces with
+// a buffer destroys the distinction between a multi-polygon park and a street
+// full of verges. Only the 0 mm row is adjacency alone.
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 

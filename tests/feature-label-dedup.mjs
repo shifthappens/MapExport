@@ -1,16 +1,13 @@
 // tests/feature-label-dedup.mjs — offline unit tests for AF-02a: dedup of
 // repeated named water/park feature labels in buildFeatureLabelsLayer.
 //
-// Regression target: before this fix, every named water/park OSM element
-// got its own label attempt, gated only by the physical footprint grid. A
-// river split into many OSM ways (Nederschelde, Leie, Lieve in Ghent;
-// Bergstrom in Erfurt; Geeste in Bremerhaven) or a park split into many
-// polygons (Robert Hoozeepark) could carry a label per segment whenever the
-// segments were spread far enough apart to dodge grid collisions. This test
-// runs the REAL buildFeatureLabelsLayer from script.js via lib.mjs's
-// loadAppSandbox and checks: same-name suppression within a geographic gap,
-// long-distance repetition still allowed, name normalization, largest-first
-// candidate selection, that a suppressed label claims no grid space, and
+// Regression target: every named water/park element used to get its own label
+// attempt, gated only by the footprint grid, so a river split into many ways
+// (Ghent's Leie, Bremerhaven's Geeste) or a park split into many polygons could
+// carry a label per segment whenever the segments dodged grid collisions. This
+// runs the real buildFeatureLabelsLayer and checks same-name suppression within
+// a geographic gap, long-distance repetition still allowed, name normalization,
+// largest-first selection, that a suppressed label claims no grid space, and
 // build-to-build determinism.
 //
 // Usage: node tests/feature-label-dedup.mjs

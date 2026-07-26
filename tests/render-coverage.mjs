@@ -1,12 +1,10 @@
-// Render-based coverage check: rasterize the ACTUAL export over a loud
-// magenta page and count what shows through. The geometric lint
-// (coverage-lint.mjs) checks the worker's model of the map; history shows the
-// model and the paint can disagree (rail corridors carved wider than the
-// drawn tracks, paint/void simplification drift, blob-vs-fallback seams) and
-// every such disagreement is invisible to a model-side check by construction.
-// This one measures pixels of the same SVG the user opens, so any class of
-// "bare page where land should be" — present or future — shows up as a
-// number.
+// Render-based coverage check: rasterize the ACTUAL export over a loud magenta
+// page and count what shows through. coverage-lint.mjs checks the worker's
+// model of the map, but model and paint have disagreed before — rail corridors
+// carved wider than the drawn tracks, paint/void simplification drift — and
+// such a disagreement is invisible to a model-side check by construction. This
+// measures pixels of the same SVG the user opens, so any bare page where land
+// should be becomes a number.
 //
 // Requires a Chrome/Chromium binary (CHROME_BIN, the macOS app path, or one
 // of the usual names on PATH). Returns { skipped: true } when none is found
