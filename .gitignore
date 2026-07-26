@@ -1,8 +1,10 @@
 .DS_Store
 # Local Claude Code state stays out, but the shared subagent configs are
-# tracked like their .codex/agents/ counterparts (AGENTS.md references them).
+# tracked like their .codex/agents/ counterparts (AGENTS.md references them),
+# and so are the project skills.
 .claude/*
 !.claude/agents/
+!.claude/skills/
 test.txt
 cache/*.json
 cache/*.json.gz

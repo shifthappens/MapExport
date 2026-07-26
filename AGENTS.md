@@ -158,6 +158,21 @@ explicitly assigned that bookkeeping; the orchestrator normally owns both.
 Never run agents with overlapping write scope in parallel. Read-only research
 may run in parallel when it reduces total cost without duplicating context.
 
+The review tier runs in **either direction**: a Claude session has Codex review
+its work, a Codex session has Claude review its work, and the point is that the
+reviewer is not the side that wrote the code. Both are a single shell command;
+`memory/reference_independent_review.md` has the invocation for each side, the
+brief template, and where each one is weaker than the other. Two rules from it
+belong here, learned the hard way on 2026-07-26:
+
+- **Run the review before pushing, not after.** That run found two shipped
+  defects in work already pushed and reported as verified. A review never needs
+  the commit to exist.
+- **Hand the reviewer the evidence that already exists**, meaning which checks
+  were run and what they returned, so it spends its budget on the code instead
+  of re-deriving your test results. Follow-up rounds resume the same session
+  rather than starting cold, for the same reason.
+
 ## Token-efficient execution
 
 - `.codex/config.toml` caps stored tool output, compacts long conversations, and
