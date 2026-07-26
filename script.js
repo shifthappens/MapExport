@@ -1222,34 +1222,14 @@ async function fetchTileCombinedRace(layers, tile, onProgress=null) {
 // ════════════════════════════════════════════════════════════════
 //  PROJECTION — Web Mercator
 // ════════════════════════════════════════════════════════════════
-// Deliberately NOT a local/national CRS (EPSG:28992 RD for NL, a UTM zone,
-// S-JTSK for CZ — what a QGIS workflow makes you pick). Measured 2026-07-25,
-// so this doesn't get re-derived from scratch:
-//
-//  - Mercator's famous distortion is a UNIFORM inflation of 1/cos(lat) —
-//    ×1.61 at Tilburg, ×2.37 at Oulu. It is invisible here: it applies
-//    equally in both axes, the export is scaled to fit W anyway, and no
-//    scale bar is ever drawn. Ground measurements don't route through the
-//    projection either (geoLength, mPerPx compute metres from lat/lon).
-//  - What DOES survive is the variation of that factor over the frame's
-//    latitude span (Tilburg 1.6080 → 1.6086, i.e. 0.037%). Against a true
-//    local conformal projection, with the uniform scale divided out, the
-//    worst-case residual on a W=2000 map is: Tilburg 0.085 px, Oulu
-//    0.268 px, Bremerhaven (tallest validation bbox) 0.498 px. Sub-pixel,
-//    below the thinnest path stroke. It only reaches ~6 px for a bbox one
-//    full degree of latitude tall at 52°N (~15 px at 65°N) — an order of
-//    magnitude beyond what this tool exports.
-//  - Mercator also gives exact north-up (vertical meridians). RD and UTM
-//    carry meridian convergence, so they'd ROTATE the map: −0.24° (RD) or
-//    +1.63° (UTM 31N) for Tilburg — more visible error than the 0.085 px
-//    they'd remove. For a walking map, true north up is the requirement.
-//
-// Swapping projection is mathematically a one-function change (everything
-// projects through the pr() returned below), but would cost a proj4
-// dependency, a CRS choice users can't reasonably make, projection-aware
-// mPerPx in two places, a mismatch with the Web-Mercator Leaflet preview,
-// and invalidation of every byte-identical export baseline. Not worth
-// fractions of a pixel.
+// Deliberately NOT a local CRS (RD/UTM/S-JTSK). Mercator's 1/cos(lat)
+// inflation is uniform, and the export is scaled to fit W with no scale bar,
+// so only its variation over the frame shows. Measured 2026-07-25 against a
+// local conformal projection, uniform scale divided out, W=2000: Tilburg
+// 0.085 px, Oulu 0.268 px, Bremerhaven 0.498 px (~6 px only at a bbox a full
+// degree tall). RD/UTM would meanwhile rotate the map by their meridian
+// convergence (−0.24°/+1.63° at Tilburg); Mercator is exactly north-up.
+// Conclusion: sub-pixel gain, worse orientation — keep Mercator.
 function degToMerc(lng, lat) {
   return [lng*Math.PI/180, Math.log(Math.tan(Math.PI/4+(lat*Math.PI/180)/2))];
 }
