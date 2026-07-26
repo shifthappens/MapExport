@@ -119,7 +119,9 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | FIXED | AF-07c (2026-07-23): Coen koos optie (b); Countryside geknipt tot zichtbare rest (worker occlusion-clip) en genest onder "Parks & green" als eerste kind — één renderlaag, één paintpositie, rasterisatie-identiek; merged green ook geknipt (Oulu-gebouwenregressie gevonden+verholpen); `tests/editor-structure.mjs` uitgebreid; 7-steden cache-only sweep 0.000% bare |
-| Parken en stedelijk groen verdwijnen onder city blocks | OPEN | AF-07d: aparte diagnose en contract voor Piushaven en Cobbenhagenpark |
+| Parken verdwijnen onder city blocks (Piushaven) | OPEN | AF-07d bouwde een tagregel, door Coen afgekeurd (2026-07-23: te veel klein groen). Gaat op in AF-07f: de groenmassa op de plaat beslist, niet de tag |
+| Te veel naamloos groen op de plaat (Countryside/Recreation) | OPEN | AF-07f: diktetoets per samenhangende massa; gemeten 7,1% → 1,4-3,4% afhankelijk van drempel |
+| Ongetagd stedelijk groencomplex verdwijnt onder city blocks (Cobbenhagen) | OPEN | AF-07f: haalt ⌀24 mm zonder clusterbuffer; AF-07e (buffer) is door meting weerlegd |
 
 Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
 `SOURCE_DATA`, `NEEDS_COEN`, `DEFERRED_DESIGN`.
@@ -587,21 +589,129 @@ Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
   3×3mm-drempel (alleen 1px-AA-randen), Oulu 4 dunne outline-blobs (<2%
   fill-ratio, geen compacte regio) + visueel bevestigd dat de gebouwen terug
   zijn. ENGINE-V2 §4/§5/§7 + CHANGELOG bijgewerkt. Externe ChatGPT-review volgt.
-- [ ] **AF-07d — Parkgrond zichtbaar boven city blocks.** Isoleer de
-  selectie- en bindregel voor echte stedelijke parken van de algemene
-  countryside/green-laag. Reproduceer met de lokale Tilburg-cache: het
-  naamloze `leisure=park` bij Piushaven (`way/138166896`) verdwijnt in v1 door
-  de named-green-gate; Cobbenhagenpark bestaat uit samenhangende `forest`,
-  `grass` en `scrub`-vlakken die in v2 wel worden getekend maar onder de later
-  geschilderde city blocks verdwijnen. Bepaal en implementeer een contract
-  waarin expliciet `leisure=park` de block-void snijdt ongeacht `name` of
-  `access` (dus ook een privaat landgoed of themapark), en waarin overig
-  grondgroen alleen als samenhangend, stedelijk parkcomplex kan doorwerken.
-  Geen algemene naamregel, access-filter of minimum-breedte; voorkom losse
-  grasconfetti met een aantoonbare cluster-/kaartschaleregel. Leg cached
-  Piushaven- en Cobbenhagen-fixtures vast, inclusief een negatieve
-  confetti-case, en bewijs de v2 complement-/coverage-invariant en paint order
-  opnieuw.
+- [~] **AF-07d — Elke `leisure=park` snijdt de block-void.** *Geïmplementeerd
+  en groen, maar door Coens review van 2026-07-23 NIET los af te tekenen: de
+  regel gaat op in AF-07f hieronder. Coen keurde het resultaat af — "bijna alle
+  naamloze Park stukjes zijn te veel", en Piushaven is er daar één van. De
+  plumbing blijft bruikbaar (zie AF-07f, "wat blijft staan"); de tagtoelating
+  zelf wordt vervangen door de massatoets. Niet committen als losse feature.*
+
+  **Diagnose.** Het naamloze `leisure=park` bij Piushaven (`way/138166896`,
+  808 m²) viel in v2 in de `grass`-categorie. Grass schildert wel een groene
+  tint maar zit in géén enkele block-void, dus de city block eroverheen
+  schilderde hem weg; sinds AF-07c knipte de occlusion-clip de verborgen rest
+  ook nog eens weg. Netto onzichtbaar. In de Tilburg-cache staan 13 zulke
+  vlakken (458–43.572 m²).
+
+  **Contract (2026-07-23).** De `green`-rij in `AREA_FEATURES` matcht nu
+  `parksNamedGate(...) || t.leisure === 'park'` — met of zonder naam, ongeacht
+  `access`. `green` is de paint-/subtractieset, dus een park snijdt weer zijn
+  eigen gat in blocks en fallback (complement-regel §3). Géén naam-, access- of
+  breedtefilter; de confetti-guard is de bestaande `GRASS_MIN_PAINT_M2`-
+  oppervlaktedeclutter op classificatieniveau, zodat renderset en voids dezelfde
+  elementen zien. `leisure=garden` bewust NIET verbreed. De groenset splitst in
+  tweeën: `green` (paint/subtractie) en `greenNamed` (alleen de named-gate-
+  elementen), en alleen `greenNamed` bereikt via `openLandGreenPolys` de
+  `openLandVoid` — AF-07d verandert dus zichtbaarheid, nooit het urban/
+  countryside-oordeel van een face, precies zoals de recreation-rijen. De
+  editor-subgroep binnen "Parks & green" heet daarom niet langer "Named parks"
+  maar "Parks".
+
+  **Bewijs.** `tests/unnamed-parks.mjs` (nieuw, 18 checks, offline): echte
+  Piushaven-ring als fixture, plus named/private/tiny/garden-cases, de
+  Cobbenhagen-vormige negatieve case (naamloos forest/grass/scrub blijft géén
+  park) en de `prepareFaceData`-payloadcheck dat `openLandGreenPolys` ⊂
+  `greenPolys` is. Volledige offline suite exit 0 (375 ok). Cached Tilburg
+  v2-export: parks-groep 12 → 25 paden (alle 13 naamloze parken terug, incl.
+  `green_park_138166896`), landcover 420 → 400, 0.000% bare, 10/10 cache-hits,
+  nul Overpass, lint 0/0.
+
+- [ ] **AF-07f — Groenmassa op de plaat bepaalt wat groen wordt.**
+  Vervangt AF-07e (clusterbuffer), dat door meting is weerlegd. Ontstaan uit
+  Coens review van AF-07d op 2026-07-23.
+
+  **Wat Coen zei.** Te veel groen onder "Recreation grounds" en "Countryside" in
+  de Tilburg-v2-export; bijna alle naamloze parkstukjes zijn te klein om te
+  tonen; maar `way/220614168` (14.984 m², naamloos) is wél groot genoeg. En
+  Cobbenhagenpark is duidelijk een park terwijl het uit losse, elk te kleine,
+  naamloze stukken bestaat. Zijn eigen conclusie: het hangt te veel van de
+  brondata af om in tagregels te vangen.
+
+  **De reframe.** De OSM-tag en de OSM-elementgrens zijn allebei de verkeerde
+  eenheid — een mapper mag hetzelfde park als één way of als twaalf ways
+  tekenen, en tagt inconsistent. De vraag is per **samenhangende groenmassa op
+  de gedrukte plaat**: leest dit als een bestemming? Dat is één regel voor alle
+  drie de gevallen.
+
+  **Meting (2026-07-23, `tools/green-mass-probe.mjs`, cache-only).** Toets is
+  DIKTE, niet oppervlakte: past er een cirkel van ⌀X mm in de massa op papier?
+  Oppervlakte faalt omdat een lange dunne berm evenveel m² heeft als een compact
+  plantsoen. Aangrenzende vlakken worden samengevoegd wanneer ze elkaar echt
+  RAKEN — geen buffer.
+
+  | Tilburg `51.545,5.07,51.562,5.1` | massa's | groen op de plaat |
+  |---|---|---|
+  | nu (geen toets) | 2641 | 7,1% |
+  | ⌀ ≥ 4 mm | 57 | 3,4% |
+  | ⌀ ≥ 6 mm | 22 | 2,2% |
+  | ⌀ ≥ 8 mm | 9 | 1,4% |
+
+  De toets reproduceert Coens twee oordelen zonder erop afgesteld te zijn:
+  `way/220614168` → ⌀21 mm (hij zegt tonen), Piushaven `way/138166896` → ⌀5 mm
+  (hij zegt te klein). Cobbenhagen, campus-cache
+  `51.55311,5.04277,51.55912,5.06375`, **zonder buffer**: hoofdmassa 1305 mm²,
+  **⌀24 mm, uit 3 aan elkaar grenzende delen** — haalt elke drempel moeiteloos.
+
+  **AF-07e is weerlegd, bewaar de reden.** Het oorspronkelijke voorstel was
+  bijna-rakende stukjes met een buffer aan elkaar plakken. Bij 2 mm buffer
+  belandt Piushaven in een component van 34 delen met ⌀16 mm; bij 4 mm in 43
+  delen met ⌀24 mm. De buffer lijmt een hele straat aan bermen tot een
+  nepplantsoen en wist juist het onderscheid dat we nodig hebben. Alleen
+  echte adjacentie gebruiken. Herhaal de meting met de 0 mm-rij van de probe
+  voor je hier iets aan verandert.
+
+  **Coens besluiten (2026-07-23).**
+  1. *Drempel:* nog niet vastgelegd. Hij wil **eerst drie exports zien** —
+     Tilburg v2 op ⌀4, ⌀6 en ⌀8 mm — en kiest op zicht, niet op een getal.
+  2. *Afvallers:* **onderscheid binnen/buiten de stad.** Groen dat de toets niet
+     haalt verdwijnt ónder city blocks, maar houdt in het buitengebied (waar
+     geen block overheen komt) zijn Countryside-tint, zodat Nièvre zijn
+     landelijke textuur behoudt.
+
+  **Implementatie-inzicht bij besluit 2.** Dat gedrag bestaat al: het is exact
+  wat `landcover` vandaag doet (snijdt geen block-void, wordt door de AF-07c
+  occlusion-pass geknipt tot de zichtbare rest). En "haalt de toets wel" is
+  exact wat `green` doet (snijdt de block-void, schildert in de Parks & green-
+  band). De massatoets hoeft dus alleen te BESLISSEN in welke van die twee
+  bestaande categorieën een naamloze groencomponent valt. Geen nieuw
+  schilderpad, geen nieuwe laag, geen nieuwe void. Dat maakt dit een veel
+  kleinere ingreep dan hij klinkt.
+
+  **Wat blijft staan uit AF-07d** (niet weggooien): de splitsing `green` /
+  `greenNamed`, `openLandGreenPolys` in het worker-protocol, en de
+  editor-relabel naar "Parks". De massaregel heeft precies die plumbing nodig —
+  componenten die slagen moeten in de paint/subtractieset komen zonder het
+  open-land-classificatiesignaal te raken. Alleen de toelatingsregel zelf
+  (`t.leisure === 'park'`) wordt vervangen door de massatoets.
+
+  **Open punten voor de volgende sessie.**
+  - De 7,1% is de RUWE kandidatenset, vóór de AF-07c occlusion-clip. Hoeveel
+    naamloos groen er echt op de plaat staat moet op de gerenderde export
+    gemeten worden — doe dat vóór je de drempel voorlegt, anders vergelijkt
+    Coen appels met peren.
+  - Waar draait de toets? De componenten-analyse hoort thuis bij de face-worker
+    (die heeft Clipper en de projectie al), niet in `classifyAreaFeatures` —
+    maar de categorie-toewijzing gebeurt nu juist wél in `classifyAreaFeatures`,
+    vóór projectie. Die volgorde moet je oplossen vóór je code schrijft.
+  - Recreation grounds vielen ook onder Coens klacht (4 elementen in Tilburg).
+    Meet of ze door dezelfde toets moeten, of dat zijn bezwaar daar over de
+    kleur/prominentie gaat en niet over de hoeveelheid.
+  - Named green blijft ongemoeid: daar had Coen geen klacht over.
+
+  **Acceptatie.** Drie Tilburg-varianten ter keuze voorgelegd en één gekozen;
+  Cobbenhagen zichtbaar in een cached campus-export; Tilburg meetbaar rustiger;
+  Nièvre behoudt zijn landelijke tint; complement-/coverage-invariant en paint
+  order opnieuw bewezen; zeven-steden cached sweep 0.000% bare.
 
 **Acceptatie:** editorlagen hebben consistente namen; technische namen hebben
 een reproduceerbaar beleid; CF-03 heeft een vastgelegde keuze of blijft bewust

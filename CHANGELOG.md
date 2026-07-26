@@ -11,6 +11,48 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-26 — Green is judged as a whole park, not polygon by polygon
+- Nameless green (grass, verges, scrub, unnamed parks) is now measured after
+  the pieces that belong together have been joined up, instead of one OSM
+  polygon at a time. Ground OSM chops a single park into dozens of shapes — a
+  footway, a cycleway or a flowerbed each ends one — so the old per-shape size
+  test judged the wrong object: it threw away real parks a piece at a time
+  while letting hundreds of verges through. Pieces closer together than six
+  metres count as one green area, and an area under 2500 m² is not painted.
+- Six metres is the point of the rule: a street leaves eight metres or more
+  between the green on either side, so streets still split a park in two, while
+  the footpaths and cycle paths that shred one stop splitting it. That matches
+  how city blocks already work, where streets are boundaries and footpaths are
+  not. The Cobbenhagen campus green in Tilburg comes back as five green areas
+  instead of 154 scattered scraps.
+- Confetti is cut roughly in half or better everywhere: Tilburg goes from 694
+  painted scraps to 270, Ghent 542 to 268, Erfurt 176 to 68, Oulu 1407 to 908.
+- Named parks and recreation grounds are never subject to the threshold, as
+  before. They now also anchor the green around them, so a verge lying against
+  a named park is kept with it instead of leaving a cream notch.
+- Countryside (farmland, meadows, woods) is untouched by this and keeps its own
+  rules, so small fields in rural maps do not disappear.
+
+### 2026-07-23 — Parks without a name stay visible on v2 exports
+- A park that OSM tags `leisure=park` now always shows on v2 maps, even when it
+  has no name or is marked private. Until now only *named* green counted as a
+  park, so a nameless one (the park by the Piushaven in Tilburg, for instance)
+  was painted over by the cream city block on top of it and disappeared. Parks
+  now cut their own hole in that block, like named parks always have. Thirteen
+  parks return in Tilburg alone.
+- Tiny nameless parks are still left out by a size threshold, so blocks don't
+  get speckled with pinholes. (Superseded on 2026-07-26: that threshold now
+  applies to the joined-up green area rather than to each shape.) Gardens
+  (`leisure=garden`) are unchanged — those are usually back yards, not
+  destinations.
+- Making a park visible never changes how the map reads the land around it: a
+  nameless park cannot tip a neighbourhood over into "countryside".
+- The editor subgroup inside "Parks & green" is now called **Parks** instead of
+  **Named parks**, since it no longer holds only named ones.
+- Nameless woods, grass and scrub still sit under the city blocks. (Followed up
+  on 2026-07-26: a coherent green complex like the Cobbenhagen campus green now
+  survives as one area, though it still paints as grass rather than as a park.)
+
 ### 2026-07-23 — Countryside folds into one "Parks & green" layer on v2 exports
 - V2's "Countryside" (farmland, woods, grass tint) is now a child of the
   "Parks & green" layer alongside "Named parks" and "Recreation grounds",

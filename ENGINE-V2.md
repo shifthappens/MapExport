@@ -212,13 +212,15 @@ fallback_blocks the Uncategorized coverage patches
 water_bodies    incl. the synthetic sea
 waterways       stroked rivers/canals/streams
 landcover       unnamed farmland/wood/grass tint, clipped to its visible remainder (§5)
-parks           named green
+parks           green destinations — named green + every leisure=park (§5)
 parks_recreation recreation grounds — golf/dog park/sports centre/allotments (§5)
 roads → rail → tram → metro → labels
 ```
 
 The last three form one "Parks & green" render layer (AF-07c) — landcover
-(Countryside) is the first child, then named parks, then recreation grounds.
+(Countryside) is the first child, then parks, then recreation grounds. The
+middle subgroup was labelled "Named parks" until AF-07d admitted nameless
+`leisure=park`; it is now simply "Parks".
 
 `transit_stops` is deliberately **not** in v2's layer set (since 2026-07-12):
 the dot symbols cluttered the plate without wayfinding value at this scale.
@@ -298,15 +300,38 @@ match wins; adding a forgotten tag is one row + one query line + one preset
 colour, never a new code path. Only render-DISTINCT categories get rows —
 anything that reads cream is neither painted nor rowed.
 
-- **Green paints only through v1's `parksNamedGate`** (named parks, gardens,
-  forests, cemeteries…). There is deliberately no general nameless-green row:
-  one existed for sports pitches and it broke the rule inside cities. The
-  **recreation rows** below are the one bounded exception, limited to four
-  specific destination tags — never a blanket green.
+- **Green paints through v1's `parksNamedGate`** (named parks, gardens,
+  forests, cemeteries…) **plus every explicit `leisure=park`** (AF-07d),
+  whatever its `name` or `access`. There is deliberately no general
+  nameless-green row: one existed for sports pitches and it broke the rule
+  inside cities. `leisure=park` is a bounded exception, not a widening of that
+  rule — a mapper who wrote `leisure=park` has already made the editorial call,
+  so a nameless park (Tilburg's Piushaven, `way/138166896`) or a private estate
+  is as much a park as a named one. Before AF-07d these fell into the grass
+  rows below, which paint green but cut no block hole, so the city block simply
+  covered them. `leisure=garden` is **not** widened (usually a back yard), and
+  the **recreation rows** further down are the other bounded exception, limited
+  to four specific destination tags.
+- **The green set splits in two** (AF-07d). `green` is the paint/subtraction
+  set: everything above, painting in the Parks & green band and subtracting
+  from the block and fallback voids (complement rule, §3). `greenNamed` is the
+  narrower **classification** set — only what passed the named gate — and it is
+  the only green that reaches the worker's `openLandVoid`, as
+  `openLandGreenPolys`. A newly admitted nameless park therefore changes what
+  is visible, never a face's urban/countryside verdict, exactly like the
+  recreation rows. The confetti guard on nameless parks is the existing
+  `GRASS_MIN_PAINT_M2` area declutter applied at classification (so render set
+  and voids see the same elements) — never a name, access or width filter.
+  `openLandVoid` is bit-identical to its pre-AF-07d input: the nameless parks
+  were in the grass rows before, never in `green`, so nothing entered or left
+  that signal. The one signal that does move is `landcoverVoid` (the ≥ 60%
+  green-dominance demotion, "green the cream would erase"): a nameless park
+  leaves it, which is correct by construction — it now cuts its own hole and
+  paints above the block, so cream erases nothing there.
 - **Landcover** (farmland/meadow/forest/wood) is nameless by design — it is
   countryside texture, kept invisible in cities by paint order (§4). The
   **grass display rows** — `landuse=grass|village_green`, *unnamed*
-  `leisure=park|garden`, and `natural=scrub|heath|wetland` (category `grass`;
+  `leisure=garden`, and `natural=scrub|heath|wetland` (category `grass`;
   wetland joined via AF-03b) — paint
   through the same landcover layer as a green tint (v1's ISLAND_GREEN, never
   ported until now; scrub/heath/wetland instead render `renderLandcover`'s

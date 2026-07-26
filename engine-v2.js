@@ -346,27 +346,45 @@ const EngineV2 = (() => {
     { match: (t) => /^(riverbank|dock)$/.test(t.waterway || ''), category: 'water' },
     { match: (t) => /^(reservoir|basin)$/.test(t.landuse || ''), category: 'water' },
     { match: (t) => /^(marina|swimming_pool)$/.test(t.leisure || ''), category: 'water' },
-    // Named green destinations: reuse v1's exact gate (name + junk-name filter),
-    // so v2 keeps the "named parks only, not every verge" look. No nameless
-    // sports/recreation row: v1 never fetches pitches/sports centres, and a
-    // nameless-green row broke the named-only rule in cities (Bremerhaven
-    // review) — those elements are still fetched, but label-only.
-    { match: (t) => parksNamedGate({ type: 'way', tags: t }), category: 'green' },
+    // Green destinations. Two ways in:
+    //  1. v1's exact named gate (name + junk-name filter), so v2 keeps the
+    //     "named green only, not every verge" look for forests, cemeteries,
+    //     gardens and nature reserves.
+    //  2. AF-07d: an explicit leisure=park, WITH OR WITHOUT a name, and
+    //     whatever its access tag. A mapper who wrote leisure=park has already
+    //     made the editorial call that this is a park; a nameless one (the
+    //     Piushaven park in Tilburg, way/138166896) is no less a park than a
+    //     named one, and a private estate or theme park is still a park. Before
+    //     AF-07d these fell into the 'grass' row below, which paints green but
+    //     cuts no hole in the city block above it — so they vanished under
+    //     cream. Being 'green' means they subtract from the block and fallback
+    //     voids and paint in the Parks & green band (complement rule, §3).
+    //     Deliberately NOT widened to leisure=garden: a garden is a private
+    //     back yard far more often than a destination, and the audit only
+    //     asked for parks. A nameless park still has to clear the AF-07f mass
+    //     gate in classifyAreaFeatures — an area threshold on the dissolved
+    //     mass, which governs every nameless green patch alike; not a name,
+    //     access or width filter.
+    // No nameless sports/recreation row: v1 never fetches pitches/sports
+    // centres, and a nameless-green row broke the named-only rule in cities
+    // (Bremerhaven review) — those elements are still fetched, but label-only.
+    { match: (t) => parksNamedGate({ type: 'way', tags: t }) || t.leisure === 'park', category: 'green' },
     // Countryside land cover: farmland/meadow → field tint, wood/forest → park
     // green. v1's landcover renderer picks the colour from the tag.
     { match: (t) => /^(farmland|meadow)$/.test(t.landuse || ''), category: 'landcover' },
     { match: (t) => t.landuse === 'forest' || t.natural === 'wood', category: 'landcover' },
     // Grass display rows (v2-only, category 'grass'): landuse=grass/village_green
-    // and UNNAMED leisure=park/garden. They paint through the landcover layer
+    // and UNNAMED leisure=garden. They paint through the landcover layer
     // (green tint) exactly like the rows above, and subtract from the fallback
     // void so they show through fallback holes — but they are deliberately a
     // SEPARATE category so they can be kept OUT of the open-land classification
     // signal (the ≥0.35 share test). Grass in the signal would flip genuinely
     // urban faces en masse: Tilburg tags 39% of its Uncategorized patches
-    // landuse=grass. Named parks/gardens matched the green row above already; the
-    // !name guard here keeps this to the nameless remainder.
+    // landuse=grass. Named gardens matched the green row above already, and
+    // since AF-07d EVERY leisure=park does too; the !name guard here keeps this
+    // row to the nameless gardens.
     { match: (t) => /^(grass|village_green)$/.test(t.landuse || ''), category: 'grass' },
-    { match: (t) => /^(park|garden)$/.test(t.leisure || '') && !t.name, category: 'grass' },
+    { match: (t) => t.leisure === 'garden' && !t.name, category: 'grass' },
     // Scrub/heath: same paint-only route as the grass rows above — already
     // fetched (label-only sweep) and already coloured by renderLandcover's
     // coverFill (field tint, like farmland), but had no AREA_FEATURES row so
@@ -436,20 +454,170 @@ const EngineV2 = (() => {
   // Split one area-features fetch into per-layer element buckets. Coastline and
   // linear waterways are pulled out by their own coded paths BEFORE the table;
   // everything else passes the closed-way/multipolygon gate, then the table.
-  // Declutter threshold for grass-display patches (nameless landuse=grass/
-  // village_green and nameless leisure=park|garden). Ground OSM maps countless
-  // tiny verges, tree pits and single-bush beds as landuse=grass; at USE-IT
-  // scale they read as green confetti (~1700 in Tilburg). A patch smaller than
-  // this ground area is not painted — the city block's cream simply shows
-  // instead. Filtered at classification so BOTH the render array and the worker
-  // void/merge see the same set (index alignment) and coverage stays intact:
-  // grass is excluded from the open-land signal already, and dropped patches
-  // leave the fallback/block void, so cream fills them rather than leaving a
-  // hole. Only the grass-display category is affected — named parks and
+  //
+  // Declutter threshold for nameless green patches (the grass-display rows, and
+  // since AF-07d the nameless leisure=park). Ground OSM maps countless tiny
+  // verges, tree pits and single-bush beds as landuse=grass; at USE-IT scale
+  // they read as green confetti (~1700 in Tilburg). Green under the threshold
+  // is not painted — the city block's cream simply shows instead. Filtered at
+  // classification so BOTH the render array and the worker void/merge see the
+  // same set (index alignment) and coverage stays intact: grass is excluded
+  // from the open-land signal already, and dropped patches leave the
+  // fallback/block void, so cream fills them rather than leaving a hole. Only
+  // nameless green is affected — named green, recreation grounds and
   // farmland/wood/forest landcover are untouched.
-  const GRASS_MIN_PAINT_M2 = 80;
+  //
+  // AF-07f: the threshold applies to a CONNECTED MASS, not to one polygon.
+  // Ground OSM chops a single park into dozens of ways — a footway, a cycleway
+  // or a flowerbed each ends one — so a per-polygon floor judged the wrong
+  // object. It threw away whole parks a piece at a time (Tilburg's Cobbenhagen
+  // campus is 457 nameless fragments, none larger than 3590 m²), while a floor
+  // low enough to keep those let ~1700 verges and tree pits through as green
+  // confetti. Dissolving first and measuring after separates the two: a park
+  // shredded by paths is one mass, a street's verges are not.
+  const GREEN_MASS_MIN_M2 = 2500;
+  // A piece this small is never painted and never joins a mass, whatever it
+  // touches. It is the old per-polygon floor, kept for a second job: without it
+  // a line of tree pits and kerb strips 5 m apart chains into one long ribbon
+  // that clears the mass threshold on summed area alone — the "verges glued
+  // into a fake park" failure AF-07e warned about. Screening the confetti out
+  // BEFORE the dissolve means only real green can bridge real green. In Tilburg
+  // it takes the painted pieces from 712 to 200 while leaving the mass count
+  // (24) and the green area (22 ha) essentially where they were.
+  const GREEN_PIECE_MIN_M2 = 80;
+  // How close two pieces must come to count as one mass. This distance IS the
+  // rule. A street that splits a city block leaves 8 m or more of ground
+  // between the green on either side, so streets still cut a mass in two; the
+  // footways and cycleways that shred a park leave 0.3 to 5 m and stop cutting.
+  // That is the line the block-boundary rule already draws (residential and up
+  // cut a block; footway/cycleway/path/steps do not). Deliberately NOT the
+  // page-space closing rejected under AF-07e, which worked at 2 to 4 mm — 9 to
+  // 19 m of ground — and glued a street's verges into a fake park.
+  const GREEN_MASS_BRIDGE_M = 6;
+
+  // Outline rings of an area element, in lat/lon. Outer rings only: the gate
+  // asks how far one piece of green is from the next, and a multipolygon's
+  // holes are not its edge with a neighbour.
+  function elementOutlineRings(el) {
+    if (el.type === 'way' && el.geometry?.length >= 3) return [el.geometry];
+    if (el.type === 'relation' && el.members) {
+      return stitchMultipolygonRings(el.members).outer.filter((r) => r.length >= 3);
+    }
+    return [];
+  }
+
+  // Which of `gated` survive the mass gate. `seeds` are never gated themselves
+  // (named green, recreation grounds) but take part in the dissolve, so a verge
+  // lying inside or against a named park is kept with it instead of leaving a
+  // cream notch. Countryside land cover is not passed in at all — its own rules
+  // govern it (Coen, 2026-07-26).
+  function surviveGreenMassGate(gated, seeds) {
+    const kept = new Set();
+    if (!gated.length) return kept;
+    const all = gated.concat(seeds);
+    // One local metres-per-degree pair for the whole bbox. Good to a fraction
+    // of a percent across one export, which is all a 6 m distance needs.
+    let latSum = 0, latN = 0;
+    for (const el of all) {
+      for (const ring of elementOutlineRings(el)) { latSum += ring[0].lat; latN++; break; }
+    }
+    if (!latN) { for (const el of gated) kept.add(el); return kept; }
+    const kx = 111320 * Math.cos((latSum / latN) * Math.PI / 180);
+    const ky = 110540;
+
+    // Sample each outline at half the bridging distance, so a gap cannot hide
+    // between two samples. Long edges are capped: an element with edges that
+    // long is far past the area gate on its own anyway.
+    const STEP = GREEN_MASS_BRIDGE_M / 2;
+    const points = all.map((el) => {
+      const out = [];
+      for (const ring of elementOutlineRings(el)) {
+        for (let i = 0; i < ring.length - 1; i++) {
+          const x1 = ring[i].lon * kx, y1 = ring[i].lat * ky;
+          const x2 = ring[i + 1].lon * kx, y2 = ring[i + 1].lat * ky;
+          out.push(x1, y1);
+          const steps = Math.min(64, Math.floor(Math.hypot(x2 - x1, y2 - y1) / STEP));
+          for (let k = 1; k < steps; k++) out.push(x1 + ((x2 - x1) * k) / steps, y1 + ((y2 - y1) * k) / steps);
+        }
+      }
+      return out;
+    });
+
+    const parent = new Int32Array(all.length);
+    for (let i = 0; i < all.length; i++) parent[i] = i;
+    const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+
+    // Spatial hash on a bridge-sized grid: two points can only be within the
+    // bridging distance if their cells are the same or neighbours, so each
+    // point compares against a 3×3 cell neighbourhood instead of everything.
+    let minX = Infinity, minY = Infinity;
+    for (const arr of points) {
+      for (let i = 0; i < arr.length; i += 2) {
+        if (arr[i] < minX) minX = arr[i];
+        if (arr[i + 1] < minY) minY = arr[i + 1];
+      }
+    }
+    const CELL = GREEN_MASS_BRIDGE_M;
+    const cellX = (x) => Math.floor((x - minX) / CELL);
+    const cellY = (y) => Math.floor((y - minY) / CELL);
+    const buckets = new Map();
+    for (let i = 0; i < all.length; i++) {
+      const arr = points[i];
+      for (let p = 0; p < arr.length; p += 2) {
+        const key = cellX(arr[p]) * 1e7 + cellY(arr[p + 1]);
+        let b = buckets.get(key);
+        if (!b) buckets.set(key, b = []);
+        b.push(i, arr[p], arr[p + 1]);
+      }
+    }
+    const limit2 = GREEN_MASS_BRIDGE_M * GREEN_MASS_BRIDGE_M;
+    for (let i = 0; i < all.length; i++) {
+      const arr = points[i];
+      for (let p = 0; p < arr.length; p += 2) {
+        const x = arr[p], y = arr[p + 1];
+        const cx = cellX(x), cy = cellY(y);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const b = buckets.get((cx + dx) * 1e7 + (cy + dy));
+            if (!b) continue;
+            for (let q = 0; q < b.length; q += 3) {
+              const j = b[q];
+              if (j === i) continue;
+              const ri = find(i), rj = find(j);
+              if (ri === rj) continue;
+              const ddx = x - b[q + 1], ddy = y - b[q + 2];
+              if (ddx * ddx + ddy * ddy <= limit2) parent[rj] = ri;
+            }
+          }
+        }
+      }
+    }
+
+    // A mass passes if it holds a seed, or if its own ground area clears the
+    // threshold. elementAreaM2 returns Infinity for an element it cannot
+    // measure, which keeps the old "unmeasurable green is painted" behaviour.
+    const massArea = new Map();
+    const massSeeded = new Set();
+    for (let i = 0; i < all.length; i++) {
+      const root = find(i);
+      massArea.set(root, (massArea.get(root) || 0) + elementAreaM2(all[i]));
+      if (i >= gated.length) massSeeded.add(root);
+    }
+    for (let i = 0; i < gated.length; i++) {
+      const root = find(i);
+      if (massSeeded.has(root) || massArea.get(root) >= GREEN_MASS_MIN_M2) kept.add(gated[i]);
+    }
+    return kept;
+  }
+
   function classifyAreaFeatures(elements) {
-    const water = [], green = [], landcover = [], grass = [], recreation = [], beach = [], waterways = [], coastline = [], labelOnly = [];
+    const water = [], green = [], greenNamed = [], landcover = [], grass = [], recreation = [], beach = [], waterways = [], coastline = [], labelOnly = [];
+    // Nameless green is held back in `staged` until the mass gate has seen all
+    // of it: whether one patch is painted depends on its neighbours, so it
+    // cannot be decided element by element on the way past. Everything else
+    // buckets immediately, and `staged` is drained in input order below, so the
+    // green/grass arrays come out exactly as they did before.
+    const staged = [], gated = [], seeds = [];
     for (const el of (elements || [])) {
       if (el.type === 'node') continue;
       const tags = el.tags || {};
@@ -458,18 +626,40 @@ const EngineV2 = (() => {
       if (!(isClosedWay(el) || (el.type === 'relation' && el.members))) continue;
       const category = classifyAreaTags(tags);
       if (category === 'water') water.push(el);
-      else if (category === 'green') green.push(el);
+      // Green splits two ways (AF-07d). `green` is the PAINT/subtraction set —
+      // everything that paints in the Parks & green band and cuts the block and
+      // fallback voids. `greenNamed` is the narrower open-land CLASSIFICATION
+      // signal, and holds only the elements that passed v1's named gate. A
+      // nameless leisure=park joins the first but not the second, for the same
+      // reason grass and recreation stay out of that signal: AF-07d is a
+      // visibility contract, and letting newly-admitted parks feed the ≥0.35
+      // open-land share test could flip an urban face to countryside as a side
+      // effect. The nameless ones also face the AF-07f mass gate, so a 3 m²
+      // "park" on its own cannot punch a pinhole through a city block.
+      else if (category === 'green') {
+        const isNamed = parksNamedGate({ type: el.type, tags });
+        if (isNamed) { staged.push({ el, bucket: 'green', named: true }); seeds.push(el); }
+        else if (elementAreaM2(el) >= GREEN_PIECE_MIN_M2) { staged.push({ el, bucket: 'green', named: false }); gated.push(el); }
+      }
       else if (category === 'landcover') landcover.push(el);
-      else if (category === 'grass') { if (elementAreaM2(el) >= GRASS_MIN_PAINT_M2) grass.push(el); }
-      else if (category === 'recreation') recreation.push(el);
+      else if (category === 'grass') {
+        if (elementAreaM2(el) >= GREEN_PIECE_MIN_M2) { staged.push({ el, bucket: 'grass', named: false }); gated.push(el); }
+      }
+      else if (category === 'recreation') { recreation.push(el); seeds.push(el); }
       else if (category === 'beach') beach.push(el);
       // No row claims it → label-only: never painted, but its tags name the
       // land under an Uncategorized patch (see renderFallbackBlocks). Beach
-      // elements are matched by the row above, so they never reach here and
-      // never surface as an "Uncategorized"/labelled patch underneath.
+      // elements are matched by the row above, so they never surface as an
+      // "Uncategorized"/labelled patch underneath.
       else if (el.tags) labelOnly.push(el);
     }
-    return { water, green, landcover, grass, recreation, beach, waterways, coastline, labelOnly };
+    const kept = surviveGreenMassGate(gated, seeds);
+    for (const s of staged) {
+      if (!s.named && !kept.has(s.el)) continue;
+      if (s.bucket === 'green') { green.push(s.el); if (s.named) greenNamed.push(s.el); }
+      else grass.push(s.el);
+    }
+    return { water, green, greenNamed, landcover, grass, recreation, beach, waterways, coastline, labelOnly };
   }
 
   // ── Coastline → sea ────────────────────────────────────────────────
@@ -1004,6 +1194,12 @@ self.onmessage = function(event) {
   // positive, inner negative) so lake islands / park courtyards union as holes.
   const waterPolys = data.waterPolys || [];
   const greenPolys = data.greenPolys || [];
+  // Named green only (AF-07d): the subset of greenPolys that passed v1's named
+  // gate, used for openLandVoid alone. Nameless leisure=park paints and cuts
+  // like any park (it is in greenPolys) but stays out of the countryside
+  // classification signal. Absent → the full green set, so older payloads and
+  // the offline harnesses behave exactly as before.
+  const openLandGreenPolys = data.openLandGreenPolys || greenPolys;
   // Recreation grounds (AF-03b): paint park green above blocks exactly like
   // named parks, so they join the SAME block/fallback voids greenPolys feeds
   // (complement rule) — but they are kept OUT of openLandVoid: recreation is
@@ -1333,8 +1529,10 @@ self.onmessage = function(event) {
   // inside the city (Bremerhaven M7 review). recreationPolys is deliberately
   // NOT in here (nor in landcoverVoid below): a golf course or sports centre
   // paints green but must never flip a face's urban/countryside verdict
-  // (AF-03b O-contract — recreation changes paint, not classification).
-  const openLandVoid = indexVoid(buildVoid([greenPolys, openLandPolys], null));
+  // (AF-03b O-contract — recreation changes paint, not classification). Same
+  // for the nameless leisure=park admitted by AF-07d: openLandGreenPolys is the
+  // named-green subset, so a newly visible park changes paint, not the verdict.
+  const openLandVoid = indexVoid(buildVoid([openLandGreenPolys, openLandPolys], null));
   const waterVoid = indexVoid(buildVoid([waterPolys], waterwayStrokePaths));
   // Urban-landuse signal (the isUrbanSignalElement set: residential/commercial/
   // retail/institutional/education/religious landuse + amenity=parking). A
@@ -2055,7 +2253,7 @@ self.onmessage = function(event) {
         blockRegion = holed;
       }
     }
-    // Named parks + water bodies arrive as oriented rings (holes as negatives).
+    // Green (parks) + water bodies arrive as oriented rings (holes as negatives).
     // Recreation grounds paint the same opaque park green above blocks, so
     // they occlude landcover exactly like named parks do (AF-03b). Each is in the
     // covering set only when its layer actually paints (coverPaints, AF-07c P1).
@@ -2368,6 +2566,12 @@ self.onmessage = function(event) {
     // Area voids for subtraction (oriented rings, area_large eps — see above).
     const waterPolys = collectAreaPolys(area.water, pr);
     const greenPolys = collectAreaPolys(area.green, pr);
+    // Named green only (AF-07d): the open-land classification signal set. Every
+    // green element paints and subtracts via greenPolys above, but a nameless
+    // leisure=park must not feed the ≥0.35 countryside share test — see the
+    // green split in classifyAreaFeatures. Falls back to area.green for callers
+    // that predate the split.
+    const openLandGreenPolys = area.greenNamed ? collectAreaPolys(area.greenNamed, pr) : greenPolys;
     // Recreation grounds (AF-03b): same subtraction shape discipline as green
     // (they paint park green above blocks via renderRecreation, so blocks and
     // fallback must lose exactly that painted shape — complement rule). The
@@ -2424,7 +2628,7 @@ self.onmessage = function(event) {
     const bigFacePx2 = COUNTRYSIDE_MIN_KM2 * 1e6 / (mPerPx * mPerPx);
 
     return {
-      cutterLines, waterwayLines, waterPolys, greenPolys, recreationPolys, landcoverPolys, openLandPolys, urbanPolys, landcoverElements,
+      cutterLines, waterwayLines, waterPolys, greenPolys, openLandGreenPolys, recreationPolys, landcoverPolys, openLandPolys, urbanPolys, landcoverElements,
       buildingCenters, clusterRings, placeNodes, W, H, bigFacePx2, mPerPx,
       // Roads/rail cutters plus waterway strokes, in the {pts,halfW} shape the
       // coverage lint's markLine expects (it treats these as painted corridors).
@@ -3440,11 +3644,12 @@ self.onmessage = function(event) {
     // recreation/water/waterway strokes — see the worker's occlusion clip), so
     // painting them here, at the bottom of this band, is pixel-identical to the
     // old position while making Countryside a real child of this group. Paint
-    // order within the parent: Countryside → Named parks → Recreation grounds.
+    // order within the parent: Countryside → Parks → Recreation grounds.
     // The inner v1 parks group keeps id="parks" but its label (v1 calls the layer
-    // itself "Parks & green") is rewritten to "Named parks" so the panel reads
-    // Parks & green → Countryside / Named parks / Recreation grounds instead of
-    // repeating the parent's name.
+    // itself "Parks & green") is rewritten to "Parks" so the panel reads
+    // Parks & green → Countryside / Parks / Recreation grounds instead of
+    // repeating the parent's name. The subgroup was called "Named parks" until
+    // AF-07d admitted nameless leisure=park to the same group.
     let pendingWater = null;
     const flushWater = () => {
       if (pendingWater === null) return;
@@ -3467,11 +3672,11 @@ self.onmessage = function(event) {
         continue;
       }
       flushWater();
-      // Countryside sorts just before Named parks (layerOrder), so it buffers
+      // Countryside sorts just before Parks (layerOrder), so it buffers
       // into the shared "Parks & green" parent as its first child (AF-07c).
       if (result.layer.id === landcoverLayer.id || result.layer.id === parksLayer.id || result.layer.id === recreationLayer.id) {
         if (result.layer.id === parksLayer.id) {
-          layerSVG = layerSVG.replace('<g id="parks" inkscape:label="Parks &amp; green"', '<g id="parks" inkscape:label="Named parks"');
+          layerSVG = layerSVG.replace('<g id="parks" inkscape:label="Parks &amp; green"', '<g id="parks" inkscape:label="Parks"');
         }
         pendingParks = (pendingParks || '') + layerSVG;
         continue;

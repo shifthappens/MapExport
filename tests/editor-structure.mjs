@@ -224,7 +224,7 @@ check('Illustrator mode: sub-groups present, no inkscape: attributes leak',
   && /<g id="tram_casing"[ >]/.test(svgI) && !svgI.includes('inkscape:'));
 
 // ── (6) AF-07c: Countryside nests inside the "Parks & green" parent ──────
-// A closed forest polygon (Countryside) plus a named park (Named parks) must
+// A closed forest polygon (Countryside) plus a named park (Parks) must
 // render as one "Parks & green" layer, Countryside first, both as children of
 // the parent — not as a separate top-level "landcover" layer.
 const ring = [pt(0.10, 0.10), pt(0.10, 0.30), pt(0.25, 0.30), pt(0.25, 0.10), pt(0.10, 0.10)];
@@ -239,9 +239,9 @@ check('Parks & green parent group present',
   /^<g id="parks_green" inkscape:label="Parks &amp; green"/.test(parksGreen));
 check('Countryside (landcover) is nested inside the Parks & green parent',
   parksGreen.includes('<g id="landcover" inkscape:label="Countryside"'));
-check('Named parks (v1 parks group, relabelled) is nested inside the parent',
-  parksGreen.includes('<g id="parks" inkscape:label="Named parks"'));
-check('paint order inside the parent: Countryside before Named parks',
+check('Parks (v1 parks group, relabelled) is nested inside the parent',
+  parksGreen.includes('<g id="parks" inkscape:label="Parks"'));
+check('paint order inside the parent: Countryside before Parks',
   parksGreen.indexOf('<g id="landcover"') !== -1
   && parksGreen.indexOf('<g id="landcover"') < parksGreen.indexOf('<g id="parks"'));
 check('landcover is NOT emitted as a second top-level layer (only inside the parent)',

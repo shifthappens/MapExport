@@ -280,8 +280,9 @@ check('a named footway over a recreation ground gets the white overlay group (ro
   clipSvg.includes('id="roads_paths_green"') && clipSvg.includes('id="green_clip"'));
 
 // ── buildSVG: "Parks & green" parent nesting (AF-03b) ───────────────
-// Named parks and recreation grounds are adjacent in paint order and share
-// one parent layer; the inner v1 parks group is relabelled "Named parks".
+// Parks and recreation grounds are adjacent in paint order and share one
+// parent layer; the inner v1 parks group is relabelled "Parks" (it was "Named
+// parks" until AF-07d let nameless leisure=park into the same group).
 const parksLayerV1 = V1.LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === 'parks');
 const nestedSvg = V2.buildSVG([
   { layer: parksLayerV1, data: { elements: [namedPark] } },
@@ -289,12 +290,12 @@ const nestedSvg = V2.buildSVG([
 ], bbox, 1000);
 const parentTag = '<g id="parks_green" inkscape:label="Parks &amp; green" inkscape:groupmode="layer">';
 const parentIdx = nestedSvg.indexOf(parentTag);
-const namedIdx = nestedSvg.indexOf('<g id="parks" inkscape:label="Named parks"');
+const namedIdx = nestedSvg.indexOf('<g id="parks" inkscape:label="Parks"');
 const recIdx = nestedSvg.indexOf('<g id="parks_recreation" inkscape:label="Recreation grounds"');
 const parentClose = nestedSvg.indexOf('</g>', recIdx);
 check('buildSVG wraps parks + recreation in one "Parks & green" parent layer', parentIdx !== -1);
-check('the inner v1 parks group is relabelled "Named parks" (id stays "parks")', namedIdx !== -1);
-check('the recreation group sits inside the parent, after named parks',
+check('the inner v1 parks group is relabelled "Parks" (id stays "parks")', namedIdx !== -1);
+check('the recreation group sits inside the parent, after the parks group',
   parentIdx !== -1 && namedIdx > parentIdx && recIdx > namedIdx && parentClose !== -1);
 check('no double "Parks & green" label survives inside the parent',
   parentIdx !== -1 && nestedSvg.indexOf('inkscape:label="Parks &amp; green"', parentIdx + parentTag.length) === -1);

@@ -59,6 +59,9 @@ echo
 echo "== area-binding (offline, engine v2 AREA_FEATURES classify/bucket/render) =="
 node tests/area-binding.mjs
 
+echo "== unnamed-parks (offline, AF-07d: every leisure=park cuts the block void) =="
+node tests/unnamed-parks.mjs
+
 echo
 echo "== park-paths (offline, AF-06 park/cemetery trail generalisation) =="
 node tests/park-paths.mjs
