@@ -9,6 +9,8 @@ cache/*.json.gz
 # cache/pinned/ IS tracked (the never-expiring validation snapshot), but its
 # temporary "stop serving pins" marker is local-only — see tools/pin-cache.sh.
 cache/pinned/.disabled
+# Where `tools/pin-cache.sh refresh` parks the live entries while it refetches.
+cache/.refresh-stash/
 # Personal, machine-specific scripts at repo root (the tracked build lives in tools/).
 /deploy.sh
 /minify.sh

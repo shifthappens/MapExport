@@ -114,6 +114,10 @@ echo
 echo "== cache-php (offline, cache.php bounds/validation/atomic writes; php -S on localhost) =="
 node tests/cache-php.mjs
 
+echo
+echo "== pin-cache (offline, tools/pin-cache.sh pin validation + refresh recovery) =="
+node tests/pin-cache.mjs
+
 if [ "${OFFLINE_ONLY:-0}" = "1" ]; then
   echo
   echo "(OFFLINE_ONLY=1 — skipping query-equivalence)"

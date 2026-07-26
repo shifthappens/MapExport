@@ -8,6 +8,47 @@
   **GEBOUWD** in `engine-v2.js`, offline suite groen, 7 v2-exports gedraaid.
   Wacht op Coens visuele oordeel op de PNG's.
 - **Zijspoor afgerond (2026-07-26):** pinned cache werkt nu echt. Zie hieronder.
+- **Review-ronde (2026-07-26):** Codex `gpt-5.6-sol` (medium) heeft de twee
+  commits c1e57fb + 3328310 nagekeken, vijf rondes lang. Alle bevindingen zijn
+  verwerkt; ronde 6 gaf "no material findings remain, mergeable". Nog NIET
+  gecommit — wacht op Coens verzoek. Zie hieronder.
+
+## Sol-review, wat eruit kwam (2026-07-26, ongecommit in de working tree)
+
+Echte defecten, geen stijlpunten:
+
+- Bruggen werd gemeten tussen bemonsterde punten, niet tussen randen. Twee
+  parkranden op 5,9 m konden los blijven als geen enkel hoekpunt tegenover het
+  andere lag; de cap van 64 samples maakte dat erger op lange randen. Nu exacte
+  segment-tot-segment afstand.
+- Een grasveld midden in een named park bleef los (geen rand in de buurt). Nu
+  een containment-pass, per outer ring, met outer-min-inner zodat een binnenhof
+  géén parkgrond is. Inner rings bruggen wel.
+- Massa-oppervlak telde dubbel gemapt groen twee keer. Nu min(som, bbox), beide
+  bovengrenzen op de echte union, plus een unit-conversie (de bbox rekent met
+  ky=110540, `elementAreaM2` met 111320 — 0,7% verschil, precies op de drempel
+  merkbaar).
+- De grid legde elk segment in álle cellen van zijn bounding box. Eén lange
+  diagonale rand (Overpass levert hele ways) = (lengte/6)² cellen. Nu een
+  Amanatides-Woo lijnloop. Bremerhaven 94 ms → 31 ms; synthetische 10 km-rand
+  10614 ms → 8 ms.
+- `pin-cache.sh refresh` verversste niets: de prefetcher telde de nog geldige
+  live entries als hits. Nu worden ze geparkeerd in `cache/.refresh-stash/` en
+  teruggezet met `ln` (atomair EEXIST, dus een nieuwere live entry wint altijd).
+  Een stash van een gekilde run wordt eerst hersteld.
+- Pin-validatie keek alleen naar de eerste 4 KB. Nu `gzip -t` plus een volledige
+  JSON-parse, en de pin wordt gestaged onder `.$key.$$.tmp` en hernoemd.
+
+Tests erbij: `tests/pin-cache.mjs` (nieuw, draait het echte script tegen een
+wegwerp-repo met een stub-prefetcher), sectie 7 in `tests/unnamed-parks.mjs`
+(rand-tot-rand, containment, binnenhof, dubbel gemapt, drempel-op-de-grens,
+multipolygon-tweede-eiland, kapotte geometrie, 10 km-diagonaal), en vier
+pin-checks in `tests/cache-php.mjs`. `ENGINE-V2.md` beschrijft de massatoets nu
+echt (noemde nog het verwijderde `GRASS_MIN_PAINT_M2`).
+
+Checks: `OFFLINE_ONLY=1 bash tests/smoke.sh` exit 0; alle zeven exports PASS,
+0.000% bare pixels, 0 lint, 0 Overpass. Geschilderde stukken t.o.v. de commit:
++1 tot +51 per stad (randen die eerder onterecht loskwamen).
 
 ## Pinned Overpass-cache (afgerond, 2026-07-26)
 

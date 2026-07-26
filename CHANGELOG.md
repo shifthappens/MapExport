@@ -11,6 +11,35 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-26 — Review follow-up on the green mass rule and the pinned cache
+- Two pieces of green now count as one park whenever their *edges* come within
+  six metres, not just when one has a corner facing the other. Long straight
+  park edges are the common case: a verge lying halfway along one used to be
+  judged on its own and thrown away. Roughly 1 to 50 more pieces of green
+  survive per city.
+- A patch of green lying inside a named park is kept with the park even when it
+  touches none of its edges. A patch inside a courtyard *cut out* of a park is
+  not — that ground is not park, so it still stands on its own.
+- Green mapped twice on the same ground (once as a way, once as a landuse)
+  no longer counts its area twice, so a small patch cannot add its way past the
+  threshold and reappear as confetti.
+- Green with very long edges no longer stalls the export. OSM hands over whole
+  ways, so a single forest edge can run for kilometres across the frame; the
+  grouping step used to consider every square of ground its bounding box
+  covered rather than the ones the line actually crosses. Bremerhaven's green
+  step went from 94 ms to 31 ms, and a synthetic 10 km edge from 10 seconds to
+  7 milliseconds.
+- `tools/pin-cache.sh refresh` really refetches now. It used to leave the
+  unexpired local copies in place, and the prefetcher then reported them as
+  hits and fetched nothing — a "refresh" that refreshed nothing. It now parks
+  those copies aside first and puts back anything it did not replace, so an
+  interrupted refresh leaves the cache as it found it.
+- Pinning checks the whole file before freezing it — a complete gzip stream and
+  complete JSON, not just the first few kilobytes — and writes the pin under a
+  temporary name first, so an interrupted pin cannot replace good data with
+  half a file. Nothing ever expires a pin, so a corrupt one would have stayed
+  forever.
+
 ### 2026-07-26 — The seven test cities' map data never expires again
 - `cache/pinned/` has held a complete copy of the map data for the seven test
   cities since July, but nothing ever read it: a note in that folder told you

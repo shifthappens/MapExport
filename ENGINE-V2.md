@@ -319,15 +319,51 @@ anything that reads cream is neither painted nor rowed.
   the only green that reaches the worker's `openLandVoid`, as
   `openLandGreenPolys`. A newly admitted nameless park therefore changes what
   is visible, never a face's urban/countryside verdict, exactly like the
-  recreation rows. The confetti guard on nameless parks is the existing
-  `GRASS_MIN_PAINT_M2` area declutter applied at classification (so render set
-  and voids see the same elements) — never a name, access or width filter.
+  recreation rows. The confetti guard on nameless parks is the **mass gate**
+  below, applied at classification (so render set and voids see the same
+  elements) — never a name, access or width filter.
   `openLandVoid` is bit-identical to its pre-AF-07d input: the nameless parks
   were in the grass rows before, never in `green`, so nothing entered or left
   that signal. The one signal that does move is `landcoverVoid` (the ≥ 60%
   green-dominance demotion, "green the cream would erase"): a nameless park
   leaves it, which is correct by construction — it now cuts its own hole and
   paints above the block, so cream erases nothing there.
+- **The mass gate** (AF-07f, `surviveGreenMassGate`). Nameless green is judged
+  as a connected mass, not one polygon at a time: ground OSM chops one park
+  into dozens of ways, so a per-polygon floor judges the wrong object. Three
+  constants carry the whole rule, and each is load-bearing:
+  - `GREEN_PIECE_MIN_M2` = 80 — a pre-filter. A piece under it is never
+    painted and never joins a mass, so a line of tree pits cannot chain into a
+    fake park.
+  - `GREEN_MASS_BRIDGE_M` = 6 — pieces closer than this are one mass. The
+    distance *is* the rule: a street leaves 8 m or more between the green on
+    either side and still cuts, footways and cycleways leave 0.3 to 5 m and
+    stop cutting. Same line the block-boundary rule draws. Deliberately not the
+    page-space closing rejected under AF-07e (2 to 4 mm = 9 to 19 m of ground,
+    which glued a street's verges into a fake park).
+  - `GREEN_MASS_MIN_M2` = 2500 — a mass under it is not painted.
+
+  Named green and recreation grounds are **seeds**: never gated themselves, but
+  they take part in the dissolve, so a verge lying against or inside a named
+  park is kept with it instead of leaving a cream notch. Countryside land cover
+  is not passed in at all (Coen, 2026-07-26) — a small isolated field must not
+  vanish the way a small isolated verge does.
+
+  Three details of the geometry are contract, not implementation:
+  - Bridging is measured **edge to edge**, not vertex to vertex — two park
+    edges 5.9 m apart bridge even when neither has a vertex facing the other.
+  - **Inner rings bridge too** (a polygon filling a hole lies against that
+    hole's edge), but only `outer` minus `inner` counts as ground the element
+    covers, which is what containment reads: a lawn in a park's courtyard is
+    not in the park.
+  - A mass's area is the **smaller** of its summed element areas and its own
+    bounding box. Both bound the real dissolved area from above, and the box is
+    the tight one exactly where green is mapped twice on the same ground, so
+    duplicate polygons cannot add their way past the threshold.
+
+  Unmeasurable green (`elementAreaM2` returns `Infinity`) is always painted; a
+  mass holding one stays unmeasurable. Coverage is unaffected either way: a
+  dropped patch leaves the fallback/block void, so cream fills it (§3).
 - **Landcover** (farmland/meadow/forest/wood) is nameless by design — it is
   countryside texture, kept invisible in cities by paint order (§4). The
   **grass display rows** — `landuse=grass|village_green`, *unnamed*

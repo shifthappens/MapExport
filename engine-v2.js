@@ -495,15 +495,57 @@ const EngineV2 = (() => {
   // 19 m of ground — and glued a street's verges into a fake park.
   const GREEN_MASS_BRIDGE_M = 6;
 
-  // Outline rings of an area element, in lat/lon. Outer rings only: the gate
-  // asks how far one piece of green is from the next, and a multipolygon's
-  // holes are not its edge with a neighbour.
+  // Outline rings of an area element, in lat/lon, split the way the gate uses
+  // them. Both sets bridge — a polygon filling a multipolygon's hole lies
+  // against that hole's edge exactly as much as one lying against the outside.
+  // Only `outer` minus `inner` is ground the element covers, which is what the
+  // containment test needs: a lawn in a park's courtyard is not in the park.
   function elementOutlineRings(el) {
-    if (el.type === 'way' && el.geometry?.length >= 3) return [el.geometry];
+    if (el.type === 'way' && el.geometry?.length >= 3) return { outer: [el.geometry], inner: [] };
     if (el.type === 'relation' && el.members) {
-      return stitchMultipolygonRings(el.members).outer.filter((r) => r.length >= 3);
+      const { outer, inner } = stitchMultipolygonRings(el.members);
+      const keep = (r) => r.length >= 3;
+      return { outer: outer.filter(keep), inner: inner.filter(keep) };
     }
-    return [];
+    return { outer: [], inner: [] };
+  }
+
+  // Squared distance from point p to segment ab.
+  function pointSegmentDist2(px, py, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    let t = len2 > 0 ? ((px - ax) * vx + (py - ay) * vy) / len2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const dx = px - (ax + t * vx), dy = py - (ay + t * vy);
+    return dx * dx + dy * dy;
+  }
+
+  // Squared distance between segments ab and cd, zero if they cross. Edge to
+  // edge, not vertex to vertex: two park edges 5.9 m apart have to bridge even
+  // when neither happens to have a vertex opposite the other.
+  function segmentDist2(ax, ay, bx, by, cx, cy, dx, dy) {
+    const d1 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const d2 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+    const d3 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+    const d4 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+    if (((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0))) return 0;
+    return Math.min(
+      pointSegmentDist2(ax, ay, cx, cy, dx, dy),
+      pointSegmentDist2(bx, by, cx, cy, dx, dy),
+      pointSegmentDist2(cx, cy, ax, ay, bx, by),
+      pointSegmentDist2(dx, dy, ax, ay, bx, by),
+    );
+  }
+
+  // Point in a flat [x,y,x,y,…] ring, ray casting. Same rule as
+  // pointInRingLatLon, on the gate's projected coordinates.
+  function pointInFlatRing(px, py, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+      const yi = ring[i + 1], xi = ring[i], yj = ring[j + 1], xj = ring[j];
+      if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
   }
 
   // Which of `gated` survive the mass gate. `seeds` are never gated themselves
@@ -517,95 +559,212 @@ const EngineV2 = (() => {
     const all = gated.concat(seeds);
     // One local metres-per-degree pair for the whole bbox. Good to a fraction
     // of a percent across one export, which is all a 6 m distance needs.
+    const rings = all.map(elementOutlineRings);
     let latSum = 0, latN = 0;
-    for (const el of all) {
-      for (const ring of elementOutlineRings(el)) { latSum += ring[0].lat; latN++; break; }
+    // Only finite latitudes: one broken coordinate anywhere would otherwise
+    // turn kx into NaN and stop every piece on the plate from bridging.
+    for (const r of rings) {
+      if (!r.outer.length) continue;
+      const lat = r.outer[0][0].lat;
+      if (Number.isFinite(lat)) { latSum += lat; latN++; }
     }
     if (!latN) { for (const el of gated) kept.add(el); return kept; }
     const kx = 111320 * Math.cos((latSum / latN) * Math.PI / 180);
     const ky = 110540;
 
-    // Sample each outline at half the bridging distance, so a gap cannot hide
-    // between two samples. Long edges are capped: an element with edges that
-    // long is far past the area gate on its own anyway.
-    const STEP = GREEN_MASS_BRIDGE_M / 2;
-    const points = all.map((el) => {
-      const out = [];
-      for (const ring of elementOutlineRings(el)) {
-        for (let i = 0; i < ring.length - 1; i++) {
-          const x1 = ring[i].lon * kx, y1 = ring[i].lat * ky;
-          const x2 = ring[i + 1].lon * kx, y2 = ring[i + 1].lat * ky;
-          out.push(x1, y1);
-          const steps = Math.min(64, Math.floor(Math.hypot(x2 - x1, y2 - y1) / STEP));
-          for (let k = 1; k < steps; k++) out.push(x1 + ((x2 - x1) * k) / steps, y1 + ((y2 - y1) * k) / steps);
+    // Every ring projected once into local metres as a flat [x,y,…] array, and
+    // the element's bounding box alongside it. `allFlat` is what bridges,
+    // `outerFlat`/`innerFlat` are what the containment pass reads.
+    const project = (ring) => {
+      const flat = new Float64Array(ring.length * 2);
+      for (let i = 0; i < ring.length; i++) { flat[2 * i] = ring[i].lon * kx; flat[2 * i + 1] = ring[i].lat * ky; }
+      return flat;
+    };
+    // An element whose box is not finite (no rings, or broken coordinates) is
+    // marked unplaceable and skipped by the grid and the containment pass. A
+    // NaN coordinate would fall out of the cell arithmetic on its own — every
+    // comparison against it is false, so it would land in no cell and match no
+    // sweep — but saying so once here beats relying on that at four call sites.
+    // Such an element still forms its own mass, alone.
+    const allFlat = [], outerFlat = [], innerFlat = [], box = [], placed = [];
+    for (let i = 0; i < all.length; i++) {
+      outerFlat.push(rings[i].outer.map(project));
+      innerFlat.push(rings[i].inner.map(project));
+      allFlat.push(outerFlat[i].concat(innerFlat[i]));
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const flat of allFlat[i]) {
+        for (let p = 0; p < flat.length; p += 2) {
+          if (flat[p] < x0) x0 = flat[p];
+          if (flat[p] > x1) x1 = flat[p];
+          if (flat[p + 1] < y0) y0 = flat[p + 1];
+          if (flat[p + 1] > y1) y1 = flat[p + 1];
         }
       }
-      return out;
-    });
+      box.push([x0, y0, x1, y1]);
+      placed.push([x0, y0, x1, y1].every(Number.isFinite));
+    }
 
     const parent = new Int32Array(all.length);
     for (let i = 0; i < all.length; i++) parent[i] = i;
     const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
 
-    // Spatial hash on a bridge-sized grid: two points can only be within the
-    // bridging distance if their cells are the same or neighbours, so each
-    // point compares against a 3×3 cell neighbourhood instead of everything.
-    let minX = Infinity, minY = Infinity;
-    for (const arr of points) {
-      for (let i = 0; i < arr.length; i += 2) {
-        if (arr[i] < minX) minX = arr[i];
-        if (arr[i + 1] < minY) minY = arr[i + 1];
-      }
+    // Spatial hash on a bridge-sized grid, holding whole segments rather than
+    // sampled points. A segment is filed in the cells it actually CROSSES, and
+    // a query looks in those cells plus their eight neighbours. Two points
+    // within one cell width of each other can differ by at most one cell on
+    // each axis, so the exact edge-to-edge test below sees every real
+    // neighbour and nothing hides between two samples.
+    //
+    // Crossed cells, not the cells of the bounding box: OSM hands over whole
+    // ways, so one edge of a forest relation can run kilometres diagonally
+    // across the frame. Its box covers (length/6)² cells — millions — while
+    // the line itself only ever touches length/6 of them.
+    let originX = Infinity, originY = Infinity;
+    for (let i = 0; i < all.length; i++) {
+      if (!placed[i]) continue;
+      if (box[i][0] < originX) originX = box[i][0];
+      if (box[i][1] < originY) originY = box[i][1];
     }
     const CELL = GREEN_MASS_BRIDGE_M;
-    const cellX = (x) => Math.floor((x - minX) / CELL);
-    const cellY = (y) => Math.floor((y - minY) / CELL);
+    const cellX = (x) => Math.floor((x - originX) / CELL);
+    const cellY = (y) => Math.floor((y - originY) / CELL);
     const buckets = new Map();
+    // A finite box does not promise finite vertices — one broken coordinate
+    // among sound ones leaves the min/max intact — so each segment is checked
+    // on its own before it is allowed near the grid.
+    const forEachSegment = (i, fn) => {
+      for (const flat of allFlat[i]) {
+        for (let p = 0; p + 3 < flat.length; p += 2) {
+          const x1 = flat[p], y1 = flat[p + 1], x2 = flat[p + 2], y2 = flat[p + 3];
+          if (Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2)) fn(x1, y1, x2, y2);
+        }
+      }
+    };
+    // Amanatides–Woo grid walk. One axis moves per step, so the number of steps
+    // is the Manhattan cell distance; computing it up front means the loop
+    // cannot outrun the segment however the floating point rounds.
+    const walk = (x1, y1, x2, y2, fn) => {
+      let cx = cellX(x1), cy = cellY(y1);
+      const cxEnd = cellX(x2), cyEnd = cellY(y2);
+      const dx = x2 - x1, dy = y2 - y1;
+      const stepX = dx > 0 ? 1 : -1, stepY = dy > 0 ? 1 : -1;
+      const tDeltaX = dx !== 0 ? Math.abs(CELL / dx) : Infinity;
+      const tDeltaY = dy !== 0 ? Math.abs(CELL / dy) : Infinity;
+      let tMaxX = dx !== 0 ? (((dx > 0 ? cx + 1 : cx) * CELL + originX) - x1) / dx : Infinity;
+      let tMaxY = dy !== 0 ? (((dy > 0 ? cy + 1 : cy) * CELL + originY) - y1) / dy : Infinity;
+      const steps = Math.abs(cxEnd - cx) + Math.abs(cyEnd - cy);
+      fn(cx, cy);
+      for (let s = 0; s < steps; s++) {
+        if (tMaxX < tMaxY) { cx += stepX; tMaxX += tDeltaX; } else { cy += stepY; tMaxY += tDeltaY; }
+        fn(cx, cy);
+      }
+    };
     for (let i = 0; i < all.length; i++) {
-      const arr = points[i];
-      for (let p = 0; p < arr.length; p += 2) {
-        const key = cellX(arr[p]) * 1e7 + cellY(arr[p + 1]);
+      if (!placed[i]) continue;
+      forEachSegment(i, (x1, y1, x2, y2) => walk(x1, y1, x2, y2, (cx, cy) => {
+        const key = cx * 1e7 + cy;
         let b = buckets.get(key);
         if (!b) buckets.set(key, b = []);
-        b.push(i, arr[p], arr[p + 1]);
-      }
+        b.push(i, x1, y1, x2, y2);
+      }));
     }
     const limit2 = GREEN_MASS_BRIDGE_M * GREEN_MASS_BRIDGE_M;
+    const seen = new Set();
     for (let i = 0; i < all.length; i++) {
-      const arr = points[i];
-      for (let p = 0; p < arr.length; p += 2) {
-        const x = arr[p], y = arr[p + 1];
-        const cx = cellX(x), cy = cellY(y);
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dy = -1; dy <= 1; dy++) {
-            const b = buckets.get((cx + dx) * 1e7 + (cy + dy));
+      if (!placed[i]) continue;
+      forEachSegment(i, (x1, y1, x2, y2) => {
+        seen.clear();
+        walk(x1, y1, x2, y2, (cx, cy) => {
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            const key = (cx + dx) * 1e7 + (cy + dy);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const b = buckets.get(key);
             if (!b) continue;
-            for (let q = 0; q < b.length; q += 3) {
+            for (let q = 0; q < b.length; q += 5) {
+              // Registration is symmetric, so testing j > i alone still finds
+              // every pair — once, from the lower-numbered side.
               const j = b[q];
-              if (j === i) continue;
-              const ri = find(i), rj = find(j);
-              if (ri === rj) continue;
-              const ddx = x - b[q + 1], ddy = y - b[q + 2];
-              if (ddx * ddx + ddy * ddy <= limit2) parent[rj] = ri;
+              if (j <= i || find(i) === find(j)) continue;
+              if (segmentDist2(x1, y1, x2, y2, b[q + 1], b[q + 2], b[q + 3], b[q + 4]) <= limit2) union(i, j);
             }
           }
+        });
+      });
+    }
+
+    // Two pieces can also be one mass without their edges ever coming close: a
+    // lawn well inside a named park touches none of its boundary. One vertex
+    // of one on the other's ground settles it, and either direction is tried,
+    // so a small polygon inside a large one is caught from the small one's
+    // side. Inside a hole is not on that ground — a courtyard cut out of a park
+    // is not part of it, and a lawn there stands on its own.
+    // One probe per OUTER ring, not one per element: a multipolygon's second
+    // island can sit inside another park while its first does not.
+    for (let i = 0; i < all.length; i++) {
+      if (!placed[i]) continue;
+      for (const ring of outerFlat[i]) {
+        const px = ring[0], py = ring[1];
+        for (let j = 0; j < all.length; j++) {
+          if (j === i || !placed[j] || !outerFlat[j].length) continue;
+          const b = box[j];
+          if (px < b[0] || px > b[2] || py < b[1] || py > b[3]) continue;
+          if (find(i) === find(j)) continue;
+          const covers = outerFlat[j].some((r) => pointInFlatRing(px, py, r))
+            && !innerFlat[j].some((r) => pointInFlatRing(px, py, r));
+          if (covers) union(i, j);
         }
       }
     }
 
     // A mass passes if it holds a seed, or if its own ground area clears the
-    // threshold. elementAreaM2 returns Infinity for an element it cannot
-    // measure, which keeps the old "unmeasurable green is painted" behaviour.
+    // threshold. Summing element areas over-counts where two green polygons
+    // cover the same ground (a way and a relation mapped on top of each
+    // other), which could walk one small patch past the threshold twice over;
+    // the mass's own bounding box bounds the same dissolved area from above
+    // and is tight exactly in that case. Both are upper bounds, so taking the
+    // smaller only ever drops a mass whose real area is genuinely too small.
+    // elementAreaM2 returns Infinity for an element it cannot measure, and a
+    // mass holding one stays Infinity, which keeps the old "unmeasurable green
+    // is painted" behaviour.
+    //
+    // The box is measured in the gate's own projection, which puts 110540 m on
+    // a degree of latitude — the honest figure, and the one the 6 m bridging
+    // distance needs. elementAreaM2 uses 111320 m on both axes. Comparing the
+    // two bounds unconverted would make the box read ~0.7% small and drop a
+    // mass sitting right on the threshold, so put the box in elementAreaM2's
+    // units before taking the smaller.
+    const BOX_TO_AREA_UNITS = 111320 / ky;
     const massArea = new Map();
+    const massBox = new Map();
     const massSeeded = new Set();
     for (let i = 0; i < all.length; i++) {
       const root = find(i);
       massArea.set(root, (massArea.get(root) || 0) + elementAreaM2(all[i]));
+      const m = massBox.get(root);
+      if (!m) massBox.set(root, box[i].slice());
+      else {
+        if (box[i][0] < m[0]) m[0] = box[i][0];
+        if (box[i][1] < m[1]) m[1] = box[i][1];
+        if (box[i][2] > m[2]) m[2] = box[i][2];
+        if (box[i][3] > m[3]) m[3] = box[i][3];
+      }
       if (i >= gated.length) massSeeded.add(root);
     }
     for (let i = 0; i < gated.length; i++) {
       const root = find(i);
-      if (massSeeded.has(root) || massArea.get(root) >= GREEN_MASS_MIN_M2) kept.add(gated[i]);
+      if (massSeeded.has(root)) { kept.add(gated[i]); continue; }
+      const sum = massArea.get(root);
+      let area = sum;
+      if (Number.isFinite(sum)) {
+        const m = massBox.get(root);
+        const boxArea = m.every(Number.isFinite)
+          ? (m[2] - m[0]) * (m[3] - m[1]) * BOX_TO_AREA_UNITS
+          : Infinity;
+        area = Math.min(sum, boxArea);
+      }
+      if (area >= GREEN_MASS_MIN_M2) kept.add(gated[i]);
     }
     return kept;
   }

@@ -245,7 +245,10 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `tests/overpass-fetch.mjs` (shared Overpass timeout/failover/abort contract,
   mocked fetch),
   `tests/cache-php.mjs` (cache.php limits/validation/atomic writes — needs a
-  `php` CLI; spins up its own `php -S` on localhost, no network beyond that).
+  `php` CLI; spins up its own `php -S` on localhost, no network beyond that),
+  `tests/pin-cache.mjs` (tools/pin-cache.sh: pin validation, atomic pinning,
+  and refresh/stash recovery — runs the real script against a throwaway repo
+  with a stub prefetcher, no network).
 - Needs ClipperLib (CDN, cached in the OS temp dir like `real-export.mjs`; runs
   offline once warm, else SKIPs): `tests/v2-cutterless-worker.mjs` runs the real
   face worker on an empty frame and asserts a full-frame `fallback` face — the

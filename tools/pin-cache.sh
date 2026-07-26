@@ -21,6 +21,8 @@ cd "$(dirname "$0")/.."
 
 PINNED_DIR="cache/pinned"
 DISABLED="$PINNED_DIR/.disabled"
+# Beside the cache, so parking a live entry there is a rename, not a copy.
+STASH="cache/.refresh-stash"
 
 usage() {
   sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
@@ -31,10 +33,21 @@ keys() {
   node tools/prefetch-validation-cache.mjs --list-keys
 }
 
-# A pinned file must be a readable gzip stream holding an "elements" array;
-# pinning a truncated or error-page entry would freeze that damage in forever.
+# A pinned file must be a complete gzip stream holding complete JSON with an
+# "elements" array; pinning a truncated or error-page entry would freeze that
+# damage in forever, and cache.php would keep serving it with a Content-Length
+# that promises a whole body. gzip -t checks the stream to its trailer, the
+# parse checks the document to its last brace — a prefix grep would pass both.
 valid_entry() {
-  gzip -dc "$1" 2>/dev/null | head -c 4096 | grep -q '"elements"'
+  gzip -t "$1" 2>/dev/null || return 1
+  gzip -dc "$1" 2>/dev/null | node -e '
+    let text = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => { text += chunk; });
+    process.stdin.on("end", () => {
+      try { process.exit(Array.isArray(JSON.parse(text).elements) ? 0 : 1); }
+      catch { process.exit(1); }
+    });'
 }
 
 cmd_status() {
@@ -51,11 +64,15 @@ cmd_status() {
     echo "WARNING: $DISABLED exists, so cache.php is ignoring pinned entries."
     echo "Remove it to re-enable the never-expiring cache."
   fi
+  if [ -d "$STASH" ]; then
+    echo "WARNING: $STASH exists — a refresh was interrupted and live entries"
+    echo "are still parked there. The next 'refresh' puts them back."
+  fi
   [ "$gap" -eq 0 ]
 }
 
 cmd_pin() {
-  local copied=0 kept=0 skipped=0 key live
+  local copied=0 kept=0 skipped=0 key live tmp
   mkdir -p "$PINNED_DIR"
   while read -r key; do
     live="cache/$key.json.gz"
@@ -69,22 +86,69 @@ cmd_pin() {
       skipped=$((skipped + 1)); echo "INVALID live entry is not Overpass JSON, not pinned: $key"
       continue
     fi
-    cp "$live" "$PINNED_DIR/$key.json.gz"
+    # Write beside the pin and rename: a copy interrupted halfway would
+    # otherwise leave a valid pin replaced by half a file, and nothing expires
+    # a pin afterwards. The "." prefix keeps the temp file out of the key
+    # namespace, exactly as cache.php's own temp files do, and the pid keeps two
+    # runs from writing the same staging file and renaming each other's half.
+    tmp="$PINNED_DIR/.$key.$$.tmp"
+    cp "$live" "$tmp"
+    mv -f "$tmp" "$PINNED_DIR/$key.json.gz"
     copied=$((copied + 1))
   done < <(keys)
   echo "pinned $copied fresh, kept $kept existing, skipped $skipped"
   [ "$skipped" -eq 0 ]
 }
 
-# Explicit refresh: block pinned serving so the prefetch really goes to
-# Overpass, refill, then re-pin. The trap makes sure the block is lifted even
-# on Ctrl-C, otherwise the cache would stay unpinned without anyone noticing.
+# Anything the refresh moved aside and did not replace goes back where it was.
+#
+# link(2), not mv: a live entry written while this runs — by the refresh itself,
+# or by an export in another terminal — has to win, and `ln` fails outright with
+# EEXIST instead of clobbering. `mv -n` only looks first and renames after, so a
+# writer landing in between still loses its entry. The stashed copy is dropped
+# once it is either linked back or superseded; anything else stays put and is
+# reported, because the stash may hold the only copy.
+restore_stash() {
+  local f dest
+  [ -d "$STASH" ] || return 0
+  for f in "$STASH"/*.json.gz; do
+    [ -f "$f" ] || continue
+    dest="cache/$(basename "$f")"
+    if ln "$f" "$dest" 2>/dev/null || [ -f "$dest" ]; then rm -f "$f"; fi
+  done
+  rmdir "$STASH" 2>/dev/null ||
+    echo "WARNING: $STASH still holds entries that could not be restored" >&2
+}
+
+# Explicit refresh: really go back to Overpass for all 70 keys.
+#
+# Two things have to be out of the way for that, because the prefetcher fetches
+# only what the cache does not already answer. Pinned serving is switched off
+# with the .disabled marker, and the live entries are moved aside — an unexpired
+# live entry would otherwise be reported as a HIT and the "refresh" would fetch
+# nothing at all. They are moved, not deleted, so an interrupted or failed
+# refresh puts the cache back as it found it. The trap covers Ctrl-C too:
+# leaving .disabled behind would silently un-pin the whole validation corpus.
 cmd_refresh() {
+  local key
   mkdir -p "$PINNED_DIR"
-  trap 'rm -f "$DISABLED"' EXIT INT TERM
+  # A stash left behind by a run that was killed outright (SIGKILL, power cut)
+  # holds the only copy of those entries. Put it back before parking anything
+  # new, or this run would restore last week's data over today's at the end.
+  if [ -d "$STASH" ]; then
+    echo "recovering a stash left by an earlier interrupted refresh"
+    restore_stash
+  fi
+  mkdir -p "$STASH"
+  trap 'restore_stash; rm -f "$DISABLED"' EXIT INT TERM
   : > "$DISABLED"
-  echo "pinned serving disabled; fetching all keys from Overpass (this is slow)"
+  while read -r key; do
+    if [ -f "cache/$key.json.gz" ]; then mv "cache/$key.json.gz" "$STASH/$key.json.gz"; fi
+  done < <(keys)
+  echo "pinned serving disabled, live entries parked in $STASH"
+  echo "fetching all keys from Overpass (this is slow)"
   node tools/prefetch-validation-cache.mjs "$@"
+  restore_stash
   rm -f "$DISABLED"
   trap - EXIT INT TERM
   echo "pinned serving re-enabled; pinning the refreshed entries"

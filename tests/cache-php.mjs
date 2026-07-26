@@ -159,7 +159,46 @@ const docJson = JSON.stringify(doc);
   check('.disabled marker turns pinned serving off', (await r.text()) === 'null');
   r = await fetch(`${BASE}?exists=t_pin`);
   check('.disabled marker also hides pins from ?exists=', (await r.json()).t_pin === false);
+  // A refresh only has to get past the PINS. An unexpired live entry is still
+  // a real cache hit and must keep answering while the marker is down,
+  // otherwise .disabled would look like a way to bypass the cache entirely.
+  await post('t_pin', docJson);
+  r = await get('t_pin');
+  check('.disabled leaves a fresh live copy alone',
+    r.headers.get('x-cache') === 'HIT' && JSON.stringify(await r.json()) === docJson);
+  fs.unlinkSync(path.join(cacheDir, 't_pin.json.gz'));
   fs.unlinkSync(path.join(pinnedDir, '.disabled'));
+
+  // Headers have to match what was actually written. A gzip pin is announced
+  // as gzip; an uncompressed one must not be, or the browser decodes garbage.
+  r = await get('t_pin');
+  check('a gzip pin is served with Content-Encoding: gzip',
+    r.headers.get('content-encoding') === 'gzip');
+  check('...and Content-Type stays application/json',
+    (r.headers.get('content-type') || '').startsWith('application/json'));
+  await r.arrayBuffer();
+
+  // tools/pin-cache.sh only ever writes .json.gz, but cache.php accepts the
+  // plain form the legacy live cache used, and has to label it correctly.
+  const plainDoc = { ...doc, plainPin: true };
+  const plainJson = JSON.stringify(plainDoc);
+  fs.writeFileSync(path.join(pinnedDir, 't_plainpin.json'), plainJson);
+  r = await get('t_plainpin');
+  check('an uncompressed pin is served too',
+    r.headers.get('x-cache') === 'PINNED' && JSON.stringify(await r.json()) === plainJson);
+  r = await get('t_plainpin');
+  check('...without claiming to be gzip', r.headers.get('content-encoding') === null);
+  await r.arrayBuffer();
+  r = await fetch(`${BASE}?exists=t_plainpin`);
+  check('?exists= sees an uncompressed pin as well', (await r.json()).t_plainpin === true);
+
+  // Both forms of the same key: the compressed one is what cache.php writes,
+  // so it answers first and the stray plain file never shadows it.
+  fs.writeFileSync(path.join(pinnedDir, 't_pin.json'), plainJson);
+  r = await get('t_pin');
+  check('a .json.gz pin wins over a .json pin of the same key',
+    JSON.stringify(await r.json()) === pinnedJson);
+  fs.unlinkSync(path.join(pinnedDir, 't_pin.json'));
 }
 
 // ---- ME-04a: rejects before storage ----
