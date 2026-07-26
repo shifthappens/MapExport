@@ -31,15 +31,18 @@ client/server timeout and is followed by a 10-second cooldown.
 Options:
   --dry-run              Probe the local cache and print the computed plan/gaps;
                          never contact Overpass or write cache entries
+  --list-keys            Print the computed cache keys, one per line, and exit;
+                         no cache probe, no network (used by tools/pin-cache.sh)
   --cache-base=<url>     App base containing cache.php
                          (default: ${DEFAULT_CACHE_BASE})
   --help, -h             Show this help
 `;
 
 function parseArgs(argv) {
-  const options = { dryRun: false, cacheBase: DEFAULT_CACHE_BASE };
+  const options = { dryRun: false, listKeys: false, cacheBase: DEFAULT_CACHE_BASE };
   for (const arg of argv) {
     if (arg === '--dry-run') options.dryRun = true;
+    else if (arg === '--list-keys') options.listKeys = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg.startsWith('--cache-base=')) options.cacheBase = arg.slice('--cache-base='.length);
     else throw new Error(`Unknown option: ${arg}`);
@@ -195,7 +198,10 @@ async function readCache(task, options, controller, remainingMs) {
   let data;
   try { data = await response.json(); }
   catch (error) { throw new Error(`cache.php returned invalid JSON: ${error.message}`); }
-  const hit = response.headers.get('x-cache') === 'HIT';
+  // PINNED counts as a hit: cache/pinned/ is the never-expiring snapshot of
+  // exactly these keys. An explicit refresh disables pinned serving in
+  // cache.php first (tools/pin-cache.sh refresh), so this cannot mask a gap.
+  const hit = ['HIT', 'PINNED'].includes(response.headers.get('x-cache'));
   if (!hit || data === null) return { hit: false, data: null };
   if (!validEnvelope(data)) {
     console.warn(`WARN cache HIT has no elements array; refetching ${task.key}`);
@@ -283,6 +289,10 @@ async function main() {
     const cities = loadCities();
     const contract = loadAppContract();
     const plan = makePlan(cities, contract);
+    if (options.listKeys) {
+      for (const task of plan) console.log(task.key);
+      return;
+    }
     console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v2 layers = ${plan.length} cache keys`);
     console.log(`Cache: ${options.cacheBase}`);
     console.log(`Endpoints: ${contract.endpoints.map(value => new URL(value).hostname).join(' → ')}`);

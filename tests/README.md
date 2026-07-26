@@ -66,8 +66,16 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 
    See `memory/reference_lamp_server.md` for the gotchas (resize-after-load, Overpass UA, two-port split).
 
-   To warm the v2 data cache for all seven validation cities before running
-   exports, use `node tools/prefetch-validation-cache.mjs`. It reads the current
+   **The seven validation cities normally need no warming at all.**
+   `cache/pinned/` holds a tracked, never-expiring snapshot of all 70 Overpass
+   keys for them, and `cache.php` serves it whenever the live `cache/` entry is
+   missing or past its 7-day TTL, so a full seven-city sweep runs offline in
+   minutes with zero Overpass requests (the run prints `"pinned":10` per city).
+   Check with `tools/pin-cache.sh status`; only `tools/pin-cache.sh refresh`
+   fetches new data, and that is a deliberate, human-initiated act.
+
+   For anything *not* pinned (a new city, an ad-hoc bbox, or a refresh you were
+   asked for), use `node tools/prefetch-validation-cache.mjs`. It reads the current
    cities, layer queries, filters, building padding, cache keys and Overpass
    endpoints from the real sources; checks `cache.php` first; then retries only
    missing keys sequentially for up to an hour (30-second attempts with a

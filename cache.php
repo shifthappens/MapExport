@@ -2,6 +2,27 @@
 $CACHE_DIR = __DIR__ . '/cache/';
 $CACHE_TTL = 7 * 24 * 3600; // 7 days
 
+// Pinned entries (cache/pinned/) never expire and are never swept: the seven
+// engine-v2 validation areas must stay exportable offline forever, and refresh
+// only when a human asks for it (tools/pin-cache.sh). Before this, the pinned
+// snapshot was inert — a README told you to `cp` it back by hand — so every
+// validation export silently went back to Overpass once the 7-day TTL lapsed.
+// A pinned entry is served whenever the live copy is missing or expired; a
+// fresher live copy still wins. tools/pin-cache.sh drops the .disabled marker
+// so an explicit refresh can reach Overpass again.
+$PINNED_DIR = $CACHE_DIR . 'pinned/';
+$PINNED_OFF = getenv('MAPEXPORT_CACHE_IGNORE_PINNED') === '1'
+    || file_exists($PINNED_DIR . '.disabled');
+
+// $key is validated before any call, so it cannot escape $PINNED_DIR.
+function pinnedPath($pinnedDir, $key, $off) {
+    if ($off) return null;
+    foreach ([$key . '.json.gz', $key . '.json'] as $name) {
+        if (is_file($pinnedDir . $name)) return $pinnedDir . $name;
+    }
+    return null;
+}
+
 // ME-04a: hard payload bounds. The client gzips uploads specifically to stay
 // under typical hosting's post_max_size (8M), so anything larger arriving
 // here is not one of our exports. The decompressed bound caps gzip bombs;
@@ -114,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['exists'])) {
                 $hit = true; break;
             }
         }
-        $out[$k] = $hit;
+        $out[$k] = $hit || pinnedPath($PINNED_DIR, $k, $PINNED_OFF) !== null;
     }
     echo json_encode($out);
     exit;
@@ -136,20 +157,34 @@ $fileLegacy = $CACHE_DIR . $key . '.json';
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     header('Content-Type: application/json');
 
-    // Try compressed file first
+    // Try compressed file first, then the legacy uncompressed one. An expired
+    // entry is dropped but does not end the request: a pinned copy may still
+    // answer it.
     if (file_exists($file)) {
-        if (time() - filemtime($file) > $CACHE_TTL) { unlink($file); echo 'null'; exit; }
-        header('X-Cache: HIT');
-        header('Content-Encoding: gzip');
-        header('Content-Length: ' . filesize($file));
-        readfile($file);
-        exit;
+        if (time() - filemtime($file) > $CACHE_TTL) { unlink($file); }
+        else {
+            header('X-Cache: HIT');
+            header('Content-Encoding: gzip');
+            header('Content-Length: ' . filesize($file));
+            readfile($file);
+            exit;
+        }
     }
-    // Fall back to legacy uncompressed file
     if (file_exists($fileLegacy)) {
-        if (time() - filemtime($fileLegacy) > $CACHE_TTL) { unlink($fileLegacy); echo 'null'; exit; }
-        header('X-Cache: HIT');
-        readfile($fileLegacy);
+        if (time() - filemtime($fileLegacy) > $CACHE_TTL) { unlink($fileLegacy); }
+        else {
+            header('X-Cache: HIT');
+            readfile($fileLegacy);
+            exit;
+        }
+    }
+    // Never-expiring fallback for the pinned validation areas.
+    $pin = pinnedPath($PINNED_DIR, $key, $PINNED_OFF);
+    if ($pin !== null) {
+        header('X-Cache: PINNED');
+        if (substr($pin, -3) === '.gz') header('Content-Encoding: gzip');
+        header('Content-Length: ' . filesize($pin));
+        readfile($pin);
         exit;
     }
     echo 'null';

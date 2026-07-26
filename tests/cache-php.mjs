@@ -119,6 +119,49 @@ const docJson = JSON.stringify(doc);
   check('expired entry evicted to null', (await r.text()) === 'null' && !fs.existsSync(old));
 }
 
+// ---- pinned entries never expire (cache/pinned/, tools/pin-cache.sh) ----
+{
+  const pinnedDir = path.join(cacheDir, 'pinned');
+  fs.mkdirSync(pinnedDir, { recursive: true });
+  const pinnedDoc = { ...doc, pinned: true };
+  const pinnedJson = JSON.stringify(pinnedDoc);
+  fs.writeFileSync(path.join(pinnedDir, 't_pin.json.gz'), zlib.gzipSync(pinnedJson));
+
+  let r = await get('t_pin');
+  check('pinned entry served when no live copy exists',
+    r.headers.get('x-cache') === 'PINNED' && JSON.stringify(await r.json()) === pinnedJson);
+
+  r = await fetch(`${BASE}?exists=t_pin`);
+  check('?exists= counts a pinned entry as present', (await r.json()).t_pin === true);
+
+  // A fresh live copy is at least as good, so it keeps precedence.
+  await post('t_pin', docJson);
+  r = await get('t_pin');
+  check('live copy still wins over the pin',
+    r.headers.get('x-cache') === 'HIT' && JSON.stringify(await r.json()) === docJson);
+
+  // The whole point: past the TTL the live copy goes, the pin answers anyway,
+  // so a validation export never falls back to Overpass.
+  const live = path.join(cacheDir, 't_pin.json.gz');
+  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(live, past, past);
+  r = await get('t_pin');
+  check('expired live copy falls back to the pin instead of null',
+    r.headers.get('x-cache') === 'PINNED' && JSON.stringify(await r.json()) === pinnedJson);
+  check('expired live copy is still evicted', !fs.existsSync(live));
+  check('pin survives eviction of the live copy',
+    fs.existsSync(path.join(pinnedDir, 't_pin.json.gz')));
+
+  // tools/pin-cache.sh refresh drops this marker so a deliberate refresh can
+  // reach Overpass again.
+  fs.writeFileSync(path.join(pinnedDir, '.disabled'), '');
+  r = await get('t_pin');
+  check('.disabled marker turns pinned serving off', (await r.text()) === 'null');
+  r = await fetch(`${BASE}?exists=t_pin`);
+  check('.disabled marker also hides pins from ?exists=', (await r.json()).t_pin === false);
+  fs.unlinkSync(path.join(pinnedDir, '.disabled'));
+}
+
 // ---- ME-04a: rejects before storage ----
 {
   let r = await post('r_key/../evil', docJson);
@@ -177,8 +220,9 @@ const docJson = JSON.stringify(doc);
 // ---- ME-04b: atomicity observable side ----
 {
   check('no .tmp staging files left behind', noTempLeft(), cacheFiles().join(','));
-  // dotfiles (.lastsweep marker, .ratelimit/ counters) are bookkeeping, not entries
-  const entries = cacheFiles().filter(f => !f.startsWith('.'));
+  // dotfiles (.lastsweep marker, .ratelimit/ counters) are bookkeeping, and
+  // pinned/ is the never-expiring snapshot — neither is a cache entry
+  const entries = cacheFiles().filter(f => !f.startsWith('.') && f !== 'pinned');
   check('cache dir holds only complete .json.gz entries',
     entries.length > 0 && entries.every(f => f.endsWith('.json.gz')), entries.join(','));
 
@@ -217,6 +261,13 @@ const docJson = JSON.stringify(doc);
   });
   // incompressible ~3 KiB per entry so sizes on disk are predictable
   const fat = () => JSON.stringify({ elements: [], pad: randomBytes(2200).toString('base64') });
+  // A pin that is both old and fat: neither the TTL pass nor the size prune
+  // may touch it, or the never-expiring guarantee is only skin deep.
+  const pin = path.join(sz.cacheDir, 'pinned', 'sz_pinned.json.gz');
+  fs.mkdirSync(path.dirname(pin), { recursive: true });
+  fs.writeFileSync(pin, zlib.gzipSync(fat()));
+  const longPast = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  fs.utimesSync(pin, longPast, longPast);
   for (let i = 1; i <= 6; i++) {
     await fetch(`${sz.base}?key=sz_${i}`, { method: 'POST', headers: JSON_HDR, body: fat() });
     // sweeps order by mtime — spread them so "oldest" is well-defined
@@ -237,6 +288,7 @@ const docJson = JSON.stringify(doc);
   fs.utimesSync(stale, past, past);
   await fetch(`${sz.base}?key=sz_8`, { method: 'POST', headers: JSON_HDR, body: fat() });
   check('sweep proactively deletes TTL-expired entries', !fs.existsSync(stale));
+  check('sweep never touches pinned/, however old or fat', fs.existsSync(pin));
 }
 
 if (failures) { console.error(`[cache] ${failures} check(s) failed`); process.exit(1); }

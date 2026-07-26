@@ -93,6 +93,14 @@ Serve the project root through Apache with PHP enabled. The `cache/` directory m
 
 `cache.php` stores Overpass API responses as gzip-compressed JSON files in `cache/`. Cache keys follow the format `mapexport_v3_{layerId}_{queryHash}_{tileCoords}` where the query hash (FNV-1a → base36) automatically retires stale entries when layer definitions change.
 
+`cache/pinned/` is a never-expiring exception, used only in this repository:
+it holds a tracked snapshot of the 70 keys behind the seven
+`tests/real-export.mjs` validation cities. `cache.php` serves a pinned entry
+whenever the live one is missing or expired (a fresh live entry still wins), so
+the test exports run offline indefinitely and only refetch when someone runs
+`tools/pin-cache.sh refresh`. The directory is never swept, and it is not
+deployed, so production keeps the plain 7-day cache.
+
 Endpoints:
 
 - `GET cache.php?key=...` — retrieve a cached response

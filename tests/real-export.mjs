@@ -109,7 +109,7 @@ if (engineV2) {
   src = scriptSrc + '\n;\n' + engineSrc + xTail + '\nglobalThis.__x2 = EngineV2;';
 }
 
-const tally = { hit: 0, miss: 0, write: 0, overpass: 0 };
+const tally = { hit: 0, pinned: 0, miss: 0, write: 0, overpass: 0 };
 const pendingPosts = []; // fire-and-forget cacheSet POSTs, drained before exit
 const realFetch = globalThis.fetch;
 async function shimFetch(url, opts) {
@@ -121,7 +121,15 @@ async function shimFetch(url, opts) {
     }
     const res = await p;
     const get = !opts || !opts.method || opts.method === 'GET';
-    if (url.startsWith('cache.php?key=') && get) (res.headers.get('x-cache') === 'HIT' ? tally.hit++ : tally.miss++);
+    // PINNED is a hit served from cache/pinned/, the never-expiring snapshot
+    // of these seven areas — counting it as a miss would read as if the
+    // export were about to go to Overpass.
+    if (url.startsWith('cache.php?key=') && get) {
+      const served = res.headers.get('x-cache');
+      if (served === 'HIT') tally.hit++;
+      else if (served === 'PINNED') tally.pinned++;
+      else tally.miss++;
+    }
     return res;
   }
   tally.overpass++; console.log('   OVERPASS ' + new URL(url).hostname);

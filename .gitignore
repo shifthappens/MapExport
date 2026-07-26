@@ -6,6 +6,9 @@
 test.txt
 cache/*.json
 cache/*.json.gz
+# cache/pinned/ IS tracked (the never-expiring validation snapshot), but its
+# temporary "stop serving pins" marker is local-only — see tools/pin-cache.sh.
+cache/pinned/.disabled
 # Personal, machine-specific scripts at repo root (the tracked build lives in tools/).
 /deploy.sh
 /minify.sh

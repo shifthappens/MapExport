@@ -30,7 +30,23 @@ retired).
   checkpoint, completing it, or handing off. The roadmap checkbox and sprint
   status change only when their stated definition is actually met.
 
+## The seven validation areas are pinned — do not refetch them
+
+- `cache/pinned/` is a tracked, never-expiring snapshot of all 70 Overpass keys
+  for the seven `tests/real-export.mjs` cities. `cache.php` serves it whenever
+  the live `cache/` copy is missing or past its 7-day TTL, so validation exports
+  run offline and hit Overpass zero times. A full seven-city sweep takes minutes.
+- Check it with `tools/pin-cache.sh status`. If every key is pinned, a slow or
+  failing export is **not** a cache-warming problem — diagnose something else.
+- Only `tools/pin-cache.sh refresh` fetches new data, and it is Coen's call.
+  Never run it, or any bulk Overpass refetch of these areas, unasked.
+- After a layer query changes, its keys change too and `status` reports them as
+  unpinned. Report that; do not silently refresh.
+
 ## Background Overpass cache warming — rate limits are not blockers
+
+This applies to areas that are **not** pinned (new cities, ad-hoc bboxes, or a
+refresh Coen explicitly asked for). For the seven validation areas, see above.
 
 - When current validation-area cache gaps block exports or visual gates,
   delegate the network wait to the cheapest adequate background agent. The

@@ -11,6 +11,25 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-07-26 — The seven test cities' map data never expires again
+- `cache/pinned/` has held a complete copy of the map data for the seven test
+  cities since July, but nothing ever read it: a note in that folder told you
+  to copy the files back by hand, and nobody did. The normal cache throws
+  entries away after seven days, so every test export quietly went back to
+  Overpass, took an hour or more, and failed whenever the service was busy.
+  `cache.php` now reads that folder itself. Pinned data never expires and is
+  never cleaned up, and it answers whenever the normal copy is missing or
+  stale — a fresher normal copy still wins. A full seven-city export sweep with
+  every normal entry expired now takes under three minutes and makes no
+  Overpass requests at all.
+- New `tools/pin-cache.sh` owns that snapshot: `status` says what is pinned and
+  what is not, `pin` freezes the current data, and `refresh` is the only thing
+  that goes and fetches new map data — so a refresh happens when you ask for
+  one, not on a timer. Its key list is derived from the app sources, so it
+  follows layer and query changes instead of drifting out of date silently.
+- Production is unaffected: `cache/pinned/` is a repository fixture and is not
+  deployed, so the live site keeps its ordinary seven-day cache.
+
 ### 2026-07-26 — Green is judged as a whole park, not polygon by polygon
 - Nameless green (grass, verges, scrub, unnamed parks) is now measured after
   the pieces that belong together have been joined up, instead of one OSM
