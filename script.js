@@ -442,10 +442,9 @@ const ROAD_WIDTHS = {
 // streets, which bound city blocks where these don't. Dash code: long dash =
 // cycleway, short = footway, fine thin = dirt path, wide rungs = steps. w/dash
 // are map px and scale with sf, unlike the old unscaled ROAD_WIDTHS dashes that
-// printed as solid mini-streets. Over water every path is overprinted white;
-// over green only cycleways and named paths get that orientation aid. Anonymous
-// paths are masked out there and retained in a hidden optional group, so dense
-// cemetery mapping cannot form a technical hatch but remains recoverable.
+// printed as solid mini-streets. Area-aware paint patterns change one path's
+// stroke to white over water, and to white or transparent over green as
+// appropriate. The path geometry itself is emitted once per OSM entity.
 const PATH_STYLES = {
   cycleway: { w:5.5, dash:[24,9] },
   footway:  { w:4.5, dash:[13,8] },
@@ -1336,25 +1335,25 @@ function elementInBbox(el, b) {
 function safeName(s) { return (s||'').replace(/&/g,'and').replace(/[<>"']/g,'').replace(/\s+/g,'_').replace(/[^\w\-]/g,'_').slice(0,80); }
 function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 // Structural ids both pipelines emit as literal markup, outside the uid()
-// allocator: layer/group wrappers, style sub-groups and the clipPath. The
-// allocator seeds its used-set with these so a feature whose safeName
-// collides with one (a road literally named "roads", a canal named "water")
-// gets the "_2" suffix instead of duplicating a structural id. Keep this
-// list in sync when adding a literally-id'd group in script.js OR
-// engine-v2.js — tests/svg-id-uniqueness.mjs carries a reserved-name
-// fixture that catches the road/rail/tram/metro surfaces.
+// allocator: layer/group wrappers, style sub-groups, root wrappers and the
+// map clipPath. The allocator seeds its used-set with these so a feature whose
+// safeName collides with one (a road literally named "roads", a canal named
+// "water", or a footway named after a highway group) gets the "_2" suffix
+// instead of duplicating a structural id. Keep this list and the dynamic
+// road-group seed below in sync when adding a literally-id'd group in
+// script.js OR engine-v2.js — tests/svg-id-uniqueness.mjs carries a
+// reserved-name fixture for the road/rail/tram/metro surfaces.
 const RESERVED_SVG_IDS = [
   'background', 'beach', 'buildings', 'city_blocks', 'city_blocks_buildings',
   'city_blocks_hamlets', 'fallback_blocks',
-  'green_clip', 'green_mask', 'landcover', 'metro', 'parks', 'parks_green',
+  'landcover', 'metro', 'parks', 'parks_green',
   'parks_recreation', 'place_labels', 'place_labels_dwelling',
   'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',
-  'place_nodes', 'rail', 'rail_casing', 'rail_service', 'rail_sleepers',
+  'map-clip', 'map-content', 'place_nodes', 'rail', 'rail_casing', 'rail_service', 'rail_sleepers',
   'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
-  'roads_junction_infill', 'roads_paths', 'roads_paths_green', 'roads_paths_green_hidden',
-  'roads_paths_green_outside', 'roads_paths_water',
+  'roads_junction_infill', 'roads_paths',
   'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
-  'tram_fill', 'water', 'water_bodies', 'water_clip', 'water_labels', 'waterways',
+  'tram_fill', 'water', 'water_bodies', 'water_labels', 'waterways',
 ];
 // Document-wide id allocator. uid(base, ...suffixes) reserves `base` and every
 // `base+suffix` atomically, so a caller can emit a derived id like
@@ -1365,7 +1364,20 @@ const RESERVED_SVG_IDS = [
 // allocated id can never shadow a literal one.
 function makeUidGen() {
   const used = new Set(RESERVED_SVG_IDS);
-  return (base, ...suffixes) => {
+  // These groups are literal ids generated from highway= values after the
+  // feature ids have already been allocated. Reserve every known class plus
+  // the unknown-class fallback so a feature named "roads_paths_footway",
+  // "labels_footway", etc. cannot shadow its enclosing group.
+  for (const hw of new Set(['_default', ...ROAD_DRAW_ORDER])) {
+    used.add(`roads_paths_${hw}`);
+    used.add(`roads_casings_${hw}`);
+    used.add(`roads_fills_${hw}`);
+    used.add(`labels_${hw}`);
+  }
+  for (const group of ['village', 'hamlet', 'dwelling', 'locality']) {
+    used.add(`place_labels_${group}`);
+  }
+  const uid = (base, ...suffixes) => {
     let candidate = base, n = 2;
     while (used.has(candidate) || suffixes.some(s => used.has(candidate + s))) {
       candidate = `${base}_${n}`; n++;
@@ -1374,6 +1386,11 @@ function makeUidGen() {
     for (const s of suffixes) used.add(candidate + s);
     return candidate;
   };
+  // Some structural groups contain an OSM tag value and therefore cannot all
+  // be listed statically. Builders call this before allocating their feature
+  // ids, so an unknown highway class is protected just like a known one.
+  uid.reserve = (...ids) => ids.forEach(id => used.add(id));
+  return uid;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1496,10 +1513,37 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   // are never paired per street. Each pass sub-groups by highway= class in
   // ROAD_DRAW_ORDER and sorts streets alphabetically inside it, so a designer
   // can grab a class at once or find one street fast.
-  let casingGroups='', fillGroups='', pathGroups='', pathWaterGroups='', pathGreenGroups='', pathGreenOutsideGroups='', pathGreenHiddenGroups='';
-  const waterClipDs = ctx?.waterClipDs || [];
-  const greenClipDs = ctx?.greenClipDs || [];
+  let casingGroups='', fillGroups='', pathGroups='';
+  const waterAreaDs = ctx?.waterAreaDs || [];
+  const greenAreaDs = ctx?.greenAreaDs || [];
   const uid=ctx?.uid || makeUidGen();
+  if (uid.reserve) {
+    for (const hw of byType.keys()) {
+      uid.reserve(`roads_paths_${hw}`, `roads_casings_${hw}`, `roads_fills_${hw}`, `labels_${hw}`);
+    }
+  }
+  const pathPaintIds = new Map();
+  const canPaintPaths = !!ctx?.pathPaintDefs &&
+    (waterAreaDs.length > 0 || greenAreaDs.length > 0);
+  const paintPaths = (ds, fill) => ds.map(d => `<path d="${d}" fill="${fill}" fill-rule="evenodd"/>`).join('');
+  const ensurePathPaint = (mode, baseColor) => {
+    const key=`${baseColor}:${mode}`;
+    if (pathPaintIds.has(key)) return pathPaintIds.get(key);
+    const colorId=safeName(baseColor).replace(/^_+/, '') || 'color';
+    const id=uid(`roads_path_paint_${colorId}_${mode}`, ...(mode==='hidden'?['_outside_green']:[]));
+    const waterPaint=paintPaths(waterAreaDs, '#ffffff');
+    const greenPaint=paintPaths(greenAreaDs, '#ffffff');
+    if (mode==='hidden') {
+      const maskId=`${id}_outside_green`;
+      const maskMarkup=`<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>${paintPaths(greenAreaDs, '#000000')}</mask>`;
+      ctx.pathPaintDefs.push(maskMarkup);
+      ctx.pathPaintDefs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="${baseColor}" mask="url(#${maskId})"/>${waterPaint}</pattern>`);
+    } else {
+      ctx.pathPaintDefs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="${baseColor}"/>${waterPaint}${greenPaint}</pattern>`);
+    }
+    pathPaintIds.set(key, id);
+    return id;
+  };
   types.forEach(hw => {
     const ways=byType.get(hw);
     const w=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
@@ -1511,6 +1555,10 @@ function buildRoadsLayer(elements, pr, W, ctx) {
     const ps=PATH_STYLES[hw];
     const psW=ps?(ps.w*sf).toFixed(2):0;
     const psDash=ps?` stroke-dasharray="${ps.dash.map(v=>(v*sf).toFixed(1)).join(' ')}"`:'';
+    if (ps && canPaintPaths) {
+      const modes = new Set(ways.map(el => greenAreaDs.length && hw!=='cycleway' && !el.tags?.name ? 'hidden' : 'selected'));
+      modes.forEach(mode => ensurePathPaint(mode, colors.casing));
+    }
     // Alphabetical within the class (case-insensitive); named/ref'd ways sort
     // before unnamed stubs, which fall back to a stable original order.
     const sorted=ways.map((el,i)=>({el,i})).sort((a,b)=>{
@@ -1519,7 +1567,7 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       if(na&&nb) return na.localeCompare(nb)||a.i-b.i;
       if(na) return -1; if(nb) return 1; return a.i-b.i;
     });
-    let casings='', fills='', paths='', pathsOverWater='', pathsOverGreen='', pathsOutsideGreen='', pathsHiddenGreen='';
+    let casings='', fills='', paths='';
     sorted.forEach(({el,i}) => {
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const s=dpSimplify(pts, eps);
@@ -1530,33 +1578,15 @@ function buildRoadsLayer(elements, pr, W, ctx) {
       const base=name?safeName(name):ref?safeName(ref):`${hw}_${el.id||i}`;
       const lbl=escXml(name||ref||`${label} (${el.id||i})`);
       if (ps) {
-        // Reserve the clipped companion ids up front (only actually emitted
-        // when the matching clip has shapes), so the allocator can never hand
-        // either suffixed id to something else.
-        const needsWater=waterClipDs.length>0;
-        const needsGreen=greenClipDs.length>0 && (hw==='cycleway'||!!name);
-        const needsGreenHidden=greenClipDs.length>0 && !needsGreen;
-        const pid=(needsWater||needsGreen||needsGreenHidden)
-          ?uid(base,'_water','_green','_green_hidden'):uid(base);
-        // Single dashed stroke; butt caps keep the dash rhythm crisp. Paint
-        // attributes live on the class group below — every path in a class
-        // shares them, and SVG 1.1 inheritance is safe in every consumer
-        // (Illustrator included), so the per-path markup is just geometry.
-        const pathMarkup=`\n        <path id="${pid}" inkscape:label="${lbl}" d="${d}"/>`;
-        if (needsGreenHidden) {
-          // Anonymous paths are not painted in the normal group over green:
-          // the outside-green copy below is inverse-masked, so no coloured
-          // stroke remains underneath the optional in-green copy.
-          pathsOutsideGreen+=pathMarkup;
-          pathsHiddenGreen+=`\n          <path id="${pid}_green_hidden" inkscape:label="${lbl}" d="${d}"/>`;
-        } else {
-          paths+=pathMarkup;
-        }
-        // White twins use the identical d and dash phase, so the colour flips
-        // exactly at the area edge. Water keeps full contrast; green reserves
-        // it for cycleways and named paths, the useful orientation cues.
-        if (needsWater) pathsOverWater+=`\n          <path id="${pid}_water" inkscape:label="${lbl}" d="${d}"/>`;
-        if (needsGreen) pathsOverGreen+=`\n          <path id="${pid}_green" inkscape:label="${lbl}" d="${d}"/>`;
+        // One path carries one map-sized paint pattern. Named paths and
+        // cycleways stay visible over green in white; anonymous paths use an
+        // inverse-green mask in the pattern, so they disappear there without
+        // needing a second optional editor item.
+        const mode=greenAreaDs.length && hw!=='cycleway' && !name ? 'hidden' : 'selected';
+        const paintId=canPaintPaths ? pathPaintIds.get(`${colors.casing}:${mode}`) : null;
+        const pid=uid(base);
+        const paint=paintId ? ` stroke="url(#${paintId})"` : '';
+        paths+=`\n        <path id="${pid}" inkscape:label="${lbl}"${paint} d="${d}"/>`;
         return;
       }
       const pid=uid(base,'_casing');
@@ -1565,45 +1595,14 @@ function buildRoadsLayer(elements, pr, W, ctx) {
     });
     const pathPaint=`fill="none" stroke-width="${psW}" stroke-linecap="butt" stroke-linejoin="round"${psDash}`;
     if (paths) pathGroups+=`\n      <g id="roads_paths_${hw}" inkscape:label="${escXml(label)}" ${pathPaint} stroke="${colors.casing}">${paths}\n      </g>`;
-    if (pathsOverWater) pathWaterGroups+=`\n        <g id="roads_paths_${hw}_on_water" inkscape:label="${escXml(label)} (over water)" ${pathPaint} stroke="#ffffff">${pathsOverWater}\n        </g>`;
-    if (pathsOverGreen) pathGreenGroups+=`\n        <g id="roads_paths_${hw}_on_green" inkscape:label="${escXml(label)} (over parks)" ${pathPaint} stroke="#ffffff">${pathsOverGreen}\n        </g>`;
-    if (pathsOutsideGreen) pathGreenOutsideGroups+=`\n        <g id="roads_paths_${hw}_outside_green" inkscape:label="${escXml(label)} (outside parks)" ${pathPaint} stroke="${colors.casing}">${pathsOutsideGreen}\n        </g>`;
-    if (pathsHiddenGreen) pathGreenHiddenGroups+=`\n        <g id="roads_paths_${hw}_hidden_in_green" inkscape:label="${escXml(label)} (in parks, optional)" ${pathPaint} stroke="${colors.casing}">${pathsHiddenGreen}\n        </g>`;
     if (casings) casingGroups+=`\n      <g id="roads_casings_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.casing}" stroke-width="${casingTotalW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${casings}\n      </g>`;
     if (fills) fillGroups+=`\n      <g id="roads_fills_${hw}" inkscape:label="${escXml(label)}" fill="none" stroke="${colors.fill}" stroke-width="${fillW}" stroke-linecap="round" stroke-linejoin="round"${dash}>${fills}\n      </g>`;
   });
-  if (!casingGroups&&!fillGroups&&!pathGroups&&!pathGreenOutsideGroups) return '';
-  // Paths & trails paint first (under street casings/fills), then the white
-  // area-clipped twins, then the two street passes.
+  if (!casingGroups&&!fillGroups&&!pathGroups) return '';
+  // Paths & trails paint first (under street casings/fills), then the two
+  // street passes. Area-specific path colours live in root paint patterns.
   let pathsBlock='';
-  if (pathGroups || pathWaterGroups || pathGreenGroups || pathGreenOutsideGroups || pathGreenHiddenGroups) {
-    let clipDef='', overlay='';
-    const clipPathMarkup=[];
-    if (pathWaterGroups) {
-      clipPathMarkup.push(`<clipPath id="water_clip" clipPathUnits="userSpaceOnUse">${waterClipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`);
-      overlay+=`\n    <g id="roads_paths_water" inkscape:label="Paths over water" clip-path="url(#water_clip)">${pathWaterGroups}\n    </g>`;
-    }
-    if (pathGreenGroups || pathGreenHiddenGroups) {
-      clipPathMarkup.push(`<clipPath id="green_clip" clipPathUnits="userSpaceOnUse">${greenClipDs.map(d=>`<path d="${d}" clip-rule="evenodd"/>`).join('')}</clipPath>`);
-    }
-    if (pathGreenOutsideGroups) {
-      const maskMarkup=`<mask id="green_mask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>${greenClipDs.map(d=>`<path d="${d}" fill="#000000" fill-rule="evenodd"/>`).join('')}</mask>`;
-      if (ctx?.illustratorCompatible && ctx.illustratorDefs) ctx.illustratorDefs.push(maskMarkup);
-      else clipDef+=`\n    ${maskMarkup}`;
-      overlay+=`\n    <g id="roads_paths_green_outside" inkscape:label="Anonymous paths outside parks" mask="url(#green_mask)">${pathGreenOutsideGroups}\n    </g>`;
-    }
-    if (pathGreenHiddenGroups) overlay+=`\n    <g id="roads_paths_green_hidden" inkscape:label="Anonymous paths in parks (optional)" inkscape:groupmode="layer" style="display:none" clip-path="url(#green_clip)">${pathGreenHiddenGroups}\n    </g>`;
-    if (pathGreenGroups) overlay+=`\n    <g id="roads_paths_green" inkscape:label="Selected paths over parks" clip-path="url(#green_clip)">${pathGreenGroups}\n    </g>`;
-    if (clipPathMarkup.length) {
-      // Illustrator only handles clipPaths reliably when they live in the
-      // document-root <defs>; declaring one inline inside a <g> is legal
-      // SVG (and fine in browsers/Inkscape) but risky there. The Illustrator
-      // wrapper collects these and emits them at the root.
-      if (ctx?.illustratorCompatible && ctx.illustratorDefs) ctx.illustratorDefs.push(...clipPathMarkup);
-      else clipDef+=`\n    ${clipPathMarkup.join('\n    ')}`;
-    }
-    pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${clipDef}${pathGroups}\n  </g>${overlay}`;
-  }
+  if (pathGroups) pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${pathGroups}\n  </g>`;
   return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">${pathsBlock}\n  <g id="roads_casings" inkscape:label="Road casings">${casingGroups}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${fillGroups}\n  </g>\n  </g>\n`;
 }
 
@@ -1901,6 +1900,11 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // weights). Everything Illustrator-specific below checks this one flag.
   const illustratorCompatible = !!options.illustratorCompatible;
   const labelFontFamily = illustratorCompatible ? ILLUSTRATOR_FONT_FAMILY : STANDARD_FONT_FAMILY;
+  if (uid.reserve) {
+    for (const hw of new Set(elements.map(el => el.tags?.highway || '_default'))) {
+      uid.reserve(`labels_${hw}`);
+    }
+  }
   const labelFontWeight = weight => illustratorCompatible ? illustratorFontWeight(weight) : weight;
   const sf=getScaleFactor(W);
   const preset=PRESETS[activePreset];
@@ -3213,7 +3217,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         d = d.trim();
       }
       if (!d) return;
-      if (ctx.waterClipDs) ctx.waterClipDs.push(d);
+      if (ctx.waterAreaDs) ctx.waterAreaDs.push(d);
       const name = el.tags?.name;
       const id = name ? uid(`water_${safeName(name)}`) : uid(`water${el.id ? '_' + el.id : ''}`);
       // Same self-coloured stroke the merged path carried: it seals the
@@ -3273,7 +3277,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         d = d.trim();
       }
       if (!d) return;
-      if (ctx.greenClipDs) ctx.greenClipDs.push(d);
+      if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
       // Named greens keep their name as id + label. A nameless element only
       // reaches here after pruneIslandGreens confirmed it sits inside a water
       // island, so its id/label come from the land-cover tag instead.
@@ -3344,11 +3348,12 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
     // clipPath definitions that must live in the document-root <defs> in
     // Illustrator mode (it mishandles clipPaths declared inline in a <g>).
     illustratorDefs: [],
-    // Outline d-strings, filled before roads (see LAYER_ORDER). Water keeps
-    // white overlays for every path; green reserves them for cycleways and
-    // named paths so ordinary trails stay visually quiet.
-    waterClipDs: [],
-    greenClipDs: [],
+    // Outline d-strings, filled before roads (see LAYER_ORDER). The roads
+    // builder turns these into map-sized paint patterns, so each path can
+    // change colour over water or green without a duplicate geometry object.
+    waterAreaDs: [],
+    greenAreaDs: [],
+    pathPaintDefs: [],
     // One collision grid for the whole export: rail corridors stamp it,
     // then feature labels, then street labels — nothing can overlap.
     labelGrid: makeFootprintGrid(),
@@ -3382,7 +3387,7 @@ function wrapSVG(layersSVG, ctx, physicalWidthMm) {
   <defs>
     <clipPath id="map-clip">
       <rect x="0" y="0" width="${W}" height="${H}"/>
-    </clipPath>
+    </clipPath>${ctx.pathPaintDefs.length ? `\n    ${ctx.pathPaintDefs.join('\n    ')}` : ''}
   </defs>
   <g id="background" inkscape:label="Background" inkscape:groupmode="layer">
     <rect width="${W}" height="${H}" fill="${preset.bg}"/>
@@ -3420,7 +3425,8 @@ function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
   // strip the inkscape:* attributes here. Safe on our own markup: attribute
   // values are XML-escaped, so no stray quotes can end one early.
   const layersWithoutInkscapeAttributes = layersSVG.replace(/ inkscape:[\w-]+="[^"]*"/g, '');
-  const rootDefs = ctx.illustratorDefs.length ? `\n    ${ctx.illustratorDefs.join('\n    ')}` : '';
+  const defs = [...ctx.pathPaintDefs, ...ctx.illustratorDefs];
+  const rootDefs = defs.length ? `\n    ${defs.join('\n    ')}` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- Illustrator-compatible export (Adobe SVG import profile — expect this
      file to be suboptimal in standards-based viewers; use the

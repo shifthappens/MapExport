@@ -4,9 +4,12 @@
 - **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`.
-- **Unit:** AF-07f follow-up - anonymous paths over green. The visible export now
-  masks anonymous paths out of parks and keeps an off-by-default optional layer
-  for editors. Focused checks pass; waiting for Coen's visual confirmation on a
+- **Unit:** AF-07f follow-up - one path per footpath entity. The visible export
+  now emits each path once and uses root paint patterns for water and green;
+  anonymous paths disappear over green without a duplicate hidden layer.
+  Follow-up cleanup also names the area geometry honestly, reserves wrapper and
+  generated group ids, and makes the one-layer toggle contract explicit in
+  tests/docs. Focused checks pass; waiting for Coen's visual confirmation on a
   fresh export.
 - **Daarna:** AF-08, de zeven-steden-eindpoort. Dat is het laatste openstaande
   werk in deze sprint.
@@ -18,11 +21,13 @@
   `GRASS_MIN_PAINT_M2` komt nergens meer voor.
 - Gecommit in `c1e57fb` (de massatoets zelf) en `2fdac60` (de review-fixes).
   De pinned cache zit in `3328310`; `75fa317` legde de review-route vast.
-- Working tree contains the requested park-path behavior, its test, and the
-  changelog entry. The pre-existing `cache/.ratelimit/` change is preserved.
-- Focused checks pass: park-paths, SVG ID uniqueness, editor structure, layer
-  selection, and `git diff --check`. The offline smoke run reached the relevant
-  tests but stopped when its PHP server could not start on port 19321.
+- Working tree contains the requested park-path behavior, its tests, the
+  structural-id hardening, and the changelog entry. The pre-existing
+  `cache/.ratelimit/` change is preserved.
+- Focused checks pass: park-paths, area binding, SVG ID uniqueness, editor
+  structure, layer selection, syntax check, and `git diff --check`. The offline
+  smoke run reached the relevant tests but stopped when its PHP server could
+  not start on port 19321.
 - Exporttrail staat op 3 per stad (07-22, 07-23, 07-26) voor alle zeven, alles
   gecommit. Dat is de standing policy, dus daar hoeft niets meer.
 - `OFFLINE_ONLY=1 bash tests/smoke.sh` exit 0 (29 testbestanden, alleen de
@@ -31,6 +36,17 @@
   `tools/pin-cache.sh pin` of `refresh` NIET draaien zonder Coens verzoek.
 
 ## Wat AF-07f doet
+
+Footpaths, cycleways, steps and named paths no longer get cloned into separate
+water and park groups. The roads builder emits one SVG path per merged OSM path
+entity. A map-sized paint pattern paints the casing colour outside special
+areas, white over water, and white over green for named paths and cycleways.
+Anonymous paths use an inverse-green mask in the same pattern, so they are
+fully absent over parks without a second editor item. The single `roads_paths`
+layer is still the toggle boundary as a whole; turning it on does not resurrect
+anonymous green segments because those segments are transparent inside the
+same path. This keeps the existing orientation rule while making the editor's
+path inventory one item per path.
 
 Naamloos groen wordt gedissolved vóór de drempel. Stukken binnen 6 m van elkaar
 zijn één massa; een massa onder 2500 m² wordt niet geschilderd. De 6 m is de

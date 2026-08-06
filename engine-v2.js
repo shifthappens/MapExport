@@ -3122,11 +3122,12 @@ self.onmessage = function(event) {
       }
       if (!d) continue;
       // Same contract as named parks (script.js): every painted recreation
-      // surface joins ctx.greenClipDs. The roads layer uses that clip for
-      // cycleways and named paths, and hides anonymous trails there, so a
-      // golf course cannot turn into technical-looking path hatching.
+      // surface joins ctx.greenAreaDs. The roads layer uses that area geometry
+      // in shared paint patterns for cycleways and named paths, and hides
+      // anonymous trails there, so a golf course cannot turn into
+      // technical-looking path hatching.
       // Renders before roads by paint order (§4), so the list is complete.
-      if (ctx.greenClipDs) ctx.greenClipDs.push(d);
+      if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
       const t = el.tags || {};
       // English label for the specific ground OSM records; a name wins.
       const kind = t.leisure === 'golf_course' ? 'Golf course'

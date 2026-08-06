@@ -4,9 +4,9 @@
 // treatment to every anonymous trail over green turns parks and cemeteries
 // into technical-looking hatching. This exercises the actual v1 renderer
 // shared by both engines: water keeps every path class white, while green
-// keeps only cycleways and named paths white. Anonymous trails are removed from
-// the visible green-area paint entirely; an optional hidden group retains them
-// for editors, while the visible copy remains present outside green.
+// keeps only cycleways and named paths white. Each path is emitted once inside
+// the single toggleable paths layer, with a root paint pattern deciding its
+// colour or transparency over water and green.
 import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';
@@ -75,7 +75,7 @@ const paths = [
   line(11, { highway: 'footway' }, 51.006),
   line(12, { highway: 'steps' }, 51.008),
   line(13, { highway: 'cycleway' }, 51.010),
-  line(14, { highway: 'path', name: 'Promenade' }, 51.012),
+  line(14, { highway: 'path', name: 'Terrasse_des_N_gociants' }, 51.012),
 ];
 const svg = X.buildSVG([
   { layer: layer('water_bodies'), data: { elements: [water] } },
@@ -88,56 +88,65 @@ const illustratorSvg = X.buildSVG([
   { layer: layer('roads'), data: { elements: paths } },
 ], bbox, 1400, null, null, { illustratorCompatible: true });
 
-check('keeps every path class in the path export',
+const pathElementCount = (markup, id) =>
+  (markup.match(new RegExp(`<path id="${id}"(?:\\s|>)`, 'g')) || []).length;
+const pathIds = ['footway_11', 'steps_12', 'cycleway_13', 'Terrasse_des_N_gociants'];
+check('keeps every path class in one path group',
   ['roads_paths_footway', 'roads_paths_steps', 'roads_paths_cycleway', 'roads_paths_path']
-    .every(id => svg.includes(`id="${id}"`) || svg.includes(`id="${id}_outside_green"`)));
-check('keeps a distinct water clip and overlay root',
-  svg.includes('id="water_clip"') && svg.includes('id="roads_paths_water"'));
-check('water keeps every path class white for contrast',
-  ['roads_paths_footway_on_water', 'roads_paths_steps_on_water', 'roads_paths_cycleway_on_water', 'roads_paths_path_on_water']
     .every(id => svg.includes(`id="${id}"`)));
-check('keeps a distinct green clip and selected-path overlay root',
-  svg.includes('id="green_clip"') && svg.includes('id="roads_paths_green"'));
-check('green keeps the white overlay for cycleways and named paths',
-  svg.includes('id="roads_paths_cycleway_on_green"') && svg.includes('id="roads_paths_path_on_green"'));
-check('green has an inverse mask for the visible anonymous-path copy',
-  svg.includes('id="green_mask"') && svg.includes('mask="url(#green_mask)"'));
-check('green places anonymous footways and steps in the outside-green copy',
-  svg.includes('id="roads_paths_footway_outside_green"') &&
-  svg.includes('id="roads_paths_steps_outside_green"'));
-check('anonymous green paths are absent from the visible base path groups',
-  !svg.includes('<g id="roads_paths_footway"') &&
-  !svg.includes('<g id="roads_paths_steps"'));
-check('green has no legacy park-coloured anonymous-path overlay',
-  !svg.includes('id="roads_paths_footway_muted_on_green"') &&
-  !svg.includes('id="roads_paths_steps_muted_on_green"'));
-check('green retains anonymous paths only in an off-by-default optional group',
-  svg.includes('id="roads_paths_green_hidden"') &&
-  svg.includes('inkscape:label="Anonymous paths in parks (optional)"') &&
-  svg.includes('style="display:none"') &&
-  svg.includes('id="roads_paths_footway_hidden_in_green"') &&
-  svg.includes('id="roads_paths_steps_hidden_in_green"'));
-check('Illustrator output keeps the inverse mask in root defs',
-  illustratorSvg.includes('<mask id="green_mask"') &&
-  illustratorSvg.indexOf('<mask id="green_mask"') < illustratorSvg.indexOf('<g id="roads_paths_green_outside"') &&
-  illustratorSvg.includes('style="display:none"') &&
+check('emits exactly one SVG path per OSM path entity',
+  pathIds.every(id => pathElementCount(svg, id) === 1));
+check('named path keeps its exact designer-facing id',
+  pathElementCount(svg, 'Terrasse_des_N_gociants') === 1);
+check('shares one selected paint pattern across selected path classes',
+  svg.includes('<pattern id="roads_path_paint_F4AFA7_selected"') &&
+  !svg.includes('roads_path_paint_cycleway_selected') &&
+  !svg.includes('roads_path_paint_path_selected'));
+check('shares one hidden-green paint pattern and mask across anonymous classes',
+  svg.includes('<pattern id="roads_path_paint_F4AFA7_hidden"') &&
+  svg.includes('<mask id="roads_path_paint_F4AFA7_hidden_outside_green"') &&
+  !svg.includes('roads_path_paint_footway_hidden') &&
+  !svg.includes('roads_path_paint_steps_hidden'));
+check('selected paths point at their single area-aware stroke',
+  svg.includes('id="cycleway_13" inkscape:label="Cycleways (13)" stroke="url(#roads_path_paint_F4AFA7_selected)"') &&
+  svg.includes('id="Terrasse_des_N_gociants" inkscape:label="Terrasse_des_N_gociants" stroke="url(#roads_path_paint_F4AFA7_selected)"'));
+check('anonymous paths point at a masked stroke and have no duplicate path copy',
+  svg.includes('id="footway_11" inkscape:label="Footways (11)" stroke="url(#roads_path_paint_F4AFA7_hidden)"') &&
+  svg.includes('id="steps_12" inkscape:label="Steps (12)" stroke="url(#roads_path_paint_F4AFA7_hidden)"') &&
+  pathIds.every(id => pathElementCount(svg, id) === 1));
+check('paint definitions are emitted once at the document root',
+  svg.indexOf('<pattern id="roads_path_paint_') < svg.indexOf('<g id="map-content"'));
+check('there are no legacy water or park duplicate groups',
+  !svg.includes('water_clip') && !svg.includes('green_clip') &&
+  !svg.includes('roads_paths_water') && !svg.includes('roads_paths_green') &&
+  !svg.includes('roads_paths_green_hidden') && !svg.includes('roads_paths_green_outside'));
+check('Illustrator output keeps patterns and masks in root defs',
+  illustratorSvg.includes('<pattern id="roads_path_paint_F4AFA7_hidden"') &&
+  illustratorSvg.includes('<mask id="roads_path_paint_F4AFA7_hidden_outside_green"') &&
+  illustratorSvg.indexOf('<mask id="roads_path_paint_F4AFA7_hidden_outside_green"') < illustratorSvg.indexOf('<g id="map-content"') &&
   !illustratorSvg.includes('inkscape:'));
 
 const outsideSvg = X.buildSVG([
   { layer: layer('roads'), data: { elements: paths } },
 ], bbox, 1400);
-check('paths outside water and green have no clipped white overlay',
-  !outsideSvg.includes('roads_paths_water') && !outsideSvg.includes('roads_paths_green') &&
-  outsideSvg.includes('id="roads_paths_footway"'));
+check('paths outside water and green need no paint pattern',
+  !outsideSvg.includes('<pattern id="roads_path_paint_') &&
+  outsideSvg.includes('id="roads_paths_footway"') &&
+  pathIds.slice(0, 2).every(id => pathElementCount(outsideSvg, id) === 1));
 
 const anonymousOnlySvg = X.buildSVG([
   { layer: layer('parks'), data: { elements: [park] } },
   { layer: layer('roads'), data: { elements: [paths[0], paths[1]] } },
 ], bbox, 1400);
-check('anonymous-only green exports still include the masked visible copy',
-  anonymousOnlySvg.includes('id="roads_paths_green_outside"') &&
-  anonymousOnlySvg.includes('id="roads_paths_green_hidden"') &&
-  anonymousOnlySvg.includes('id="roads_paths_footway_outside_green"'));
+check('anonymous-only green exports still emit one masked path each',
+  anonymousOnlySvg.includes('<pattern id="roads_path_paint_F4AFA7_hidden"') &&
+  anonymousOnlySvg.includes('<mask id="roads_path_paint_F4AFA7_hidden_outside_green"') &&
+  pathIds.slice(0, 2).every(id => pathElementCount(anonymousOnlySvg, id) === 1) &&
+  !anonymousOnlySvg.includes('roads_paths_green_hidden'));
+check('the single paths layer remains the toggle boundary',
+  (anonymousOnlySvg.match(/<g id="roads_paths"/g) || []).length === 1 &&
+  anonymousOnlySvg.includes('id="footway_11" inkscape:label="Footways (11)" stroke="url(#roads_path_paint_F4AFA7_hidden)"') &&
+  !anonymousOnlySvg.includes('id="roads_paths_green_hidden"'));
 
 if (failures) {
   console.error(`\n${failures} park-paths check(s) failed.`);

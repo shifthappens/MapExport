@@ -249,15 +249,15 @@ check('nameless elements label by kind (Golf course / Dog park / Sports centre /
 check('a named recreation ground labels by its name', recSvg.includes('inkscape:label="Golfclub De Palingbeek"'));
 check('renderRecreation emits one path per element', (recSvg.match(/<path /g) || []).length === 5);
 
-// Recreation grounds join ctx.greenClipDs exactly like named parks. AF-06
-// deliberately keeps an unnamed footway in its subdued base style there;
-// a named path remains the useful orientation aid and gets the white twin.
-const clipCtx = { ...ctx, uid: V1.makeUidGen(), greenClipDs: [] };
-V2.renderRecreation({ data: { elements: [golfWay, dogParkWay] } }, clipCtx);
-check('renderRecreation pushes each painted shape into ctx.greenClipDs', clipCtx.greenClipDs.length === 2);
-// End-to-end: a named path crossing the golf course produces the white overlay
-// group + green clipPath in a full buildSVG (roads render after
-// parks_recreation in paint order, so the clip list is complete when they
+// Recreation grounds join ctx.greenAreaDs exactly like named parks. The
+// single path geometry remains the toggle boundary: named paths use a shared
+// white-over-green paint pattern, while anonymous paths are transparent there.
+const areaCtx = { ...ctx, uid: V1.makeUidGen(), greenAreaDs: [] };
+V2.renderRecreation({ data: { elements: [golfWay, dogParkWay] } }, areaCtx);
+check('renderRecreation pushes each painted shape into ctx.greenAreaDs', areaCtx.greenAreaDs.length === 2);
+// End-to-end: a named path crossing the golf course gets one path element whose
+// root paint pattern turns it white over green (roads render after
+// parks_recreation in paint order, so the area list is complete when they
 // consume it).
 const roadsLayerV1 = V1.LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === 'roads');
 const footway = { type: 'way', id: 4201, tags: { highway: 'footway', name: 'Golf path' },
@@ -266,8 +266,11 @@ const clipSvg = V2.buildSVG([
   { layer: { id: 'parks_recreation', label: 'Recreation grounds' }, data: { elements: [golfWay] } },
   { layer: roadsLayerV1, data: { elements: [footway] } },
 ], bbox, 1000);
-check('a named footway over a recreation ground gets the white overlay group (roads_paths_green)',
-  clipSvg.includes('id="roads_paths_green"') && clipSvg.includes('id="green_clip"'));
+check('a named footway over a recreation ground gets one white-over-green path',
+  clipSvg.includes('id="Golf_path"') &&
+  clipSvg.includes('stroke="url(#roads_path_paint_F4AFA7_selected)"') &&
+  clipSvg.includes('<pattern id="roads_path_paint_F4AFA7_selected"') &&
+  !clipSvg.includes('roads_paths_green'));
 
 // ── buildSVG: "Parks & green" parent nesting (AF-03b) ───────────────
 // Parks and recreation grounds are adjacent in paint order and share one

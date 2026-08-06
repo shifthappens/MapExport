@@ -115,7 +115,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | FIXED | AF-05d (2026-07-23): Coen koos "zichtbaar maar subtieler"; geen casing, gestreepte lijn, lagere opacity, lijnkleur behouden; `tests/metro-tunnel.mjs` |
-| Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): aparte water-/groenclips; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
+| Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): area-aware path paint; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen transparant gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
 | Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | FIXED | AF-07c (2026-07-23): Coen koos optie (b); Countryside geknipt tot zichtbare rest (worker occlusion-clip) en genest onder "Parks & green" als eerste kind — één renderlaag, één paintpositie, rasterisatie-identiek; merged green ook geknipt (Oulu-gebouwenregressie gevonden+verholpen); `tests/editor-structure.mjs` uitgebreid; 7-steden cache-only sweep 0.000% bare |
@@ -299,8 +299,8 @@ Vier bevestigde bevindingen op eerder afgeronde units, dezelfde dag verholpen
    zaten niet in de uid-allocatornamespace; een straat met zo'n letterlijke
    naam dupliceerde het structurele id. Fix: `RESERVED_SVG_IDS`-seed in
    `makeUidGen`; reserved-name-fixtures in `tests/svg-id-uniqueness.mjs`.
-2. **AF-03b-rest:** `renderRecreation` voedde `ctx.areaClipDs` niet, dus
-   paden over recreatiegroen kregen geen witte overlay zoals over parken.
+2. **AF-03b-rest:** `renderRecreation` voedde `ctx.greenAreaDs` niet, dus
+   paden over recreatiegroen kregen geen witte paint zoals over parken.
    Fix: zelfde push als parks/water; checks in `tests/area-binding.mjs`.
 3. **AF-02b-rest:** pleinen met alléén `place=square` (zonder highway-tag)
    werden nooit gefetcht (roads-query vereist highway). Fix: v2-only
@@ -481,13 +481,15 @@ straten/footways buiten groene gebieden veranderen niet onbedoeld.
 **Gate:** gerichte browsercrops op bestaande/cached exports; geen eigen
 zeven-stedenrun.
 
-*Afgerond 2026-07-21: de gedeelde wegenrenderer gebruikt nu aparte clips voor
-water en groen. Alle kleine paden blijven wit op water; op park-, cemetery- en
-recreationgroen blijven alleen cycleways en benoemde paden wit voor oriëntatie.
-Naamloze footways, paths en steps worden daar in parkkleur gemaskeerd en buiten
-groen niet gewijzigd. `tests/park-paths.mjs` dekt de drie beleidsgevallen;
-cache-only v2-herexports en lokale browsercrops van Oulu cemetery, Bremerhaven
-Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
+*Afgerond 2026-07-21: de gedeelde wegenrenderer gebruikt nu één padgeometrie
+per entity en root paint patterns voor water en groen. Alle kleine paden blijven
+wit op water; op park-, cemetery- en recreationgroen blijven alleen cycleways en
+benoemde paden wit voor oriëntatie. Naamloze footways, paths en steps worden
+daar volledig transparant gemaskeerd en buiten groen niet gewijzigd.
+`tests/park-paths.mjs` dekt de drie beleidsgevallen en bewaakt dat de ene
+`roads_paths`-laag de togglegrens blijft; cache-only v2-herexports en lokale
+browsercrops van Oulu cemetery, Bremerhaven Bürgerpark en Ghent Citadelpark
+bevestigen dat de technische hatching weg is.*
 
 ### [ ] AF-07 — Editorstructuur en uitgestelde productkeuzes
 
@@ -722,8 +724,9 @@ Bürgerpark en Ghent Citadelpark bevestigen dat de technische hatching weg is.*
   **Acceptatie.** Cobbenhagen zichtbaar; Tilburg meetbaar rustiger; Nièvre
   behoudt zijn landelijke tint; complement-/coverage-invariant en paint order
   opnieuw bewezen; zeven-steden cached sweep 0.000% bare — allemaal gehaald.
-  Rest: **Coens visuele sign-off op de PNG's** (geen PDF: Chrome laat de
-  `green_clip` clipPath vallen, Inkscape faalt andersom).
+  Rest: **Coens visuele sign-off op de PNG's**. De huidige root-paint-aanpak
+  vermijdt de oude renderer-specifieke clipPath-problemen; alleen de visuele
+  bevestiging op verse PNG's staat nog open.
 
   **Buiten scope, definitief.** De palet-splitsing (verzadigd groen voor
   bestemmingen, bleke tint voor bos/natuurgebied/begraafplaats) is op

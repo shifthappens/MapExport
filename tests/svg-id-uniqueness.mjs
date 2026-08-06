@@ -88,14 +88,22 @@ const roadElements = [
   way({ highway: 'residential', name: 'Kerkstraat' }, [pt(0.70, 0.70), pt(0.72, 0.72)]),
 ];
 // (f) reserved structural names: roads literally named after ids the
-// builders emit as literal markup ("roads", "water", "green_clip").
+// builders emit as literal markup (root wrappers, layer groups and the
+// dynamically generated footway groups).
 // Road path ids are the naked safeName(name) — no prefix — so without the
-// allocator's reserved-id seeding these duplicate the structural group and
-// clipPath ids document-wide.
+// allocator's reserved-id seeding these duplicate the structural group ids
+// document-wide.
 const reservedNameRoadElements = [
   way({ highway: 'residential', name: 'roads' }, [pt(0.25, 0.25), pt(0.27, 0.27)]),
   way({ highway: 'residential', name: 'water' }, [pt(0.33, 0.55), pt(0.35, 0.57)]),
-  way({ highway: 'footway', name: 'green_clip' }, [pt(0.62, 0.35), pt(0.64, 0.37)]),
+  way({ highway: 'footway', name: 'roads_paths' }, [pt(0.62, 0.35), pt(0.64, 0.37)]),
+  way({ highway: 'footway', name: 'map-clip' }, [pt(0.46, 0.35), pt(0.48, 0.37)]),
+  way({ highway: 'footway', name: 'map-content' }, [pt(0.49, 0.35), pt(0.51, 0.37)]),
+  way({ highway: 'footway', name: 'roads_paths_footway' }, [pt(0.52, 0.35), pt(0.54, 0.37)]),
+  way({ highway: 'footway', name: 'labels_footway' }, [pt(0.55, 0.35), pt(0.57, 0.37)]),
+  way({ highway: 'residential', name: 'labels_residential' }, [pt(0.58, 0.35), pt(0.60, 0.37)]),
+  way({ highway: 'service', name: 'roads_casings_service' }, [pt(0.61, 0.35), pt(0.63, 0.37)]),
+  way({ highway: 'service', name: 'labels_service' }, [pt(0.64, 0.35), pt(0.66, 0.37)]),
 ];
 // (e) rail sharing the street's name.
 const railElements = [
@@ -130,6 +138,10 @@ const fallbackBlocks = [
   { kind: 'fallback', outer: 'M0,200L100,200L100,300L0,300Z', holes: [] },
   { kind: 'fallback', outer: 'M200,200L300,200L300,300L200,300Z', holes: [] },
 ];
+const placeNodeElements = [
+  { type: 'node', id: 901, lat: pt(0.92, 0.90).lat, lon: pt(0.92, 0.90).lon,
+    tags: { place: 'hamlet', name: 'labels_hamlet' } },
+];
 
 const clone = x => JSON.parse(JSON.stringify(x));
 function buildV1Results() {
@@ -138,7 +150,7 @@ function buildV1Results() {
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
-    { layer: layerById('street_labels'), data: { elements: clone(roadElements) } },
+    { layer: layerById('street_labels'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
     { layer: layerById('water_labels'), data: { elements: clone(waterFeatureElements) } },
   ];
 }
@@ -149,13 +161,14 @@ function buildV2Results() {
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
-    { layer: layerById('street_labels'), data: { elements: clone(roadElements) } },
+    { layer: layerById('street_labels'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
     { layer: layerById('water_labels'), data: { elements: clone(waterFeatureElements) } },
     { layer: layerById('waterways'), data: { elements: clone(waterwayElements) } },
     { layer: layerById('landcover'), data: { elements: clone(landcoverElements) } },
     { layer: beachLayerStub, data: { elements: clone(beachElements) } },
     { layer: X2.cityBlocksLayer, data: { blocks: clone(cityBlocks) } },
     { layer: X2.fallbackBlocksLayer, data: { blocks: clone(fallbackBlocks), labelElements: [] } },
+    { layer: X2.placeNodesLayer, data: { elements: clone(placeNodeElements) } },
   ];
 }
 
@@ -222,8 +235,14 @@ check('v1 standard: exercised the repeated feature-label collision (≥2 "feat_V
 
 check('v1 standard: a road named "roads" is suffixed away from the structural group id',
   ids1a.some(it => it.id === 'roads_2') && ids1a.filter(it => it.id === 'roads').length === 1);
-check('v1 standard: a footway named "green_clip" cannot shadow the clipPath id',
-  ids1a.some(it => it.id === 'green_clip_2') && !ids1a.some(it => it.id === 'green_clip' && it.tag === 'path'));
+check('v1 standard: a footway named "roads_paths" cannot shadow the path group id',
+  ids1a.some(it => it.id === 'roads_paths_2') && !ids1a.some(it => it.id === 'roads_paths' && it.tag === 'path'));
+check('v1 standard: root and dynamic group names are suffixed away from literal ids',
+  ids1a.some(it => it.id === 'map-clip_2') && ids1a.some(it => it.id === 'map-content_2') &&
+  ids1a.some(it => it.id === 'roads_paths_footway_2') &&
+  ids1a.some(it => it.id === 'labels_footway_2') &&
+  ids1a.some(it => it.id === 'roads_casings_service_2') &&
+  ids1a.some(it => it.id === 'labels_service_2'));
 
 check('v1 standard: deterministic id sequence across two identical builds',
   ids1a.length === ids1b.length && ids1a.every((it, i) => it.id === ids1b[i].id));
@@ -261,6 +280,14 @@ check('v2: also exercises the shared road/tram/rail/metro/label collisions',
 check('v2: reserved structural names ("roads", "water") are suffixed away from the group ids',
   ids2a.some(it => it.id === 'roads_2') && ids2a.some(it => it.id === 'water_2') &&
   ids2a.filter(it => it.id === 'roads').length === 1 && ids2a.filter(it => it.id === 'water').length <= 1);
+check('v2: root and dynamic road names are suffixed away from literal ids',
+  ids2a.some(it => it.id === 'map-clip_2') && ids2a.some(it => it.id === 'map-content_2') &&
+  ids2a.some(it => it.id === 'roads_paths_footway_2') &&
+  ids2a.some(it => it.id === 'labels_residential_2') &&
+  ids2a.some(it => it.id === 'roads_casings_service_2') &&
+  ids2a.some(it => it.id === 'labels_service_2'));
+check('v2: place-label names are suffixed away from literal subgroups',
+  ids2a.some(it => it.id === 'place_labels_hamlet_2'));
 
 check('v2: deterministic id sequence across two identical builds',
   ids2a.length === ids2b.length && ids2a.every((it, i) => it.id === ids2b[i].id));

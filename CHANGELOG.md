@@ -11,6 +11,14 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-08-06 — Emit each footpath once
+- Footpaths and cycleways now stay as one editable SVG path per OSM entity.
+  A shared map-area paint definition changes the stroke over water or green,
+  removing the duplicate water and park copies that made the editor layer list
+  unnecessarily large.
+- The export also protects its wrapper and generated editor-group IDs from
+  colliding with unusually named map features.
+
 ### 2026-08-06 — Keep transit stops out of default test exports
 - Headless v2 test exports now use the same default-on layer selection as the
   GUI, so off-by-default transit stops are neither fetched nor rendered.
