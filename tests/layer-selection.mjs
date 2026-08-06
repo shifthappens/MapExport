@@ -17,11 +17,19 @@ ctx.document = dom.document;
 const X = ctx.__layers;
 
 const ids = X.LAYER_REGISTRY.flatMap(group => group.layers.map(layer => layer.id));
+const layerById = id => X.LAYER_REGISTRY.flatMap(group => group.layers).find(layer => layer.id === id);
 const setSelected = (selected) => {
   const chosen = new Set(selected);
   for (const id of ids) dom.getElementById(`lyr-${id}`).checked = chosen.has(id);
   return X.getAllSelectedLayers().map(layer => layer.id);
 };
+const defaultLayerIds = ids.filter(id => layerById(id).defaultOn);
+assert.equal(defaultLayerIds.includes('transit_stops'), false, 'GUI defaults Transit stops off');
+assert.equal(
+  X.EngineV2.planLayers(defaultLayerIds).fetchLayerIds.includes('transit_stops'),
+  false,
+  'v2 default export plan does not fetch Transit stops',
+);
 const all = setSelected(ids);
 assert.deepEqual(all, ids, 'v1 reads every checked layer-panel box');
 

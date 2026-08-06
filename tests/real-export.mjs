@@ -190,11 +190,12 @@ function computeBlocks(data, clipperSrc, workerSrc = X.BLOCK_WORKER_SRC) {
 const W = X.getExportWidth(bbox);
 const physicalWidthMm = X.getPhysicalSizeMm(bbox).mmW;
 const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
-// v2 fetches its own flat layer list (roads + rail + buildings). It runs the
+// v2 uses the same default-on layer selection as the GUI, plus the private
+// inputs required by the selected City blocks and label layers. It runs the
 // face cutter below but leaves coverage-lint OFF (blockData stays null) —
 // coverage turns on in M3 when water/green subtraction + the fallback pass land.
 const fetchable = engineV2
-  ? X2.layers.filter(l => l.overpassQuery)
+  ? X2.planLayers(allLayers.filter(l => l.defaultOn).map(l => l.id)).fetchLayers
   : allLayers.filter(l => l.defaultOn && l.overpassQuery);
 const cityBlocks = engineV2 ? null : allLayers.find(l => l.id === 'city_blocks');
 
@@ -376,6 +377,13 @@ console.log(`SVG ${(svg.length / 1048576).toFixed(2)} MB -> exports/${filename}`
 // ── assertions: this run must be self-evidently sane before anyone looks
 //    at a screenshot ──────────────────────────────────────────────────
 const failures = [...illustratorFailures, ...failuresEarly];
+
+// Keep the headless v2 sweep aligned with the GUI's default layer panel. This
+// is intentionally an output assertion as well: a future fetch-plan change
+// must not quietly put Transit stops back into the committed test exports.
+if (svg.includes('id="transit_stops"')) {
+  failures.push('default test export unexpectedly contains Transit stops');
+}
 
 // 1. svg-lint: NaN/undefined in attributes, empty/mirrored/upside-down
 //    labels, dangling textPath refs, label-on-label overlap.
