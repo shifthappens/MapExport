@@ -1,12 +1,13 @@
 # Active checkpoint
 
-- **Updated:** 2026-07-26
+- **Updated:** 2026-08-06
 - **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`.
-- **Unit:** AF-07f — groen wordt beoordeeld als samenhangende massa. Gebouwd,
-  gereviewd en **gecommit**. Wacht alleen nog op Coens visuele oordeel op de
-  PNG's.
+- **Unit:** AF-07f follow-up - anonymous paths over green. The visible export now
+  masks anonymous paths out of parks and keeps an off-by-default optional layer
+  for editors. Focused checks pass; waiting for Coen's visual confirmation on a
+  fresh export.
 - **Daarna:** AF-08, de zeven-steden-eindpoort. Dat is het laatste openstaande
   werk in deze sprint.
 
@@ -17,9 +18,11 @@
   `GRASS_MIN_PAINT_M2` komt nergens meer voor.
 - Gecommit in `c1e57fb` (de massatoets zelf) en `2fdac60` (de review-fixes).
   De pinned cache zit in `3328310`; `75fa317` legde de review-route vast.
-- Working tree bevat verder alleen een commentaar-opschoning (2026-07-27): geen
-  regel code gewijzigd in welk bestand dan ook, geverifieerd door de bronnen
-  zonder comments te vergelijken met HEAD. Offline suite exit 0.
+- Working tree contains the requested park-path behavior, its test, and the
+  changelog entry. The pre-existing `cache/.ratelimit/` change is preserved.
+- Focused checks pass: park-paths, SVG ID uniqueness, editor structure, layer
+  selection, and `git diff --check`. The offline smoke run reached the relevant
+  tests but stopped when its PHP server could not start on port 19321.
 - Exporttrail staat op 3 per stad (07-22, 07-23, 07-26) voor alle zeven, alles
   gecommit. Dat is de standing policy, dus daar hoeft niets meer.
 - `OFFLINE_ONLY=1 bash tests/smoke.sh` exit 0 (29 testbestanden, alleen de
@@ -70,10 +73,8 @@ vier pin-checks in `tests/cache-php.mjs`.
 
 ## Next action
 
-Coen kijkt naar de PNG's (PDF niet gebruiken: Chrome laat de `green_clip`
-clipPath vallen, waardoor de gedempte paden over parken groen worden; Inkscape
-faalt andersom). Daarna: drempel bijstellen als hij dat wil, anders AF-07f
-afvinken en door naar AF-08.
+Coen re-exports and looks at the PNGs. If the park paths are clean, AF-07f can
+be signed off and the work can move to AF-08.
 
 ## Nog open, bewust niet gedaan
 

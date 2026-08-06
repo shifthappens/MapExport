@@ -4,9 +4,9 @@
 // treatment to every anonymous trail over green turns parks and cemeteries
 // into technical-looking hatching. This exercises the actual v1 renderer
 // shared by both engines: water keeps every path class white, while green
-// keeps only cycleways and named paths white. Anonymous trails are masked only
-// over green; their base styling remains present everywhere, including outside
-// area clips.
+// keeps only cycleways and named paths white. Anonymous trails are removed from
+// the visible green-area paint entirely; an optional hidden group retains them
+// for editors, while the visible copy remains present outside green.
 import fs from 'node:fs';
 import vm from 'node:vm';
 import path from 'node:path';
@@ -82,9 +82,15 @@ const svg = X.buildSVG([
   { layer: layer('parks'), data: { elements: [park] } },
   { layer: layer('roads'), data: { elements: paths } },
 ], bbox, 1400);
+const illustratorSvg = X.buildSVG([
+  { layer: layer('water_bodies'), data: { elements: [water] } },
+  { layer: layer('parks'), data: { elements: [park] } },
+  { layer: layer('roads'), data: { elements: paths } },
+], bbox, 1400, null, null, { illustratorCompatible: true });
 
-check('keeps every path class in the base path layer',
-  ['roads_paths_footway', 'roads_paths_steps', 'roads_paths_cycleway', 'roads_paths_path'].every(id => svg.includes(`id="${id}"`)));
+check('keeps every path class in the path export',
+  ['roads_paths_footway', 'roads_paths_steps', 'roads_paths_cycleway', 'roads_paths_path']
+    .every(id => svg.includes(`id="${id}"`) || svg.includes(`id="${id}_outside_green"`)));
 check('keeps a distinct water clip and overlay root',
   svg.includes('id="water_clip"') && svg.includes('id="roads_paths_water"'));
 check('water keeps every path class white for contrast',
@@ -94,11 +100,28 @@ check('keeps a distinct green clip and selected-path overlay root',
   svg.includes('id="green_clip"') && svg.includes('id="roads_paths_green"'));
 check('green keeps the white overlay for cycleways and named paths',
   svg.includes('id="roads_paths_cycleway_on_green"') && svg.includes('id="roads_paths_path_on_green"'));
-check('green hides unnamed footways and steps rather than whitening them',
-  svg.includes('id="roads_paths_green_subdued"') &&
-  svg.includes('id="roads_paths_footway_muted_on_green"') &&
-  svg.includes('id="roads_paths_steps_muted_on_green"') &&
-  !svg.includes('id="roads_paths_footway_on_green"') && !svg.includes('id="roads_paths_steps_on_green"'));
+check('green has an inverse mask for the visible anonymous-path copy',
+  svg.includes('id="green_mask"') && svg.includes('mask="url(#green_mask)"'));
+check('green places anonymous footways and steps in the outside-green copy',
+  svg.includes('id="roads_paths_footway_outside_green"') &&
+  svg.includes('id="roads_paths_steps_outside_green"'));
+check('anonymous green paths are absent from the visible base path groups',
+  !svg.includes('<g id="roads_paths_footway"') &&
+  !svg.includes('<g id="roads_paths_steps"'));
+check('green has no legacy park-coloured anonymous-path overlay',
+  !svg.includes('id="roads_paths_footway_muted_on_green"') &&
+  !svg.includes('id="roads_paths_steps_muted_on_green"'));
+check('green retains anonymous paths only in an off-by-default optional group',
+  svg.includes('id="roads_paths_green_hidden"') &&
+  svg.includes('inkscape:label="Anonymous paths in parks (optional)"') &&
+  svg.includes('style="display:none"') &&
+  svg.includes('id="roads_paths_footway_hidden_in_green"') &&
+  svg.includes('id="roads_paths_steps_hidden_in_green"'));
+check('Illustrator output keeps the inverse mask in root defs',
+  illustratorSvg.includes('<mask id="green_mask"') &&
+  illustratorSvg.indexOf('<mask id="green_mask"') < illustratorSvg.indexOf('<g id="roads_paths_green_outside"') &&
+  illustratorSvg.includes('style="display:none"') &&
+  !illustratorSvg.includes('inkscape:'));
 
 const outsideSvg = X.buildSVG([
   { layer: layer('roads'), data: { elements: paths } },
@@ -106,6 +129,15 @@ const outsideSvg = X.buildSVG([
 check('paths outside water and green have no clipped white overlay',
   !outsideSvg.includes('roads_paths_water') && !outsideSvg.includes('roads_paths_green') &&
   outsideSvg.includes('id="roads_paths_footway"'));
+
+const anonymousOnlySvg = X.buildSVG([
+  { layer: layer('parks'), data: { elements: [park] } },
+  { layer: layer('roads'), data: { elements: [paths[0], paths[1]] } },
+], bbox, 1400);
+check('anonymous-only green exports still include the masked visible copy',
+  anonymousOnlySvg.includes('id="roads_paths_green_outside"') &&
+  anonymousOnlySvg.includes('id="roads_paths_green_hidden"') &&
+  anonymousOnlySvg.includes('id="roads_paths_footway_outside_green"'));
 
 if (failures) {
   console.error(`\n${failures} park-paths check(s) failed.`);

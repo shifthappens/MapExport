@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-08-06 — Keep transit stops out of default test exports
+- Headless v2 test exports now use the same default-on layer selection as the
+  GUI, so off-by-default transit stops are neither fetched nor rendered.
+
+### 2026-08-06 — Hide anonymous paths over parks
+- Anonymous park and cemetery paths are now completely absent from the default
+  visible map, while remaining available in an optional off-by-default editor
+  group.
+
 ### 2026-07-26 — Review follow-up on the green mass rule and the pinned cache
 - Two pieces of green now count as one park whenever their *edges* come within
   six metres, not just when one has a corner facing the other. Long straight
