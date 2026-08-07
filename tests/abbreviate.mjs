@@ -8,7 +8,7 @@ const src = fs.readFileSync(SCRIPT_PATH, 'utf8');
 const start = src.indexOf('const ABBREV=[');
 const end = src.indexOf('function buildLabelsLayer');
 assert.ok(start !== -1 && end > start, 'could not locate ABBREV/abbreviateName in script.js');
-const { abbreviateName } = new Function(src.slice(start, end) + '\nreturn { abbreviateName };')();
+const { abbreviateName, compactLabel } = new Function(src.slice(start, end) + '\nreturn { abbreviateName, compactLabel };')();
 
 let pass = 0, fail = 0;
 const check = (input, expected) => {
@@ -48,6 +48,15 @@ check('улица Тверская', 'ул. Тверская');
 // No matching rule → unchanged (graceful fallback)
 check('Hoofdweg', 'Hoofdweg');
 check('Damrak', 'Damrak');
+
+// The placement layer may use only a sanctioned table abbreviation. It must
+// never manufacture vowel-less, clipped or initial-only labels when that
+// abbreviation still does not fit.
+assert.equal(compactLabel('Wormser Straße', 1, 22, 1), 'Wormser Str.'.toUpperCase());
+assert.equal(compactLabel('Ramsauerstraße', 1, 22, 1), 'Ramsauerstr.'.toUpperCase());
+assert.equal(compactLabel('Friedrich-Ebert-Straße', 1, 22, 1), 'Friedrich-Ebert-Str.'.toUpperCase());
+assert.equal(compactLabel('Hoofdweg', 1, 22, 1), null);
+console.log('  ok   compact labels use only official abbreviations (no vowel stripping/clipping/initials)');
 
 console.log(`\nabbreviate: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

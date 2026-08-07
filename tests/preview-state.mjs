@@ -19,7 +19,14 @@ const expose = `
     previewDebounce = null;
     previewRequestSequence = 0;
     document.getElementById('engine-v2-toggle').checked = engine === EXPORT_ENGINE.V2;
-    const results = [{ layer: { id: 'roads', type: 'roads' }, data: { elements: [] } }];
+    // Required map layers have no checkbox now, so a valid export source must
+    // carry those layers even when the test harness only exposes one optional
+    // control. Mirror the real selection rather than hard-coding the old
+    // roads-only result list.
+    const results = getAllSelectedLayers().map(layer => ({
+      layer: { id: layer.id, type: layer.type },
+      data: { elements: [] },
+    }));
     const settings = getExportSettings(engine, bbox, { widthPx: 1200, physicalWidthMm: 100 });
     exportState = Object.freeze({
       svg: '<svg id="full-export" />',

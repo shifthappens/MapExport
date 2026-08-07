@@ -1,20 +1,19 @@
 # Active checkpoint
 
-- **Updated:** 2026-08-06
+- **Updated:** 2026-08-07
 - **Roadmap:** `plans/2026-07-17_cartographic-audit-followup.md`; maintenance
   bron blijft `plans/2026-07-14_codebase-maintenance-priorities.md`.
 - **Sprint:** cartografische audit-tussen-sprint `ACTIVE`.
-- **Unit:** AF-07f follow-up - one path per footpath entity. The visible export
-  now emits each path once and uses root paint patterns for water and green;
-  anonymous paths disappear over green without a duplicate hidden layer.
-  Follow-up cleanup also names the area geometry honestly, reserves wrapper and
-  generated group ids, and makes the one-layer toggle contract explicit in
-  tests/docs. Focused checks pass; waiting for Coen's visual confirmation on a
-  fresh export.
-- **Daarna:** AF-08, de zeven-steden-eindpoort. Dat is het laatste openstaande
-  werk in deze sprint.
+- **Unit:** AF-08 final sweep afgerond voor de code- en testkant. De nieuwe
+  2026-08-07-v2-SVG's voor alle zeven steden zijn geschreven; Bremerhaven is
+  opnieuw als uitgangspunt verwerkt.
+- **Daarna:** Coen beoordeelt de SVG's visueel. De Codex-reviewer gaf na drie
+  reviewrondes sign-off zonder Medium- of blokkerende bevindingen.
 
 ## Stand van zaken, geverifieerd tegen code en git
+
+- AF-08 final sweep is gestart op 2026-08-07; de oude 07-22/07-23/07-26
+  exports blijven als vergelijking staan.
 
 - `engine-v2.js` bevat de massatoets: `GREEN_MASS_MIN_M2` = 2500 (regel 478),
   `GREEN_PIECE_MIN_M2` = 80 (487), `GREEN_MASS_BRIDGE_M` = 6 (496).
@@ -25,14 +24,18 @@
   structural-id hardening, and the changelog entry. The pre-existing
   `cache/.ratelimit/` change is preserved.
 - Focused checks pass: park-paths, area binding, SVG ID uniqueness, editor
-  structure, layer selection, syntax check, and `git diff --check`. The offline
-  smoke run reached the relevant tests but stopped when its PHP server could
-  not start on port 19321.
-- Exporttrail staat op 3 per stad (07-22, 07-23, 07-26) voor alle zeven, alles
-  gecommit. Dat is de standing policy, dus daar hoeft niets meer.
+  structure, layer selection, landcover clipping, rail service, label
+  placement, syntax check, and `git diff --check`. All functional checks in
+  `OFFLINE_ONLY=1 bash tests/smoke.sh` pass; its sandbox run stops only when
+  `php -S` cannot bind localhost. The standalone `tests/cache-php.mjs` passes
+  with localhost permission, as do the real ClipperLib worker and offline suites.
+- Exporttrail had vóór deze sweep 3 per stad (07-22, 07-23, 07-26), gecommit.
+  De nieuwe 2026-08-07-SVG's zijn geschreven maar nog niet gecommit; de oude
+  drie blijven als vergelijking staan.
 - `OFFLINE_ONLY=1 bash tests/smoke.sh` exit 0 (29 testbestanden, alleen de
   online query-equivalence wordt overgeslagen).
-- `cache/pinned/` bevat alle 70 keys; `cache/` heeft er nu 66 live staan.
+- `cache/pinned/` bevat 49 van de huidige 77 keys; de 28 nieuwe query-keys zijn
+  bewust niet ververst. `cache/` heeft geen onbedoelde live-refresh gekregen.
   `tools/pin-cache.sh pin` of `refresh` NIET draaien zonder Coens verzoek.
 
 ## Wat AF-07f doet

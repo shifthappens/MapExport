@@ -259,12 +259,12 @@ check('renderRecreation pushes each painted shape into ctx.greenAreaDs', areaCtx
 // root paint pattern turns it white over green (roads render after
 // parks_recreation in paint order, so the area list is complete when they
 // consume it).
-const roadsLayerV1 = V1.LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === 'roads');
+const pathsLayerV1 = V1.LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === 'paths');
 const footway = { type: 'way', id: 4201, tags: { highway: 'footway', name: 'Golf path' },
   geometry: [ { lat: 50.9995, lon: 4.9995 }, { lat: 51.0, lon: 5.0 }, { lat: 51.0005, lon: 5.0005 } ] };
 const clipSvg = V2.buildSVG([
   { layer: { id: 'parks_recreation', label: 'Recreation grounds' }, data: { elements: [golfWay] } },
-  { layer: roadsLayerV1, data: { elements: [footway] } },
+  { layer: pathsLayerV1, data: { elements: [footway] } },
 ], bbox, 1000);
 check('a named footway over a recreation ground gets one white-over-green path',
   clipSvg.includes('id="Golf_path"') &&
@@ -333,12 +333,12 @@ check('landuse=railway groups under "Railway grounds"',
 check('a railway=* area tag groups under "Railway grounds" too',
   fbSvg({ railway: 'yard' }).includes('inkscape:label="Railway grounds"'));
 const parkingFb = fbSvg({ amenity: 'parking', name: 'Autoranta' });
-check('amenity=parking groups under "Paved areas"',
-  parkingFb.includes('inkscape:label="Paved areas"'));
+check('amenity=parking groups under "Paved Areas"',
+  parkingFb.includes('inkscape:label="Paved Areas"'));
 check('the parking patch label keeps value + OSM name (Parking “Autoranta”)',
   parkingFb.includes('inkscape:label="Parking “Autoranta”"'));
-check('landuse=garages groups under "Paved areas" too',
-  fbSvg({ landuse: 'garages' }).includes('inkscape:label="Paved areas"'));
+check('landuse=garages groups under "Paved Areas" too',
+  fbSvg({ landuse: 'garages' }).includes('inkscape:label="Paved Areas"'));
 check('a residential remnant keeps its raw "Residential" group (no family)',
   fbSvg({ landuse: 'residential' }).includes('inkscape:label="Residential"'));
 check('an untagged patch stays "Uncategorized"',

@@ -66,13 +66,13 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 
    See `memory/reference_lamp_server.md` for the gotchas (resize-after-load, Overpass UA, two-port split).
 
-   **The seven validation cities normally need no warming at all.**
-   `cache/pinned/` holds a tracked, never-expiring snapshot of all 70 Overpass
-   keys for them, and `cache.php` serves it whenever the live `cache/` entry is
-   missing or past its 7-day TTL, so a full seven-city sweep runs offline in
-   minutes with zero Overpass requests (the run prints `"pinned":10` per city).
-   Check with `tools/pin-cache.sh status`; only `tools/pin-cache.sh refresh`
-   fetches new data, and that is a deliberate, human-initiated act.
+   **The seven validation cities can run offline when the pinned snapshot is
+   complete.** The current source derives 77 Overpass keys for them, while
+   `cache/pinned/` is the tracked snapshot and may temporarily lag after query
+   changes. `cache.php` serves a pinned entry whenever the live `cache/` entry is
+   missing or past its 7-day TTL. Check with `tools/pin-cache.sh status`; only
+   `tools/pin-cache.sh refresh` fetches new data, and that is a deliberate,
+   human-initiated act.
 
    For anything *not* pinned (a new city, an ad-hoc bbox, or a refresh you were
    asked for), use `node tools/prefetch-validation-cache.mjs`. It reads the current
@@ -114,7 +114,7 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
 - `overpass-fetch.mjs` — offline (mocked fetch) checks of the shared Overpass fetch contract: hard per-attempt timeouts, endpoint backoff and retry-window recovery beyond the former 2/3-attempt limits, failover to a healthy endpoint, race-loser and export-abort cancellation, typed failure kinds (`timeout`/`rate-limited`/`http`/`network`/`parse`/`aborted`) and elements-empty-but-valid responses.
 - `svg-id-uniqueness.mjs` — offline check that every generated SVG (v1 + v2, standard + Illustrator) carries document-wide unique, deterministic object ids: same-name streets/tram/rail/metro members, repeated feature labels (incl. `_halo` companions) and v2's waterways/landcover/beach/blocks/fallback patches cannot collide, and identical input yields identical ids.
 - `feature-label-dedup.mjs` — offline unit test for `buildFeatureLabelsLayer`'s same-name water/park label dedup: same-name anchors within the gap collapse to one label, far-apart repeats still both place, name normalization (case/whitespace) is applied, the largest candidate wins the anchor, a suppressed label claims no grid space, and output is deterministic.
-- `square-labels.mjs` — offline check that engine v2's named squares get their own "Squares & plazas" editor group (not folded into "Water & park names") and are dropped from `street_labels` so the same plaza never carries two names; also checks unnamed squares stay unlabeled, park labels are unaffected, ids stay unique, output is deterministic, and the Illustrator pipeline still emits the label with its `_halo` companion.
+- `square-labels.mjs` — offline check that engine v2's named squares get their own "Square & Plaza Labels" editor group (not folded into "Water & park labels") and are dropped from `street_labels` so the same plaza never carries two names; also checks unnamed squares stay unlabeled, park labels are unaffected, ids stay unique, output is deterministic, and the Illustrator pipeline still emits the label with its `_halo` companion.
 - `metro-dedup.mjs` — offline check that engine v2 drops non-public
   `service=*` subway geometry, folds an unambiguously named ref-less member
   into the existing public line subgroup without mutating source data, leaves

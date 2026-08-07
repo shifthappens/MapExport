@@ -89,7 +89,8 @@ const roadElements = [
 ];
 // (f) reserved structural names: roads literally named after ids the
 // builders emit as literal markup (root wrappers, layer groups and the
-// dynamically generated footway groups).
+// dynamically generated footway groups). Paths are supplied through their
+// separate optional layer, just like a real export after the path split.
 // Road path ids are the naked safeName(name) — no prefix — so without the
 // allocator's reserved-id seeding these duplicate the structural group ids
 // document-wide.
@@ -101,10 +102,14 @@ const reservedNameRoadElements = [
   way({ highway: 'footway', name: 'map-content' }, [pt(0.49, 0.35), pt(0.51, 0.37)]),
   way({ highway: 'footway', name: 'roads_paths_footway' }, [pt(0.52, 0.35), pt(0.54, 0.37)]),
   way({ highway: 'footway', name: 'labels_footway' }, [pt(0.55, 0.35), pt(0.57, 0.37)]),
+  way({ highway: 'footway', name: 'paths' }, [pt(0.67, 0.35), pt(0.69, 0.37)]),
   way({ highway: 'residential', name: 'labels_residential' }, [pt(0.58, 0.35), pt(0.60, 0.37)]),
   way({ highway: 'service', name: 'roads_casings_service' }, [pt(0.61, 0.35), pt(0.63, 0.37)]),
   way({ highway: 'service', name: 'labels_service' }, [pt(0.64, 0.35), pt(0.66, 0.37)]),
+  way({ highway: 'residential', name: 'building_blocks' }, [pt(0.71, 0.35), pt(0.73, 0.37)]),
+  way({ highway: 'residential', name: 'built_environment' }, [pt(0.75, 0.35), pt(0.77, 0.37)]),
 ];
+const reservedNamePathElements = reservedNameRoadElements.filter(el => el.tags.highway === 'footway');
 // (e) rail sharing the street's name.
 const railElements = [
   way({ railway: 'rail', name: 'Kerkstraat' }, [pt(0.15, 0.60), pt(0.17, 0.62)]),
@@ -147,6 +152,7 @@ const clone = x => JSON.parse(JSON.stringify(x));
 function buildV1Results() {
   return [
     { layer: layerById('roads'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
+    { layer: layerById('paths'), data: { elements: clone(reservedNamePathElements) } },
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
@@ -158,6 +164,7 @@ const beachLayerStub = { id: 'beach', label: 'Sand' };
 function buildV2Results() {
   return [
     { layer: layerById('roads'), data: { elements: clone([...roadElements, ...reservedNameRoadElements]) } },
+    { layer: layerById('paths'), data: { elements: clone(reservedNamePathElements) } },
     { layer: layerById('rail'), data: { elements: clone(railElements) } },
     { layer: layerById('tram'), data: { elements: clone(tramElements) } },
     { layer: layerById('metro'), data: { elements: clone(metroElements) } },
@@ -237,6 +244,8 @@ check('v1 standard: a road named "roads" is suffixed away from the structural gr
   ids1a.some(it => it.id === 'roads_2') && ids1a.filter(it => it.id === 'roads').length === 1);
 check('v1 standard: a footway named "roads_paths" cannot shadow the path group id',
   ids1a.some(it => it.id === 'roads_paths_2') && !ids1a.some(it => it.id === 'roads_paths' && it.tag === 'path'));
+check('v1 standard: a footway named "paths" cannot shadow the optional layer id',
+  ids1a.some(it => it.id === 'paths_2') && ids1a.filter(it => it.id === 'paths').length === 1);
 check('v1 standard: root and dynamic group names are suffixed away from literal ids',
   ids1a.some(it => it.id === 'map-clip_2') && ids1a.some(it => it.id === 'map-content_2') &&
   ids1a.some(it => it.id === 'roads_paths_footway_2') &&
@@ -282,7 +291,10 @@ check('v2: reserved structural names ("roads", "water") are suffixed away from t
   ids2a.filter(it => it.id === 'roads').length === 1 && ids2a.filter(it => it.id === 'water').length <= 1);
 check('v2: root and dynamic road names are suffixed away from literal ids',
   ids2a.some(it => it.id === 'map-clip_2') && ids2a.some(it => it.id === 'map-content_2') &&
+  ids2a.some(it => it.id === 'paths_2') &&
   ids2a.some(it => it.id === 'roads_paths_footway_2') &&
+  ids2a.some(it => it.id === 'building_blocks_2') &&
+  ids2a.some(it => it.id === 'built_environment_2') &&
   ids2a.some(it => it.id === 'labels_residential_2') &&
   ids2a.some(it => it.id === 'roads_casings_service_2') &&
   ids2a.some(it => it.id === 'labels_service_2'));

@@ -1,4 +1,4 @@
-// tests/square-labels.mjs — offline check for engine v2's "Squares & plazas"
+// tests/square-labels.mjs — offline check for engine v2's "Square & Plaza Labels"
 // label group (AF-02b): named squares get their own editor layer, separate
 // from "Water & park names" and from street labels, so the same plaza never
 // carries two names.
@@ -150,10 +150,12 @@ const check = (name, cond) => {
 // ── standards pipeline ───────────────────────────────────────────────────
 const svg = X2.buildSVG(buildResults(), bbox, W, null, { illustratorCompatible: false });
 
-// (a) dedicated "square_labels" / "Squares & plazas" group with the plaza name.
-check('output has a square_labels / "Squares & plazas" group',
-  /<g id="square_labels" inkscape:label="Squares &amp; plazas"/.test(svg));
+// (a) dedicated "square_labels" / "Square & Plaza Labels" group with the plaza name.
+check('output has a square_labels / "Square & Plaza Labels" group',
+  /<g id="square_labels" inkscape:label="Square &amp; Plaza Labels"/.test(svg));
 const squareGroup = extractBoundedGroup(svg, 'square_labels');
+check('square_labels contains the correctly capitalised child label',
+  !!squareGroup && /<g id="square_plaza_labels" inkscape:label="Square &amp; plaza labels">/.test(squareGroup));
 check('square_labels group contains the named square\'s label text',
   !!squareGroup && squareGroup.includes('>Domplatz<'));
 
@@ -203,6 +205,7 @@ const svgI = X2.buildSVG(buildResults(), bbox, W, null, { illustratorCompatible:
 // standards-pipeline check above.
 check('Illustrator mode: square_labels group present', /<g id="square_labels"[ >]/.test(svgI));
 const squareGroupI = extractBoundedGroup(svgI, 'square_labels');
+check('Illustrator mode: square label child group present', /<g id="square_plaza_labels"[ >]/.test(squareGroupI));
 check('Illustrator mode: Domplatz label present', squareGroupI.includes('>Domplatz<'));
 check('Illustrator mode: a "_halo" companion text exists for the square label',
   /id="feat_Domplatz[^"]*_halo"/.test(squareGroupI));
@@ -214,5 +217,5 @@ if (failures) {
   console.log(`square-labels: ${failures} check(s) FAILED`);
   process.exit(1);
 } else {
-  console.log('PASS — square-labels: named squares get their own "Squares & plazas" group, no street-label duplicate');
+  console.log('PASS — square-labels: named squares get their own "Square & Plaza Labels" group, no street-label duplicate');
 }

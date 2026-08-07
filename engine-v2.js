@@ -19,6 +19,7 @@ const EngineV2 = (() => {
   // v1 and v2 share the same cache.php entries for free.
   const findLayer = (id) => LAYER_REGISTRY.flatMap(g => g.layers).find(l => l.id === id);
   const roadsLayer = findLayer('roads');
+  const pathsLayer = findLayer('paths');
 
   // Transit layers render through v1's own builders (sleepers, tram/metro
   // palettes and stop symbols) via renderLayerSVG. Their controls use the same
@@ -165,7 +166,7 @@ const EngineV2 = (() => {
   const cityBlocksLayer = { id: 'city_blocks', label: 'City blocks', type: 'derived' };
   const fallbackBlocksLayer = { id: 'fallback_blocks', label: 'Fallback blocks', type: 'derived' };
 
-  const layers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, placeNodesLayer, cityBlocksLayer];
+  const layers = [roadsLayer, pathsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer, buildingsLayer, areaFeaturesLayer, placeNodesLayer, cityBlocksLayer].filter(Boolean);
 
   // Fetched to feed the face cutter / classifier, but never rendered as their
   // own layer. area_features is the fetch vehicle for water/green/landcover —
@@ -190,6 +191,7 @@ const EngineV2 = (() => {
     'parks',
     'parks_recreation',
     'beach',
+    'paths',
     'roads',
     'rail',
     'tram',
@@ -199,12 +201,11 @@ const EngineV2 = (() => {
     'street_labels',
   ];
 
-  // v2 folds Countryside into the "Parks & green" layer (AF-07c, Coen
-  // 2026-07-23), so a single Parks & green switch controls all of v2's green:
-  // named parks, recreation grounds, Countryside (landcover) and Sand (beach).
-  // The shared panel still carries a v1 "Countryside" checkbox (v1 keeps its own
-  // separate toggle, frozen); in v2 that checkbox no longer gates Countryside —
-  // the Parks & green checkbox does. Recreation already followed Parks & green.
+  // v2 folds Countryside into the "Parks & green" SVG parent (AF-07c, Coen
+  // 2026-07-23), alongside named parks, recreation grounds and Sand. Natural
+  // rows are required in the shared panel, so this parent is structural rather
+  // than a separate GUI switch; the selected-id set always contains its paint
+  // inputs in both engines.
   function isSelectedRenderLayer(id, selectedIds) {
     if (id === recreationLayer.id || id === landcoverLayer.id || id === beachLayer.id) return selectedIds.has(parksLayer.id);
     return selectedIds.has(id);
@@ -218,7 +219,7 @@ const EngineV2 = (() => {
   function planLayers(selectedLayerIds = getAllSelectedLayers().map(layer => layer.id)) {
     const selectedIds = new Set(selectedLayerIds);
     const needsBlocks = selectedIds.has(cityBlocksLayer.id);
-    // Countryside (landcover) now follows the Parks & green switch (AF-07c).
+    // Countryside (landcover) is a required part of the Parks & green group.
     const landcoverPaints = isSelectedRenderLayer(landcoverLayer.id, selectedIds);
     const needsAreaFeatures = needsBlocks ||
       ['water_bodies', 'waterways', 'parks'].some(id => selectedIds.has(id));
@@ -240,12 +241,12 @@ const EngineV2 = (() => {
     // too or it would paint over them — run a clip-only worker pass. No painted
     // water/waterway means nothing below Countryside to overpaint, so skip it.
     const needsLandcoverClip = landcoverPaints && !needsBlocks && (coverPaints.water || coverPaints.waterways);
-    const directLayers = [roadsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer];
+    const directLayers = [roadsLayer, pathsLayer, railLayer, tramLayer, metroLayer, transitStopsLayer, waterLabelsLayer, streetLabelsLayer].filter(Boolean);
     const fetchLayers = directLayers.filter(layer => selectedIds.has(layer.id));
     // Roads are also the block cutter, but are not rendered unless selected.
     if (needsBlocks && !fetchLayers.includes(roadsLayer)) fetchLayers.unshift(roadsLayer);
     if (needsBlocks) fetchLayers.push(buildingsLayer);
-    // Place names render immediately after Water & park names, so that labels
+    // Place names render immediately after Water & park labels, so that labels
     // toggle is their user-facing switch even when City blocks is off.
     if (needsBlocks || selectedIds.has(waterLabelsLayer.id)) fetchLayers.push(placeNodesLayer);
     if (needsAreaFeatures) fetchLayers.push(areaFeaturesLayer);
@@ -1824,10 +1825,30 @@ self.onmessage = function(event) {
   // position-aligned with landcoverElements (its own .index field), so an
   // ordinal maps straight back with no lookup.
   const landcoverElementGeometry = landcoverElements.map(lc => scaleLandcoverElementRings(lc.rings));
+  function ringParts(rings) {
+    return Array.isArray(rings)
+      ? { outer: rings, inner: [] }
+      : { outer: rings?.outer || [], inner: rings?.inner || [] };
+  }
   function scaleLandcoverElementRings(rings) {
     const scaledRings = [];
-    for (const ring of (rings || [])) { const sp = scaleRing(ring); if (sp.length >= 3) scaledRings.push(sp); }
+    const parts = ringParts(rings);
+    for (const ring of [...parts.outer, ...parts.inner]) { const sp = scaleRing(ring); if (sp.length >= 3) scaledRings.push(sp); }
     return { scaledRings, bounds: scaledRings.length ? pathsBounds(scaledRings) : null };
+  }
+
+  // Keep Clipper's outer/hole winding when a grown shape returns to the
+  // renderer. Treating every contour as an outer ring would fill a hole cut
+  // around water or a building back in green. Clipper's non-zero output keeps
+  // outers positive and holes negative, so area sign is the worker protocol.
+  function clipPathsToRingParts(paths, divisor) {
+    const outer = [], inner = [];
+    for (const path of paths || []) {
+      if (!path || path.length < 3) continue;
+      const ring = path.map(pt => [pt.X / divisor, pt.Y / divisor]);
+      (Clipper.Clipper.Area(path) >= 0 ? outer : inner).push(ring);
+    }
+    return { outer, inner };
   }
 
   // Fixed-grid index over landcoverElementGeometry bounds: same conservative
@@ -1925,7 +1946,7 @@ self.onmessage = function(event) {
     if (!merged.length) { if (benchmark) benchmarkTimings.classificationGreenMerge += Date.now() - greenMergeStarted; return; }
     // Mutate the element's rings so a second piece merging into the same
     // element builds on the grown shape, and the final rings ship once.
-    best.rings = merged.map(p => p.map(pt => [pt.X / SCALE, pt.Y / SCALE]));
+    best.rings = clipPathsToRingParts(merged, SCALE);
     // Keep the pre-scaled cache and the element grid in step with the grown
     // shape (its bounds usually grow), so a later piece's candidate query
     // finds it exactly, never a stale approximation.
@@ -2306,22 +2327,15 @@ self.onmessage = function(event) {
     const occlusionElementDifferencesStarted = benchmark ? Date.now() : 0;
     if (coveringIndex) {
       const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
-      const cullPathsToRings = (paths) => {
-        const rings = [];
-        for (const p of paths) {
-          const r = [];
-          for (const pt of p) r.push([pt.X / CULL_SCALE, pt.Y / CULL_SCALE]);
-          if (r.length >= 3) rings.push(r);
-        }
-        return rings;
-      };
+      const cullPathsToRings = paths => clipPathsToRingParts(paths, CULL_SCALE);
       for (const lc of landcoverElements) {
         // A merged element is clipped like any other but never culled: its grown
         // rings ship back through greenGroundMerges, which keeps the seam
         // stroke.
         const isMerged = mergedLandcover.has(lc.index);
         const subj = [];
-        for (const ring of (lc.rings || [])) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
+        const sourceRings = ringParts(lc.rings);
+        for (const ring of [...sourceRings.outer, ...sourceRings.inner]) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
         if (!subj.length) continue;
         // rawArea (naive sum of |ring area|, double-counting any self-overlap) is
         // always >= the true normalized area, so it is both a safe cull floor
@@ -2356,8 +2370,13 @@ self.onmessage = function(event) {
         for (const b of candidates) dc.AddPath(b, ptClip, true);
         const remainder = new Clipper.Paths();
         dc.Execute(ctDifference, remainder, NZ, NZ);
+        // Difference output can contain new holes. Clipper gives those the
+        // opposite winding, so use the signed sum for the net painted area;
+        // summing absolute contours would count a water/building hole as extra
+        // green and incorrectly classify a genuinely clipped element as raw.
         let remArea = 0;
-        for (const p of remainder) remArea += Math.abs(Clipper.Clipper.Area(p));
+        for (const p of remainder) remArea += Clipper.Clipper.Area(p);
+        remArea = Math.abs(remArea);
         if (remArea < EMPTY) {
           // Fully covered. A plain element is culled; a merged one ships empty
           // rings so its grown green paints nothing where the cover already fills.
@@ -2372,7 +2391,7 @@ self.onmessage = function(event) {
         if (isMerged) mergedClipRings.set(lc.index, cullPathsToRings(remainder));
         else if (remArea < rawArea - EMPTY) {
           const rings = cullPathsToRings(remainder);
-          if (rings.length) clippedLandcover.push({ index: lc.index, rings });
+          if (rings.outer.length || rings.inner.length) clippedLandcover.push({ index: lc.index, rings });
         }
       }
     }
@@ -2470,9 +2489,9 @@ self.onmessage = function(event) {
   // the warning at the eps definitions in script.js. Each ring is oriented
   // (outer positive, inner negative via ringIsPositive) so the worker's nonZero
   // union keeps islands/courtyards as holes — no winding heuristic downstream.
-  function collectAreaPolys(elements, pr) {
+  function collectAreaRings(elements, pr) {
     const areaLargeEps = getAreaLargeEps();
-    const polys = [];
+    const groups = [];
     for (const el of (elements || [])) {
       let outerRings = [], innerRings = [];
       if (el.type === 'way' && el.geometry?.length >= 3) { outerRings = [el.geometry]; }
@@ -2480,16 +2499,23 @@ self.onmessage = function(event) {
         const stitched = stitchMultipolygonRings(el.members);
         outerRings = stitched.outer; innerRings = stitched.inner;
       }
+      const projected = { outer: [], inner: [] };
       for (const [rings, isOuter] of [[outerRings, true], [innerRings, false]]) {
         for (const geom of rings) {
           if (!geom || geom.length < 3) continue;
           const pts = dpSimplify(geom.map(g => pr(g.lat, g.lon)), areaLargeEps);
           if (pts.length < 3) continue;
           if (ringIsPositive(pts) !== isOuter) pts.reverse();
-          polys.push(pts);
+          projected[isOuter ? 'outer' : 'inner'].push(pts);
         }
       }
+      groups.push(projected);
     }
+    return groups;
+  }
+  function collectAreaPolys(elements, pr) {
+    const polys = [];
+    for (const group of collectAreaRings(elements, pr)) polys.push(...group.outer, ...group.inner);
     return polys;
   }
 
@@ -2597,7 +2623,7 @@ self.onmessage = function(event) {
     // [...landcover, ...grass]) so the worker's occlusion cull reports exactly
     // which painted elements are hidden under the city blocks. Paint-only: feeds
     // the render filter, never a subtraction void, so coverage is unaffected.
-    const landcoverElements = paintLandcover.map((el, index) => ({ index, rings: collectAreaPolys([el], pr) }));
+    const landcoverElements = paintLandcover.map((el, index) => ({ index, rings: collectAreaRings([el], pr)[0] || { outer: [], inner: [] } }));
 
     // Building centres for classification, building rings for hamlet blobs.
     const buildingCenters = [];
@@ -2775,16 +2801,16 @@ self.onmessage = function(event) {
   }
 
   // Semantic editor FAMILY for known built/paved/worked land (AF-03c). Industry,
-  // railway grounds and parking are neither green nor generic "Uncategorized":
-  // they keep cream fallback paint, but group under recognizable family names so
-  // a designer can grab all working land or all paved lots at once. Per-patch
-  // labels still carry the specific value and name ("Parking “Autoranta”" under
-  // "Paved areas"). Null when a tag has no family — the subgroup then keeps the
-  // raw capitalized value.
+  // railway grounds and other built land are neither green nor generic
+  // "Uncategorized": they keep cream fallback paint, but group under
+  // recognizable family names so a designer can grab one family at once.
+  // Null when a tag has no family, so the subgroup keeps the raw value.
   function fallbackSemanticGroup(tags) {
     if (/^(industrial|brownfield|construction|depot|landfill|quarry)$/.test(tags.landuse || '')) return 'Working land';
+    if (tags.landuse === 'residential') return 'Residential';
     if (tags.landuse === 'railway' || tags.railway) return 'Railway grounds';
-    if (tags.amenity === 'parking' || tags.landuse === 'garages') return 'Paved areas';
+    if (tags.leisure === 'pitch') return 'Pitch';
+    if (tags.amenity === 'parking' || tags.landuse === 'garages') return 'Paved Areas';
     return null;
   }
 
@@ -2879,7 +2905,7 @@ self.onmessage = function(event) {
         // Categorized patches read as their category ("Railway", "Parking
         // “Autoranta”"); "Uncategorized" is reserved for truly untagged land.
         // The sub-group is the semantic family where one exists (AF-03c:
-        // "Working land" / "Railway grounds" / "Paved areas"), else the value.
+        // "Working land" / "Railway grounds" / "Paved Areas"), else the value.
         if (cats.length) { label = cats.slice(0, 2).join(' + '); category = firstGroup || firstValue || 'Uncategorized'; }
       }
       // Self-coloured seam stroke (as on water bodies): fallback patches
@@ -2897,17 +2923,19 @@ self.onmessage = function(event) {
       groups.get(subId).paths.push(path);
     }
     if (!groups.size) return '';
-    // Category sub-groups first (alphabetical), then the Uncategorized
-    // catch-all (truly untagged land) last, so the specific buckets surface
-    // before the generic one in the panel.
+    // Category groups are emitted as siblings for the Built Environment tree.
+    // Only the truly untagged bucket keeps the reserved Uncategorized name.
     const ids = [...groups.keys()].filter(id => id !== 'uncat_uncategorized')
       .sort((a, b) => groups.get(a).label.localeCompare(groups.get(b).label));
-    if (groups.has('uncat_uncategorized')) ids.push('uncat_uncategorized');
-    const subgroups = ids.map(id => {
+    const categorized = ids.map(id => {
       const g = groups.get(id);
       return `    <g id="${g.gid}" inkscape:label="${escXml(g.label)}">\n      ${g.paths.join('\n      ')}\n    </g>`;
     }).join('\n');
-    return `  <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n${subgroups}\n  </g>\n`;
+    const uncat = groups.get('uncat_uncategorized');
+    const uncatGroup = uncat
+      ? `    <g id="fallback_blocks" inkscape:label="Uncategorized" inkscape:groupmode="layer">\n      ${uncat.paths.join('\n      ')}\n    </g>`
+      : '';
+    return [categorized, uncatGroup].filter(Boolean).join('\n') + '\n';
   }
 
   // ── Tunnels (milestone 6) ──────────────────────────────────────────
@@ -3031,15 +3059,21 @@ self.onmessage = function(event) {
     [...elements].sort((a, z) => approxDeg2(z) - approxDeg2(a)).forEach((el) => {
       const cf = coverFill(el.tags || {});
       if (!cf) return;
-      // Both worker-supplied ring sets are already projected px. _mergedRings is
+      // Both worker-supplied ring sets are already projected px and have the
+      // shape {outer, inner}. (The array fallback keeps old headless fixtures
+      // readable.) _mergedRings is
       // the element grown over a green-open coverage remainder; _clippedRings is
       // the element cut down to its visible remainder under the opaque Parks &
       // green cover (AF-07c), so the layer stays disjoint from what paints above
       // it. A given element carries at most one (the merge loop skips clipping).
       const workerRings = el._mergedRings || el._clippedRings;
+      const paintedRings = workerRings
+        ? (Array.isArray(workerRings) ? { outer: workerRings, inner: [] } : workerRings)
+        : null;
       let d = '';
-      if (workerRings) {
-        d = workerRings.map(ring => 'M' + ring.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z').join(' ');
+      if (paintedRings) {
+        d = [...(paintedRings.outer || []), ...(paintedRings.inner || [])]
+          .map(ring => 'M' + ring.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z').join(' ');
       } else if (el.type === 'way') d = geomToPathD(el.geometry, ctx.pr, ctx.EPS.area_large, true);
       else if (el.type === 'relation' && el.members) {
         const { outer, inner } = stitchMultipolygonRings(el.members);
@@ -3050,10 +3084,24 @@ self.onmessage = function(event) {
       const name = el.tags?.name;
       const id = name ? uid(`landcover_${safeName(name)}`) : uid(`landcover_${cf.cover}${el.id ? '_' + el.id : ''}`);
       const label = name || cf.cover.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
-      // Merged shapes now carry the ground others abut edge-to-edge, with
-      // nothing painted beneath — a self-coloured seam stroke closes the
-      // sub-pixel joint (same discipline as water/beach/fallback seams).
-      const seam = el._mergedRings ? ` stroke="${cf.fill}" stroke-width="1" stroke-linejoin="round"` : ' stroke="none"';
+      // Green landcover participates in the shared path mask, so optional
+      // trails disappear where they run through a park or forest. Keep the
+      // projected rings alongside the emitted d-string; using the exact same
+      // simplified geometry also prevents a path from peeking through a seam.
+      if (cf.fill === preset.park) {
+        const sourceRings = projectedAreaRings(el, ctx.pr, ctx.EPS.area_large);
+        const rings = paintedRings
+          ? paintedRings
+          : sourceRings;
+        for (const outer of rings.outer || []) {
+          if (outer?.length >= 3 && ctx.greenAreaRings) ctx.greenAreaRings.push({ outer, inner: rings.inner || [] });
+        }
+        if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
+      }
+      // Every adjacent green fill gets a self-coloured outline. This closes
+      // the one-pixel gaps visible where a park and forest edge meet, not only
+      // worker-merged shapes.
+      const seam = ` stroke="${cf.fill}" stroke-width="1" stroke-linejoin="round"`;
       content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${cf.fill}" fill-rule="evenodd"${seam}/>`;
     });
     if (!content) return '';
@@ -3128,6 +3176,12 @@ self.onmessage = function(event) {
       // technical-looking path hatching.
       // Renders before roads by paint order (§4), so the list is complete.
       if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
+      if (ctx.greenAreaRings) {
+        const rings = projectedAreaRings(el, ctx.pr, ctx.EPS.area_large);
+        for (const outer of rings.outer || []) {
+          if (outer?.length >= 3) ctx.greenAreaRings.push({ outer, inner: rings.inner || [] });
+        }
+      }
       const t = el.tags || {};
       // English label for the specific ground OSM records; a name wins.
       const kind = t.leisure === 'golf_course' ? 'Golf course'
@@ -3175,13 +3229,15 @@ self.onmessage = function(event) {
   // for the synthetic square-label nodes, reusing the shared collision grid
   // and uid sequence so collision-avoidance and document-wide id uniqueness
   // both stay one mechanism — only the group identity needs rewriting so the
-  // editor's layers panel shows "Squares & plazas", not a second "Water &
-  // park names". Same string-transform idiom as relabelRoadGroups/
+  // editor's layers panel shows "Square & Plaza Labels", not a second "Water &
+  // park labels". Same string-transform idiom as relabelRoadGroups/
   // relabelRailGroups: v1's own markup, only the group-open tag changes.
   function relabelSquareGroup(svg) {
     return svg
-      .replace('<g id="water_labels" inkscape:label="Water &amp; park names"',
-        '<g id="square_labels" inkscape:label="Squares &amp; plazas"');
+      .replace('<g id="water_labels" inkscape:label="Water &amp; park labels"',
+        '<g id="square_labels" inkscape:label="Square &amp; Plaza Labels"')
+      .replace(/(<g id="square_labels"[^>]*>\n)(    )(.*?)(\n  <\/g>\n)$/s,
+        '$1$2<g id="square_plaza_labels" inkscape:label="Square &amp; plaza labels">\n$2$3\n$2<\/g>\n$4');
   }
 
   // ── Place labels (AF-04) ──────────────────────────────────────────────
@@ -3273,7 +3329,7 @@ self.onmessage = function(event) {
     for (const { name, normName, cx, cy, tier } of candidates) {
       if (nearName(normName, cx, cy)) continue;
       if (tier.group === 'locality' && placedPts.some(p => Math.hypot(cx - p[0], cy - p[1]) < localitySpacing)) continue;
-      const sz = tier.size * sf, tw = approxTextWidth(name, sz), r = fpR(sz);
+      const sz = minLabelSize(tier.size, sf, illustratorCompatible), tw = approxTextWidth(name, sz), r = fpR(sz);
       const fp = fpLine(cx - tw / 2, cy, cx + tw / 2, cy, r);
       // Fixed anchor, so fully on-canvas or skipped — same canvas policy as
       // feature labels (a settlement straddling the frame edge loses its
@@ -3355,15 +3411,15 @@ self.onmessage = function(event) {
   function renderServiceTracksGroup(serviceElements, ctx) {
     const sf = getScaleFactor(ctx.W), eps = getEps();
     let paths = '';
-    serviceElements.forEach((el, i) => {
+    mergeConnectedWays(serviceElements).forEach((el, i) => {
       if (el.type !== 'way' || !el.geometry?.length) return;
       const s = dpSimplify(el.geometry.map(g => ctx.pr(g.lat, g.lon)), eps);
       if (s.length < 2) return;
       let d = `M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
       for (let j = 1; j < s.length; j++) d += `L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
-      const name = el.tags?.name || el.tags?.ref || '';
-      const pid = ctx.uid(name ? safeName(name) : `rail_service_${el.id || i}`);
-      const lbl = escXml(name || `Service track (${el.id || i})`);
+      const name = railDisplayName(el);
+      const pid = ctx.uid(`rail_service_${safeName(name || el.id || i)}`);
+      const lbl = escXml(name);
       // opacity stays per-path, exactly like v1's rail tracks: on the group it
       // would flatten before blending and crossing tracks would stop
       // darkening each other.
@@ -3386,8 +3442,11 @@ self.onmessage = function(event) {
     if (result.layer.id === 'landcover') return renderLandcover(result, ctx);
     if (result.layer.id === 'beach') return renderBeach(result, ctx);
     if (result.layer.id === 'parks_recreation') return renderRecreation(result, ctx);
-    if (result.layer.id === 'roads') {
+    if (result.layer.id === 'roads' || result.layer.id === 'paths') {
       const elements = result.data?.elements || [];
+      if (result.layer.id === 'paths') {
+        return renderLayerSVG({ layer: result.layer, data: { elements } }, ctx);
+      }
       // Squares are excluded from the road stroke passes (they are neither
       // stroked as streets nor filled as plazas — they paint cream as land via
       // the block classification). Tunnels drop too. The junction-infill path
@@ -3404,7 +3463,18 @@ self.onmessage = function(event) {
       // square already gets its own label in the square_labels group (see
       // buildSVG), so leaving it in street_labels would duplicate the name —
       // once as a plaza label, once as if it were a named street.
-      const surfaceElements = (result.data?.elements || []).filter(el =>
+      // A label must follow the exact road run that is painted in this export.
+      // The standalone street-label query is intentionally a smaller slice of
+      // OSM and can come from a different cache response than the roads query.
+      // Feeding it to the labeler independently lets a split/updated way win
+      // there while the roads layer paints its sibling geometry, which is how
+      // a label can visibly jump across a junction. Reuse the roads result
+      // whenever it is available; keep the direct label result as the
+      // fallback for exports that deliberately omit the roads layer.
+      const labelSource = result.layer.id === streetLabelsLayer.id && ctx.roadNetworkElements?.length
+        ? ctx.roadNetworkElements.filter(streetLabelsLayer.tagFilter)
+        : (result.data?.elements || []);
+      const surfaceElements = labelSource.filter(el =>
         !isTunnelElement(el) && (result.layer.id !== streetLabelsLayer.id || !isSquareElement(el)));
       if (result.layer.type === 'rail') {
         // Two-class split: only MAIN ways go through v1's builder, so its full
@@ -3549,6 +3619,7 @@ self.onmessage = function(event) {
   // = null — v2's blocks ride in a result's data.blocks, not ctx.
   function buildSVG(results, exportBbox, widthPx, physicalWidthMm = null, options = {}) {
     const ctx = buildSVGContext(exportBbox, widthPx, null, options);
+    ctx.roadNetworkElements = results.find(r => r.layer.id === roadsLayer.id)?.data?.elements || [];
     // Sub-floor slivers (junction pockets, below the block-styling floor) are
     // road-space, not land: they paint once as a single road-fill path at the
     // very start of the roads layer, so casings/fills stroke over them (see
@@ -3561,8 +3632,8 @@ self.onmessage = function(event) {
     // centroid would not. Built here rather than in doExport so browser and test
     // harness get identical labels. They render as their own "square_labels"
     // group rather than joining the water_labels elements, so the editor shows
-    // "Squares & plazas" as a layer instead of a synthetic entry under "Water &
-    // park names". Styling matches park labels for now.
+    // "Square & Plaza Labels" as a layer instead of a synthetic entry under
+    // "Water & park labels". Styling matches park labels for now.
     //
     // Squares arrive on two independent paths — the roads fetch and the
     // label-only area sweep (place=square with no highway tag) — so a plaza
@@ -3578,7 +3649,7 @@ self.onmessage = function(event) {
         squareLabelNodes.push({ type: 'node', id: `square_label_${el.id}`, lat: anchor.lat, lon: anchor.lon, tags: { leisure: 'park', name: el.tags.name } });
       }
     };
-    scanSquares(results.find(r => r.layer.type === 'roads')?.data?.elements);
+    scanSquares(results.find(r => r.layer.id === roadsLayer.id)?.data?.elements);
     scanSquares(results.find(r => r.layer.id === fallbackBlocksLayer.id)?.data?.labelElements);
     // Place labels (AF-04): the place_nodes result rides through the results
     // list purely as a data vehicle (renderLayer paints nothing for fetch-only
@@ -3586,7 +3657,7 @@ self.onmessage = function(event) {
     // square labels below, before street_labels renders, so the grid-claim
     // order is water/parks → squares → places → streets.
     const placeNodeEls = results.find(r => r.layer.id === placeNodesLayer.id)?.data?.elements || [];
-    const placeRoadEls = results.find(r => r.layer.type === 'roads')?.data?.elements || [];
+    const placeRoadEls = results.find(r => r.layer.id === roadsLayer.id)?.data?.elements || [];
     let layersSVG = '';
     // Water bodies + Waterways are adjacent in the paint order, so they can
     // share one "Water" parent layer without moving a single paint — purely
@@ -3613,16 +3684,35 @@ self.onmessage = function(event) {
       if (pendingParks) layersSVG += `  <g id="parks_green" inkscape:label="Parks &amp; green" inkscape:groupmode="layer">\n${pendingParks}  </g>\n`;
       pendingParks = null;
     };
+    let pendingBuilt = { city: '', categories: '' };
+    const flushBuilt = () => {
+      if (!pendingBuilt.city && !pendingBuilt.categories) return;
+      const blocks = pendingBuilt.city
+        ? `    <g id="building_blocks" inkscape:label="Building blocks" inkscape:groupmode="layer">\n${pendingBuilt.city}    </g>\n`
+        : '';
+      layersSVG += `  <g id="built_environment" inkscape:label="Built Environment" inkscape:groupmode="layer">\n${blocks}${pendingBuilt.categories}  </g>\n`;
+      pendingBuilt = { city: '', categories: '' };
+    };
     for (const result of sortResults(results)) {
       let layerSVG = renderLayer(result, ctx);
       if (result.layer.id === 'roads' && junctionInfill) {
         layerSVG = layerSVG.replace(ROADS_GROUP_OPEN, ROADS_GROUP_OPEN + junctionInfill);
       }
+      if (result.layer.id === cityBlocksLayer.id) {
+        pendingBuilt.city += layerSVG;
+        continue;
+      }
+      if (result.layer.id === fallbackBlocksLayer.id) {
+        pendingBuilt.categories += layerSVG;
+        continue;
+      }
       if (result.layer.id === waterBodiesLayer.id || result.layer.id === 'waterways') {
+        flushBuilt();
         pendingWater = (pendingWater || '') + layerSVG;
         continue;
       }
       flushWater();
+      flushBuilt();
       // Countryside sorts just before Parks (layerOrder), so it buffers
       // into the shared "Parks & green" parent as its first child (AF-07c).
       if (result.layer.id === landcoverLayer.id || result.layer.id === parksLayer.id || result.layer.id === recreationLayer.id) {
@@ -3634,14 +3724,14 @@ self.onmessage = function(event) {
       }
       flushParks();
       layersSVG += layerSVG;
-      // Square labels render as their own "Squares & plazas" group, placed
+      // Square labels render as their own "Square & Plaza Labels" group, placed
       // directly after water_labels in paint order (feature labels — water
       // and named parks — claim the shared collision grid first, squares
       // second, street labels dodge both — see renderLayer's streetLabels
       // branch). Built via v1's buildFeatureLabelsLayer, the same engine
       // water/park labels use, then its group-open tag is rewritten (see
       // relabelSquareGroup) so the editor sees a distinct, correctly named
-      // layer instead of a second "Water & park names" group.
+      // layer instead of a second "Water & park labels" group.
       if (result.layer.id === waterLabelsLayer.id && squareLabelNodes.length) {
         const squareSVG = buildFeatureLabelsLayer(squareLabelNodes, ctx.pr, ctx.W, ctx.H, ctx.labelGrid, ctx.uid, { illustratorCompatible: ctx.illustratorCompatible });
         if (squareSVG) layersSVG += relabelSquareGroup(squareSVG);
@@ -3655,6 +3745,7 @@ self.onmessage = function(event) {
     }
     flushWater();
     flushParks();
+    flushBuilt();
     return ctx.illustratorCompatible
       ? wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm)
       : wrapSVG(layersSVG, ctx, physicalWidthMm);
@@ -3687,22 +3778,6 @@ self.onmessage = function(event) {
       out = out.filter((_, i) => !cull.has(i));
     }
     return out;
-  }
-
-  // AF-07c: in v2 the "Parks & green" switch also controls Countryside, so its
-  // own checkbox is redundant. The removal lives here because §9 freezes the
-  // shared v1 panel — while v2 is selected the row is hidden, but its input
-  // stays in the DOM (default on), so getAllSelectedLayers still reports
-  // landcover and isSelectedRenderLayer folds it into the parks switch.
-  // `doc` is injectable for the unit test.
-  function applyMergedCountrysideVisibility(doc) {
-    const d = doc || (typeof document !== 'undefined' ? document : null);
-    if (!d) return;
-    const input = d.getElementById('lyr-landcover');
-    const row = input && (input.closest ? input.closest('.layer-row') : null);
-    if (!row) return;
-    const v2on = !!(d.getElementById('engine-v2-toggle') || {}).checked;
-    row.style.display = v2on ? 'none' : '';
   }
 
   // Browser-side v2 orchestration. Mirrors v1's doExport shape and honours
@@ -3871,7 +3946,7 @@ self.onmessage = function(event) {
       // Cutter input = roads only (rail/tram/metro stopped cutting 2026-07-12 —
       // see prepareFaceData; buildings + area_features are not cutters either;
       // area geometry subtracts, it does not bound faces).
-      const cutterResults = results.filter(r => r.layer.type === 'roads');
+      const cutterResults = results.filter(r => r.layer.id === roadsLayer.id);
       const onFaceProgress = (msg, pct) => {
         progress.setStage('faces', 'active', { detail: msg });
         progress.bar(55 + Math.round(pct * 0.25));
@@ -3975,24 +4050,11 @@ self.onmessage = function(event) {
     });
   }
 
-  // Hide the redundant "Countryside" row while v2 is the active engine. Runs
-  // after v1's renderLayers() (script.js registers its DOMContentLoaded handler
-  // first, so it populates the layer list before this fires) and again whenever
-  // the engine toggle flips. Guarded so the vm-based unit tests (no document) and
-  // any non-browser load skip it.
-  if (typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('DOMContentLoaded', () => {
-      applyMergedCountrysideVisibility();
-      const toggle = document.getElementById('engine-v2-toggle');
-      if (toggle) toggle.addEventListener('change', () => applyMergedCountrysideVisibility());
-    });
-  }
-
   return {
     layers, layerOrder, buildSVG, doExport,
     // Exposed for the headless test harness (tests/real-export.mjs).
     FACE_WORKER_SRC, prepareFaceData, computeFacesAsync, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
-    landcoverLayer, parksLayer, recreationLayer, applyLandcoverOcclusion, applyMergedCountrysideVisibility,
+    landcoverLayer, parksLayer, recreationLayer, applyLandcoverOcclusion,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
     planLayers, filterResultsForSelection,
     // Building-fetch padding (cause A) — shared with the headless harness.

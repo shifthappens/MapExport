@@ -142,8 +142,8 @@ function loadAppContract() {
   });
   const contract = sandbox.__prefetchContract;
   const fetchable = contract.layers.filter(layer => typeof layer.overpassQuery === 'function');
-  if (fetchable.length !== 10) {
-    throw new Error(`Expected 10 engine-v2 fetchable layers, found ${fetchable.length}`);
+  if (fetchable.length !== 11) {
+    throw new Error(`Expected 11 engine-v2 fetchable layers, found ${fetchable.length}`);
   }
   if (contract.endpoints.length !== 3) {
     throw new Error(`Expected the app's 3 Overpass endpoints, found ${contract.endpoints.length}`);

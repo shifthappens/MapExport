@@ -11,6 +11,22 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-08-07 — Cleaner map layers and more complete labels
+- Natural layers, city blocks and roads are now always part of the export; paths
+  and trails are an optional Built Environment layer, while labels are grouped
+  under Labels.
+- Arial remains the primary label font, with metrically compatible Liberation
+  Sans as a Linux fallback; labels remain editable text in both SVG exports.
+- Named recreation areas and multipolygon parks receive labels reliably, and
+  labels never shrink below 9pt at the print scale.
+- Connected rail fragments merge into designer-friendly runs without merging
+  parallel tracks or leaking names across disconnected branches.
+- Green areas close their shared edges cleanly, and short isolated paths stay
+  out of the export even when the optional paths layer is enabled.
+- Street labels now keep their complete glyph band inside their own road path
+  with a small edge margin; unsafe bends are repositioned or omitted instead
+  of flowing across a junction or nearby road.
+
 ### 2026-08-06 — Emit each footpath once
 - Footpaths and cycleways now stay as one editable SVG path per OSM entity.
   A shared map-area paint definition changes the stroke over water or green,

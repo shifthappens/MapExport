@@ -32,10 +32,11 @@ retired).
 
 ## The seven validation areas are pinned — do not refetch them
 
-- `cache/pinned/` is a tracked, never-expiring snapshot of all 70 Overpass keys
-  for the seven `tests/real-export.mjs` cities. `cache.php` serves it whenever
-  the live `cache/` copy is missing or past its 7-day TTL, so validation exports
-  run offline and hit Overpass zero times. A full seven-city sweep takes minutes.
+- `cache/pinned/` is a tracked, never-expiring snapshot of the Overpass keys
+  currently used by the seven `tests/real-export.mjs` cities. `cache.php` serves
+  it whenever the live `cache/` copy is missing or past its 7-day TTL, so pinned
+  validation exports run offline. A full seven-city sweep takes minutes; query
+  changes can temporarily leave new keys unpinned until Coen refreshes them.
 - Check it with `tools/pin-cache.sh status`. If every key is pinned, a slow or
   failing export is **not** a cache-warming problem — diagnose something else.
 - Only `tools/pin-cache.sh refresh` fetches new data, and it is Coen's call.

@@ -12,7 +12,7 @@ import { lintSvg } from './svg-lint.mjs';
 const X = loadAppSandbox([
   'approxTextWidth', 'pathLength', 'geoLength', 'angleAtMid', 'pointAngleAtLength',
   'makeFootprintGrid', 'buildLabelsLayer', 'buildFeatureLabelsLayer', 'makeProjector',
-  'LABEL_STYLES', 'stampPolyline',
+  'LABEL_STYLES', 'MIN_LABEL_PX', 'MIN_LABEL_ILLUSTRATOR_PX', 'stampPolyline',
 ]);
 
 let pass = 0, fail = 0;
@@ -76,7 +76,9 @@ const horiz = (id, name, latFrac = 0.5, lonFrac0 = 0.05, lonFrac1 = 0.95, hw = '
   return way(id, [[lat, lon(lonFrac0)], [lat, lon(lonFrac1)]], { name, highway: hw });
 };
 const run = els => X.buildLabelsLayer(els, pr, W, H);
+const runFormat = (els, illustratorCompatible) => X.buildLabelsLayer(els, pr, W, H, undefined, undefined, { illustratorCompatible });
 const textsOf = svg => [...svg.matchAll(/<text [^>]*>/g)].map(t => t[0]);
+const fontSizesOf = svg => [...svg.matchAll(/font-size="([\d.]+)"/g)].map(m => +m[1]);
 const lintFragment = frag => lintSvg(`<svg viewBox="0 0 ${W} ${H}">${frag}</svg>`);
 
 // A. long straight street → one or more single rotated <text>, no textPath
@@ -85,9 +87,29 @@ const lintFragment = frag => lintSvg(`<svg viewBox="0 0 ${W} ${H}">${frag}</svg>
   const texts = textsOf(svg);
   check('straight street: labelled', texts.length >= 1, svg.slice(0, 200));
   check('straight street: rotated <text>, not textPath', !svg.includes('<textPath') && texts.every(t => t.includes('transform="rotate(')));
+  check('standard labels: Arial with metrically compatible Linux fallback',
+    svg.includes("font-family=\"Arial,'Liberation Sans',Helvetica,sans-serif\""));
   const angles = texts.map(t => parseFloat(t.match(/rotate\((-?[\d.]+)/)?.[1]));
   check('straight street: angle ≈ 0°', angles.every(a => Math.abs(a) < 2), `${angles}`);
   check('straight street: lints clean', lintFragment(svg).errors.length === 0, lintFragment(svg).errors[0]);
+}
+
+// A print floor must not erase the style hierarchy. The smaller residential
+// style is allowed to hit 9pt, while a motorway remains visibly larger, in
+// both the standards-based and Illustrator numeric-unit profiles.
+{
+  const standardSmall = fontSizesOf(run([horiz(1, 'Kleine Straat', 0.35, 0.05, 0.95, 'residential')]));
+  const standardLarge = fontSizesOf(run([horiz(2, 'Grote Baan', 0.65, 0.05, 0.95, 'motorway')]));
+  const illustratorSmall = fontSizesOf(runFormat([horiz(1, 'Kleine Straat', 0.35, 0.05, 0.95, 'residential')], true));
+  const illustratorLarge = fontSizesOf(runFormat([horiz(2, 'Grote Baan', 0.65, 0.05, 0.95, 'motorway')], true));
+  check('standard SVG: residential labels respect the 9pt floor',
+    standardSmall.length > 0 && standardSmall.every(size => size >= X.MIN_LABEL_PX - 0.1));
+  check('standard SVG: label styles remain size-differentiated',
+    standardSmall.length > 0 && standardLarge.length > 0 && Math.min(...standardLarge) > Math.max(...standardSmall));
+  check('Illustrator SVG: residential labels respect the 9pt floor',
+    illustratorSmall.length > 0 && illustratorSmall.every(size => size >= X.MIN_LABEL_ILLUSTRATOR_PX - 0.1));
+  check('Illustrator SVG: label styles remain size-differentiated',
+    illustratorSmall.length > 0 && illustratorLarge.length > 0 && Math.min(...illustratorLarge) > Math.max(...illustratorSmall));
 }
 
 // B. repeat distance: a full-width street repeats its name, spaced apart
@@ -115,11 +137,55 @@ const tightArc = (reversed) => {
   }
   return reversed ? coords.reverse() : coords;
 };
+
+const parsePolylineD = d => [...d.matchAll(/[ML]\s*(-?[\d.]+)[,\s](-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
+const distanceToPolyline = (p, pts) => {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const [x1, y1] = pts[i - 1], [x2, y2] = pts[i];
+    const dx = x2 - x1, dy = y2 - y1, ll = dx * dx + dy * dy;
+    const t = ll ? Math.max(0, Math.min(1, ((p[0] - x1) * dx + (p[1] - y1) * dy) / ll)) : 0;
+    best = Math.min(best, Math.hypot(p[0] - (x1 + dx * t), p[1] - (y1 + dy * t)));
+  }
+  return best;
+};
+const curvedBandWithinSource = (svg, sourceCoords, roadFillW = 30) => {
+  const path = svg.match(/<path id="lp\d+"[^>]*\bd="([^"]+)"/);
+  const fs = +(svg.match(/font-size="([\d.]+)"/)?.[1] || 0);
+  if (!path || !fs) return { ok: false, worst: Infinity };
+  const baseline = parsePolylineD(path[1]);
+  const source = sourceCoords.map(([lat, lon]) => pr(lat, lon));
+  const top = baseline.map((p, i) => {
+    const p0 = baseline[Math.max(0, i - 1)], p1 = baseline[Math.min(baseline.length - 1, i + 1)];
+    const dx = p1[0] - p0[0], dy = p1[1] - p0[1], length = Math.hypot(dx, dy) || 1;
+    return [p[0] + dy / length * 0.72 * fs, p[1] - dx / length * 0.72 * fs];
+  });
+  const samples = [];
+  for (const line of [baseline, top]) for (let i = 1; i < line.length; i++) {
+    const [x1, y1] = line[i - 1], [x2, y2] = line[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / Math.max(1, fs * 0.25)));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n;
+      samples.push([x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]);
+    }
+  }
+  const worst = Math.max(...samples.map(p => distanceToPolyline(p, source)));
+  const sf = W / 4961;
+  const allowed = roadFillW * sf / 2 - Math.max(0.75, 3 * sf) + 0.25;
+  return { ok: worst <= allowed, worst, allowed };
+};
 {
   const svg = run([way(1, tightArc(false), { name: 'Bochtige Straat', highway: 'residential' })]);
   check('curved street: uses textPath', svg.includes('<textPath'), svg.slice(0, 300));
   const l = lintFragment(svg);
   check('curved street: baseline oriented + lints clean', l.errors.length === 0, l.errors[0]);
+  const band = curvedBandWithinSource(svg, tightArc(false));
+  check('curved street: baseline and cap band stay inside its own road with margin', band.ok,
+    `worst=${band.worst.toFixed(2)} allowed=${band.allowed.toFixed(2)}`);
+
+  const illustrator = runFormat([way(2, tightArc(false), { name: 'Bochtige Straat', highway: 'residential' })], true);
+  check('Illustrator curved street: safe editable glyphs, no textPath',
+    illustrator.includes('lbl_Bochtige_Straat') && !illustrator.includes('<textPath'));
 }
 
 // D. the same curve drawn in reverse must NOT mirror the label — emitPath
@@ -211,12 +277,10 @@ const tightArc = (reversed) => {
 }
 
 // L/M. chord placement vs textPath fallback at a kink mid-label. Street
-// sized so EVERY candidate span includes the kink (total ≈120px vs
-// lw≈84px + endPad≈10px each side, 13-char name at fs 8.9). A 4° kink
-// deviates ~1.4px from the chord → stays straight, rotated to the CHORD
-// angle (between the two segment angles, not 0° or 4°). A 12° kink
-// deviates ~4.3px > devCap (~1.9px, residential fill at this scale) →
-// must fall back to a road-following textPath.
+// sized so EVERY candidate span includes the kink. At the new 9pt floor a
+// short run may need a road-following textPath even for a gentle kink; that is
+// preferable to shrinking below the readable floor. A sharper kink must also
+// use the same safe fallback.
 {
   const kinkStreet = (id, name, kinkDeg) => {
     const lat0 = 51.003, lon0 = 5.006, mLon = 111320 * Math.cos(lat0 * Math.PI / 180);
@@ -228,11 +292,19 @@ const tightArc = (reversed) => {
       [lat0 - legM * Math.sin(t) / 111320, lon0 + (legM + legM * Math.cos(t)) / mLon],
     ], { name, highway: 'residential' });
   };
-  const gentle = run([kinkStreet(1, 'Knikkerstraat', 4)]);
-  const ang = gentle.match(/rotate\((-?[\d.]+)/);
-  check('4° kink: straight label at the chord angle (0°<θ<4°)', !!ang && !gentle.includes('<textPath') && +ang[1] > 0.7 && +ang[1] < 3.3, ang ? `angle=${ang[1]}` : gentle.slice(0, 200));
+ const gentle = run([kinkStreet(1, 'Knikkerstraat', 4)]);
+  const gentleSize = +(gentle.match(/font-size="([\d.]+)"/)?.[1] || 0);
+  check('4° kink: keeps a readable label with a safe fallback',
+    gentleSize >= X.MIN_LABEL_PX - 0.1 && /KNIK/.test(gentle) && (gentle.includes('<textPath') || /<text [^>]*>[^<]+<\/text>/.test(gentle)),
+    gentle.slice(-250));
   const sharp = run([kinkStreet(1, 'Knikkerstraat', 12)]);
-  check('12° kink: deviation exceeds road fill → textPath', sharp.includes('<textPath'), sharp.slice(0, 250));
+  const sharpWay = kinkStreet(2, 'Knikkerstraat', 12);
+  const sharpBand = sharp.includes('<textPath')
+    ? curvedBandWithinSource(sharp, sharpWay.geometry.map(g => [g.lat, g.lon])).ok
+    : true;
+  check('12° kink: unsafe curve is rejected rather than draped onto another path',
+    sharpBand && (!sharp.includes('<textPath') || sharp.includes('KNIKKERSTRAAT')),
+    sharp.includes('<textPath') ? sharp.slice(0, 250) : 'no unsafe curved label emitted');
   check('12° kink: lints clean', lintFragment(sharp).errors.length === 0);
 }
 
@@ -310,7 +382,63 @@ const tightArc = (reversed) => {
     [lat0, lon0], [lat0, lon0 + legM / mLon], [lat0 + legM / mLat, lon0 + legM / mLon],
   ], { name: 'Hoekstraat', highway: 'residential' });
   const svg = run([L]);
-  check('L-street: labelled without textPath around the corner', svg.includes('HOEKSTRAAT') && !svg.includes('<textPath'), svg.slice(0, 250));
+  check('L-street: labelled on a straight leg with readable abbreviation',
+    svg.includes('HOEKSTR.') && !svg.includes('<textPath'), svg.slice(0, 250));
+}
+
+// A maximum-curve fallback may follow a smooth bend, but never a hairpin or
+// junction corner. The label may move to a straight leg or disappear; it must
+// not become a textPath that drapes over the sharp return.
+{
+  const lat0 = 51.004, lon0 = 5.011, mLat = 111320, mLon = 111320 * Math.cos(lat0 * Math.PI / 180);
+  const hairpin = way(2, [
+    [lat0, lon0],
+    [lat0, lon0 + 130 / mLon],
+    [lat0 + 18 / mLat, lon0 + 130 / mLon],
+    [lat0 + 18 / mLat, lon0 + 12 / mLon],
+  ], { name: 'Haarspeldweg', highway: 'residential' });
+  const svg = run([hairpin]);
+  check('sharp hairpin: never uses a textPath across the corner',
+    !svg.includes('<textPath') && lintFragment(svg).errors.length === 0,
+    lintFragment(svg).errors[0] || svg.slice(0, 250));
+}
+
+// V. An official abbreviation may be used, but the engine must never invent a
+// vowel-less, clipped or initial-only name when even that sanctioned form does
+// not fit above the readable floor. Such a street is left unlabeled instead.
+{
+  const short = (id, name, latFrac) => horiz(id, name, latFrac, 0.25, 0.28);
+  const svg = run([
+    short(1, 'Wormser Straße', 0.20),
+    short(2, 'Friedrich-Ebert-Straße', 0.50),
+    short(3, 'Ramsauerstraße', 0.80),
+  ]);
+  check('too-short named streets: no invented initials or vowel-stripped labels',
+    !/>(?:W\. S\.|F\.|RMSRSTR\.)</.test(svg), svg.match(/>(?:W\. S\.|F\.|RMSRSTR\.)</)?.[0] || '');
+}
+
+// W. Explicit priority and continuous size optimisation. Full text at the
+// road-type standard wins; if it cannot fit, a sanctioned abbreviation may
+// win at standard size before the full name is made smaller. When the full
+// name does get smaller, the chosen size is the largest feasible value in the
+// interval, not one of the old ×0.8 stepping values.
+{
+  const fullStandard = run([horiz(1, 'Wormser Straße', 0.20, 0.455, 0.545, 'primary')]);
+  const fullStandardSize = +(fullStandard.match(/font-size="([\d.]+)"/)?.[1] || 0);
+  check('priority: full name uses standard size when it fits',
+    fullStandard.includes('WORMSER STRASSE') && !fullStandard.includes('WORMSER STR.') && fullStandardSize > X.MIN_LABEL_PX);
+
+  const abbreviationStandard = run([horiz(2, 'Wormser Straße', 0.35, 0.46, 0.54, 'primary')]);
+  const abbreviationSize = +(abbreviationStandard.match(/font-size="([\d.]+)"/)?.[1] || 0);
+  check('priority: official abbreviation may use standard size before shrinking full text',
+    abbreviationStandard.includes('WORMSER STR.') && !abbreviationStandard.includes('WORMSER STRASSE') && Math.abs(abbreviationSize - fullStandardSize) < 0.2);
+
+  const optimised = run([horiz(3, 'Wormser Straße', 0.50, 0.465, 0.535, 'primary')]);
+  const optimisedSize = +(optimised.match(/font-size="([\d.]+)"/)?.[1] || 0);
+  check('priority: full name is preferred over abbreviation at a smaller optimal size',
+    optimised.includes('WORMSER STRASSE') && !optimised.includes('WORMSER STR.') && optimisedSize > X.MIN_LABEL_PX + 0.2 && optimisedSize < fullStandardSize - 0.2);
+  check('priority: smaller size is continuously optimised, not a fixed shrink step',
+    Math.abs(optimisedSize - fullStandardSize * 0.8) > 0.1 && Math.abs(optimisedSize - X.MIN_LABEL_PX) > 0.1);
 }
 
 // I. label ids unique across a busy scene

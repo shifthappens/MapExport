@@ -69,8 +69,8 @@ classification + subtraction + paint order.
    either — a square is land inside its face and paints cream via normal
    classification (see §3); a NAMED square still gets a map label through
    v1's feature-label engine (a synthetic node at the square's interior
-   point, park styling for now), rendered as its own "Squares & plazas"
-   editor group right after water/park names — not folded into the water
+   point, park styling for now), rendered as its own "Square & Plaza Labels"
+   editor group right after Water & park labels — not folded into the water
    labels — and dropped from street labels so the same plaza never carries
    two names. Tunnels (`tunnel=yes|culvert`) never cut and
    never draw as surface; bridges and `building_passage`/`covered` stay.
@@ -406,7 +406,7 @@ anything that reads cream is neither painted nor rowed.
   hand-listed field set that forgot `culledLandcover`, so fully-water-covered
   Countryside still painted, and no per-end unit test can see a field dropped
   from such a list. Keep the hand-off object-shaped; `tests/landcover-clip.mjs`
-  Part E guards it with a fake worker. A wood fully
+  Part D guards it with a fake worker. A wood fully
   inside a named forest/park was invisible yet survived the old
   city-blocks-only cull (Tilburg's "invisible forest"); parks in the covering set
   drop it. Deliberately **excluded**: fallback blocks (the fallback void already
@@ -499,21 +499,19 @@ layer's single "Junction infill" path (§2 item 2): its subpaths are road-space
 crumbs no designer should ever manage individually, so they merge into one
 selectable, deletable path.
 
-Uncategorized labels read the OSM tag **value** ("Railway", "Parking
-“Autoranta”", "Pitch"); plain "Uncategorized" is reserved for land OSM does
-not tag at all. Within the Uncategorized layer, patches from known
-built/paved/worked land group under three semantic **families** (AF-03c):
-"Working land" (`landuse=industrial|brownfield|construction|depot|landfill|
-quarry`), "Railway grounds" (`landuse=railway` or any `railway=*` area tag)
-and "Paved areas" (`amenity=parking`, `landuse=garages`) — pure panel
-organization (`fallbackSemanticGroup`): the patches keep their cream fallback
-paint and their specific per-path labels, the audit's decision being that this
-land is neither green nor generic Uncategorized, while city-block styling is
-not redesigned. Tags with no family keep their raw value group (e.g.
-"Residential").
+The editor's **Built Environment** parent contains a **Building blocks** group
+for derived city blocks and the semantic fallback groups. Only truly untagged
+land uses the **Uncategorized** group. Known built/paved/worked land is grouped
+under "Working land" (`landuse=industrial|brownfield|construction|depot|landfill|
+quarry`), "Residential" (`landuse=residential`), "Pitch" (`leisure=pitch`),
+"Railway grounds" (`landuse=railway` or any `railway=*` area tag), and "Paved
+Areas" (`amenity=parking`, `landuse=garages`). These are panel groups only: the
+patches keep their cream fallback paint and their specific per-path labels.
+Other tagged patches keep their raw capitalized OSM value; plain
+"Uncategorized" is reserved for land OSM does not tag at all.
 
-Named squares get their own "Squares & plazas" editor group, separate from
-"Water & park names" and from the street-label layers (§2 item 1).
+Named squares get their own "Square & Plaza Labels" editor group, separate from
+"Water & park labels" and from the street-label layers (§2 item 1).
 
 Inside the City blocks layer (AF-07a), urban blocks stay direct children
 while hamlet blobs group under **"Hamlets"** (`city_blocks_hamlets`) and
@@ -540,8 +538,11 @@ Guarded offline by `tests/technical-names.mjs`.
 
 Inside the Railways layer, service tracks live in their own selectable
 "Service tracks" group (`rail_service`, §4) — a designer can restyle or
-delete a whole yard without touching the main lines. Named service ways keep
-their name as id/label; unnamed ones read "Service track (<osm id>)".
+delete a whole yard without touching the main lines. Connected fragments are
+stitched into one run only when their geometry and rail metadata agree; parallel
+tracks and branches remain separate. Display names prefer `name`, then `line`
+or `route`, then a friendly type such as "Railway · yard track" or
+"Railway · main line" (with `ref` appended when available).
 
 Inside the Metro layer, AF-05c keeps the existing ref-based line subgroup IDs
 stable and folds an unambiguously named ref-less member into that same group.
@@ -579,21 +580,11 @@ it doesn't repeat the parent's name) and **"Recreation grounds"**
 2026-07-23), superseding the 2026-07-14 call to keep it a separate bottom layer:
 it is now one true render layer, made safe by clipping landcover to its visible
 remainder in the worker (§5) so the move reorders no visible pixel. The parent
-is where the designer selects, recolours or deletes all of the map's green at
-once; each child stays independently selectable. Its **selection switch** is
-merged too (Coen 2026-07-23): in v2 the one "Parks & green" checkbox controls all
-of this group — named parks, recreation grounds, Countryside AND Sand
-(`isSelectedRenderLayer` maps landcover/beach to the parks switch, joining
-recreation). The shared layer panel is v1's and still *renders* a separate
-"Countryside" checkbox — v1 keeps its own toggle, and `script.js` stays frozen
-per §9. So the redundant row is hidden from v2's own file instead:
-`applyMergedCountrysideVisibility` (in `engine-v2.js`, which the deploy strips
-from the production index) hides the `#lyr-landcover` row whenever v2 is the
-selected engine, and shows it again for v1. The input stays in the DOM (default
-on), so `getAllSelectedLayers` still reports landcover and `isSelectedRenderLayer`
-folds it into the parks switch — the visibility change is UI-only. Guarded by
-`tests/landcover-clip.mjs` (Part D). At cutover the row can be dropped from the
-registry outright.
+is structural SVG organization; each child stays independently selectable in
+the editor. The shared panel's Natural rows, City blocks and Roads & streets
+are required and therefore render without checkboxes. Paths & trails, Transit,
+and the label rows remain optional controls. `tests/layer-selection.mjs`
+guards both the selected-id contract and the required/optional GUI rows.
 
 ## 8. v1 parity quirks, kept deliberately
 

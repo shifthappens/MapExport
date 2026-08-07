@@ -27,6 +27,12 @@ function evenOddInside(x, y, rings) {
   return inside;
 }
 
+function flattenRingParts(rings) {
+  if (Array.isArray(rings)) return rings;
+  if (!rings || typeof rings !== 'object') return [];
+  return [...(rings.outer || []), ...(rings.inner || [])];
+}
+
 function distToSegment(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1;
   const len2 = dx * dx + dy * dy;
@@ -144,7 +150,7 @@ export function checkCoverage({ X, results, data, blocks, bbox, W, H, pr, countr
       // rings are a superset of the element's own geometry, so this replaces —
       // not supplements — the raw-geometry marking below.
       if (el._mergedRings) {
-        markShape(el._mergedRings.filter(r => r.length >= 3));
+        markShape(flattenRingParts(el._mergedRings).filter(r => r.length >= 3));
         continue;
       }
       let outer, inner;

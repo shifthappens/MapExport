@@ -61,6 +61,18 @@ verify. Do not invent findings to fill space.
 `claude` is on PATH. Pin the session id yourself so follow-up rounds are
 deterministic rather than "whatever ran last":
 
+### Codex desktop permission note
+
+When Route A is launched by OpenAI Codex's shell tool on macOS, request
+escalated execution before starting `claude` or checking its authentication.
+The default Codex sandbox may not expose the macOS Keychain or allow Claude's
+local OAuth callback server. In that state `claude auth status` can report
+`loggedIn: false` even when the account is authenticated outside the sandbox,
+and `/login` can fail with a callback-server/port error. Run the same command
+with the Codex escalation flow and verify with elevated `claude auth status`.
+This note applies to the Codex caller only; leave the tracked Claude agent
+instructions under `.claude/` unchanged.
+
 ```sh
 SID=$(uuidgen | tr 'A-Z' 'a-z')
 claude -p --session-id "$SID" --agent reviewer \

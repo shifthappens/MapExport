@@ -93,12 +93,14 @@ Serve the project root through Apache with PHP enabled. The `cache/` directory m
 
 `cache.php` stores Overpass API responses as gzip-compressed JSON files in `cache/`. Cache keys follow the format `mapexport_v3_{layerId}_{queryHash}_{tileCoords}` where the query hash (FNV-1a → base36) automatically retires stale entries when layer definitions change.
 
-`cache/pinned/` is a never-expiring exception, used only in this repository:
-it holds a tracked snapshot of the 70 keys behind the seven
-`tests/real-export.mjs` validation cities. `cache.php` serves a pinned entry
-whenever the live one is missing or expired (a fresh live entry still wins), so
-the test exports run offline indefinitely and only refetch when someone runs
-`tools/pin-cache.sh refresh`. The directory is never swept, and it is not
+`cache/pinned/` is a never-expiring exception, used only in this repository. It
+holds the tracked snapshot of validation-city cache entries. The current source
+derives 77 keys for the seven `tests/real-export.mjs` validation cities; query
+changes can leave the snapshot temporarily incomplete, so check
+`tools/pin-cache.sh status` before relying on a fully offline sweep. `cache.php`
+serves a pinned entry whenever the live one is missing or expired (a fresh live
+entry still wins). Only `tools/pin-cache.sh refresh` deliberately refetches
+missing or stale validation data. The directory is never swept, and it is not
 deployed, so production keeps the plain 7-day cache.
 
 Endpoints:
@@ -130,7 +132,7 @@ All map features are defined in `LAYER_REGISTRY` — an array of layer objects w
 - `type` — `'area'`, `'line'`, `'roads'`, `'rail'`, `'labels'`, `'point'`, `'derived'`
 - Rendering hints: `fillOpacity`, `strokeWidth`, `strokeColor`, `color`
 
-Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks` (derived), `roads`, `street_labels`, `rail`, `metro`, `tram`, `transit_stops`, `water_labels`. (`block_buildings` is fetched on demand for hamlet detection, outside the registry; engine v2 adds its own fetch-only and derived layers in `engine-v2.js`.)
+Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks` (derived), `roads`, optional `paths`, `rail`, `metro`, `tram`, `transit_stops`, `street_labels`, and `water_labels` (Water & park labels). Natural layers, City blocks and Roads & streets are required in the GUI; transit, paths and labels remain selectable. (`block_buildings` is fetched on demand for hamlet detection, outside the registry; engine v2 adds its own fetch-only and derived layers in `engine-v2.js`.)
 
 ### Render pipeline (`doExport`)
 

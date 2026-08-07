@@ -86,6 +86,8 @@ export function lintSvg(svg) {
   const vb = svg.match(/viewBox="([\d.\s-]+)"/);
   if (!vb) { err('no viewBox on root <svg>'); return { errors, warnings }; }
   const [vx, vy, vw, vh] = vb[1].trim().split(/\s+/).map(Number);
+  const mapScale = vw / 4961;
+  const roadMargin = Math.max(0.75, 3 * mapScale);
   const inCanvas = (x, y, m = 0) => x >= vx - m && x <= vx + vw + m && y >= vy - m && y <= vy + vh + m;
 
   // ── junk values in attributes (NaN from a bad projection, undefined from a
@@ -101,14 +103,35 @@ export function lintSvg(svg) {
   for (const m of svg.matchAll(/<path id="(lp\d+)"[^>]*\bd="([^"]+)"/g)) pathDs.set(m[1], parsePathD(m[2]));
 
   // ── road fill paths, by street name — the ground truth for "a street
-  //    label stays inside its own street" (white stroke = road fill; the
-  //    same-name casing is wider, so fill is the strict test) ──
+  //    label stays inside its own street". Road width and colour live on the
+  //    roads_fills_<highway> parent group, not on each child path, so parse
+  //    the group style and carry it down to its named paths.
   const roadsByName = new Map(); // name -> [{ pts, halfW }]
-  for (const m of svg.matchAll(/<path id="[^"]*" inkscape:label="([^"]+)" d="([^"]+)" fill="none" stroke="#ffffff" stroke-width="([\d.]+)"/g)) {
-    const arr = roadsByName.get(m[1]) || [];
-    arr.push({ pts: parsePathD(m[2]), halfW: parseFloat(m[3]) / 2 });
-    roadsByName.set(m[1], arr);
-  }
+  const addRoadGroups = groups => {
+    for (const m of groups) {
+      const groupAttrs = parseAttrs(m[1]);
+      const groupStrokeWidth = parseFloat(groupAttrs['stroke-width']);
+      for (const p of m[2].matchAll(/<path\s+([^>]*?)\s*\/?>/g)) {
+        const attrs = parseAttrs(p[1]);
+        if (!attrs.d || !attrs['inkscape:label']) continue;
+        // Real exports inherit the width from the group. Keep the child-path
+        // fallback so small standalone lint fixtures remain useful too.
+        const strokeWidth = groupStrokeWidth > 0 ? groupStrokeWidth : parseFloat(attrs['stroke-width']);
+        if (!(strokeWidth > 0)) continue;
+        const arr = roadsByName.get(attrs['inkscape:label']) || [];
+        arr.push({ pts: parsePathD(attrs.d), halfW: strokeWidth / 2 });
+        roadsByName.set(attrs['inkscape:label'], arr);
+      }
+    }
+  };
+  // Production SVG nests concrete highway groups inside an outer
+  // `roads_fills` wrapper. The old optional-suffix regex matched that wrapper
+  // first and stopped at its first child `</g>`, so the linter silently saw
+  // only the first highway class (usually pedestrian). Parse the concrete
+  // groups directly; retain the exact `roads_fills` fallback for tiny fixtures.
+  const concreteRoadGroups = [...svg.matchAll(/<g id="roads_fills_[^"]+"([^>]*)>([\s\S]*?)<\/g>/g)];
+  if (concreteRoadGroups.length) addRoadGroups(concreteRoadGroups);
+  else addRoadGroups([...svg.matchAll(/<g id="roads_fills"([^>]*)>([\s\S]*?)<\/g>/g)]);
 
   // ── rail casings — labels must never print across the hatched rail bed
   //    (the engine stamps rail corridors into the shared label grid) ──
@@ -225,19 +248,20 @@ export function lintSvg(svg) {
 
     // ── within-street containment (street labels on a rotated baseline or a
     //    textPath; horizontal square/roundabout-centre labels are exempt) ──
-    // Every glyph-band sample must stay inside the same-name road fill
-    // (halfW + tolerance for Douglas-Peucker simplification + rounding).
+    // Every glyph-band sample must stay inside the same-name road fill, with
+    // the same visible safety margin enforced by script.js. Keep only a small
+    // 0.25px allowance for SVG coordinate rounding.
     // This is the deterministic form of "het label blijft binnen de lijntjes
     // en binnen de bounds van zijn straat".
     if (isStreet && glyphSamples && roadsByName.has(attrs['inkscape:label'])) {
       const roads = roadsByName.get(attrs['inkscape:label']);
-      let worst = 0, worstP = null;
+      let worst = -Infinity, worstP = null;
       for (const p of glyphSamples) {
         let excess = Infinity;
         for (const rd of roads) excess = Math.min(excess, distToPolyline(p, rd.pts) - rd.halfW);
         if (excess > worst) { worst = excess; worstP = p; }
       }
-      if (worst > 3.5) err(`${id}: label leaves its street by ${worst.toFixed(1)}px (at ${worstP.map(v => v.toFixed(0)).join(',')})`);
+      if (worst > -roadMargin + 0.25) err(`${id}: label leaves its street's safety margin (${worst.toFixed(1)}px relative to fill edge, at ${worstP.map(v => v.toFixed(0)).join(',')})`);
     }
 
     // canvas containment, judged per policy (Coen, 2026-07-03): a clipped

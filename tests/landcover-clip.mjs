@@ -24,7 +24,7 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const source = readFileSync(join(repoRoot, 'engine-v2.js'), 'utf8');
 const layer = id => ({ id, label: id, type: id, overpassQuery: () => '' });
 // engine-v2.js is a browser IIFE; stub the v1 globals it reaches for. Loading is
-// parameterised on the Worker class so Part E can drive computeFacesAsync with a
+// parameterised on the Worker class so Part D can drive computeFacesAsync with a
 // fake worker while the rest of the file uses the inert stub.
 const loadEngine = Worker => {
   const context = vm.createContext({
@@ -69,10 +69,11 @@ let failures = 0;
 const check = (label, pass) => { console.log(`${pass ? 'ok  ' : 'FAIL'} ${label}`); if (!pass) failures++; };
 
 const ring = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+const ringList = rings => Array.isArray(rings) ? rings : [...(rings?.outer || []), ...(rings?.inner || [])];
 // Even-odd point-in-rings: count edge crossings across ALL subpaths; odd = painted.
 const inRings = (rings, x, y) => {
   let inside = false;
-  for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+  for (const r of ringList(rings)) for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
     const xi = r[i][0], yi = r[i][1], xj = r[j][0], yj = r[j][1];
     if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
   }
@@ -147,10 +148,26 @@ const mergeData = {
 };
 const merged = run(mergeData);
 const m0 = mergeOf(merged, 0);
-check('west-strip landcover element 0 is merged (grown over the remainder gap)', !!m0 && m0.rings.length > 0);
+check('west-strip landcover element 0 is merged (grown over the remainder gap)', !!m0 && ringList(m0.rings).length > 0);
 check('a standalone building block was emitted in the green-open piece', merged.blocks.some(b => b.kind === 'building'));
 check('merged element 0 grew down over the building gap (covers y~700)', m0 && inRings(m0.rings, 20, 700));
 check('merged element 0 is CLIPPED off the building footprint (Oulu fix)', m0 && !inRings(m0.rings, 20, 800));
+
+// ── Part B2: generated holes remain holes in the worker protocol ───────────
+// A cover island inside a landcover polygon creates a new hole during the
+// difference. The worker must return that winding separately; otherwise the
+// renderer would interpret the contour as another green outer ring.
+const holeData = {
+  ...baseClipOnly,
+  landcoverElements: [{ index: 0, rings: [ring(100, 100, 900, 900)] }],
+  landcoverPolys: [ring(100, 100, 900, 900)],
+  waterPolys: [ring(400, 400, 600, 600)],
+  waterwayLines: [],
+};
+const holeResult = run({ ...holeData, coverPaints: { blocks: false, water: true, waterways: false, green: true, recreation: true } });
+const holeClip = clippedOf(holeResult, 0);
+check('generated water hole is returned as an explicit inner ring', !!holeClip && holeClip.rings.outer?.length === 1 && holeClip.rings.inner?.length === 1);
+check('generated water hole stays empty in the painted remainder', holeClip && inRings(holeClip.rings, 200, 200) && !inRings(holeClip.rings, 500, 500));
 
 // ── Part C: the export-side glue drops fully-culled elements (AF-07c P1) ──
 // The worker returning culledLandcover is only half the fix; the export code
@@ -175,23 +192,14 @@ check('glue: partially-covered element keeps its clipped remainder',
   glued.find(e => e.id === 'a')?._clippedRings?.length > 0);
 check('glue: green-remainder element keeps its merged rings',
   glued.find(e => e.id === 'c')?._mergedRings?.length > 0);
+const holedGlue = X2.applyLandcoverOcclusion(
+  [{ id: 'hole', rings: [ring(0, 0, 10, 10)] }],
+  { clippedLandcover: [{ index: 0, rings: { outer: [ring(0, 0, 10, 10)], inner: [ring(4, 4, 6, 6)] } }] },
+);
+check('glue: generated inner ring survives worker result hand-off',
+  holedGlue[0]?._clippedRings?.outer?.length === 1 && holedGlue[0]?._clippedRings?.inner?.length === 1);
 
-// ── Part D: the merged Countryside checkbox is hidden from the v2 UI ──
-// AF-07c folds Countryside into the "Parks & green" switch, so its own row must
-// not show while v2 is the active engine (and must still show for v1). Drive
-// applyMergedCountrysideVisibility with a minimal fake document.
-const fakeDoc = v2on => {
-  const row = { style: {} };
-  const input = { closest: sel => (sel === '.layer-row' ? row : null) };
-  const toggle = { checked: v2on };
-  return { row, getElementById: id => (id === 'lyr-landcover' ? input : id === 'engine-v2-toggle' ? toggle : null) };
-};
-const v2Doc = fakeDoc(true); X2.applyMergedCountrysideVisibility(v2Doc);
-check('v2 engine active: Countryside row is hidden', v2Doc.row.style.display === 'none');
-const v1Doc = fakeDoc(false); X2.applyMergedCountrysideVisibility(v1Doc);
-check('v1 engine active: Countryside row stays visible', v1Doc.row.style.display === '');
-
-// ── Part E: orchestration — the worker result reaches the glue intact ──────
+// ── Part D: orchestration — the worker result reaches the glue intact ──────
 // Parts A and C prove the two ends (the worker reports a cull; the helper drops
 // it) but neither sees the HAND-OFF between them, which is where the AF-07c P1
 // bug actually lived: a field dropped while re-packing the worker's message.
@@ -236,4 +244,4 @@ check('orchestration → glue: the culled element is gone from the painted set',
   endToEnd.length === 7 && !endToEnd.some(e => e.id === 'e7'));
 
 if (failures) { console.error(`\n${failures} failure(s)`); process.exit(1); }
-console.log('\nPASS — landcover-clip: partial/full/none clip, waterway overlap, painted-only covering, merged clip, cull-glue, v2 checkbox hidden');
+console.log('\nPASS — landcover-clip: partial/full/none clip, waterway overlap, painted-only covering, merged clip and cull-glue');

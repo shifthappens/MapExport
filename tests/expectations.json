@@ -103,19 +103,18 @@
     "labels": 203
   },
   "bremerhaven-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-bremerhaven-v2-2026-07-11-213523.svg",
+    "recorded_at": "2026-08-07",
+    "from": "map-useit-bremerhaven-v2-2026-08-07.svg",
     "layers": {
-      "roads": 1708,
+      "roads": 839,
       "rail": 61,
-      "tram": 0,
-      "metro": 0,
-      "water_labels": 24,
-      "street_labels": 774,
-      "block_buildings": 5634,
-      "area_features": 633
+      "water_labels": 33,
+      "street_labels": 777,
+      "block_buildings": 5930,
+      "place_nodes": 0,
+      "area_features": 645
     },
-    "labels": 235
+    "labels": 155
   },
   "oulu-v2": {
     "recorded_at": "2026-07-11",

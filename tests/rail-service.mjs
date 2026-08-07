@@ -48,7 +48,7 @@ function loadSandbox() {
   vm.createContext(sandbox);
   const scriptSrc = fs.readFileSync(path.join(ROOT, 'script.js'), 'utf8');
   const engineSrc = fs.readFileSync(path.join(ROOT, 'engine-v2.js'), 'utf8');
-  const tail = '\n;globalThis.__X={buildRailLayer,makeUidGen};\nglobalThis.__X2=EngineV2;';
+  const tail = '\n;globalThis.__X={buildRailLayer,makeUidGen,mergeConnectedWays,railDisplayName};\nglobalThis.__X2=EngineV2;';
   vm.runInContext(scriptSrc + '\n;\n' + engineSrc + tail, sandbox, { filename: 'rail-service-sandbox.js' });
   return { X: sandbox.__X, X2: sandbox.__X2 };
 }
@@ -82,6 +82,23 @@ const yardWays = [0, 1, 2, 3].map(k =>
 // A named siding — id/label must come from its name.
 const namedSiding = way({ railway: 'rail', service: 'siding', name: 'Sporen 9' },
   [pt(0.42, 0.20), pt(0.42, 0.55)]);
+// OSM sometimes carries a useful line designation without a way name. The
+// connected fragments should retain it as one friendly editor label.
+const lineFragmentA = way({ railway: 'rail', usage: 'main', line: 'RE 1' },
+  [pt(0.68, 0.10), pt(0.68, 0.45)]);
+const lineFragmentB = way({ railway: 'rail', usage: 'main', line: 'RE 1' },
+  [pt(0.68, 0.45), pt(0.68, 0.90)]);
+lineFragmentB.nodes[0] = lineFragmentA.nodes[1];
+const disconnectedLineFragment = way({ railway: 'rail', usage: 'main', line: 'RE 1' },
+  [pt(0.75, 0.10), pt(0.75, 0.25)]);
+const forkBase = way({ railway: 'rail', usage: 'main', line: 'RE 1' },
+  [pt(0.82, 0.20), pt(0.82, 0.45)]);
+const forkContinuation = way({ railway: 'rail', usage: 'main', line: 'RE 1' },
+  [pt(0.82, 0.45), pt(0.82, 0.70)]);
+const forkBranch = way({ railway: 'rail', usage: 'main', line: 'RE 2' },
+  [pt(0.82, 0.45), pt(0.90, 0.55)]);
+forkContinuation.nodes[0] = forkBase.nodes[1];
+forkBranch.nodes[0] = forkBase.nodes[1];
 // A service way in tunnel: the tunnel filter runs before the class split.
 const tunnelService = way({ railway: 'rail', service: 'yard', tunnel: 'yes' },
   [pt(0.30, 0.20), pt(0.30, 0.55)]);
@@ -146,11 +163,23 @@ const serviceGroup = extractGroup(svg, 'rail_service');
 const casingGroup = extractGroup(svg, 'rail_casing');
 const sleepersGroup = extractGroup(svg, 'rail_sleepers');
 const tracksGroup = extractGroup(svg, 'rail_tracks');
+const servicePaths = [...serviceGroup.matchAll(/<path id="([^"]+)" inkscape:label="([^"]+)"/g)]
+  .map(match => ({ id: match[1], label: match[2] }));
 
-check('all four unnamed yard ways render in rail_service',
-  yardWays.every(w => serviceGroup.includes(`id="rail_service_${w.id}"`)));
-check('named siding renders in rail_service under its safeName id + label',
-  /id="Sporen_9"/.test(serviceGroup) && serviceGroup.includes('inkscape:label="Sporen 9"'));
+check('all four unnamed yard ways render as named service-track paths',
+  servicePaths.filter(path => path.label === 'Railway · yard track').length === 4);
+check('named siding renders in rail_service under its friendly name + label',
+  servicePaths.some(path => path.id.startsWith('rail_service_Sporen_9') && path.label === 'Sporen 9'));
+const mergedLine = X.mergeConnectedWays([lineFragmentA, lineFragmentB]);
+check('connected rail fragments retain an OSM line designation',
+  mergedLine.length === 1 && X.railDisplayName(mergedLine[0]) === 'RE 1');
+const disconnectedMerged = X.mergeConnectedWays([lineFragmentA, lineFragmentB, disconnectedLineFragment]);
+check('disconnected rail fragments stay separate despite matching metadata',
+  disconnectedMerged.length === 2 && disconnectedMerged.every(el => X.railDisplayName(el) === 'RE 1'));
+const forkMerged = X.mergeConnectedWays([forkBase, forkContinuation, forkBranch]);
+check('rail metadata does not leak across a fork with different line designations',
+  forkMerged.length === 3 && forkMerged.filter(el => X.railDisplayName(el) === 'RE 1').length === 2
+  && forkMerged.filter(el => X.railDisplayName(el) === 'RE 2').length === 1);
 check('service ways carry per-path opacity (crossing tracks darken each other)',
   (serviceGroup.match(/opacity="0.5"/g) || []).length === 4 + 1);
 check('tunnel service way dropped entirely',
@@ -181,7 +210,7 @@ const svgFan = X2.buildSVG(buildResults(fanWays), bbox, W, null, { illustratorCo
 check('service-only frame still gets the Railways layer wrapper',
   svgFan.includes('<g id="rail" inkscape:label="Railways" inkscape:groupmode="layer">'));
 check('service-only frame: all fan ways in rail_service, no casing/sleepers/tracks groups',
-  fanWays.every(w => svgFan.includes(`id="rail_service_${w.id}"`))
+  (svgFan.match(/inkscape:label="Railway · yard track"/g) || []).length === fanWays.length
   && !svgFan.includes('rail_casing') && !svgFan.includes('rail_sleepers') && !svgFan.includes('rail_tracks'));
 
 // ── (4) v1 stays frozen: full signature for every way, no rail_service ───

@@ -303,7 +303,7 @@ function pruneIslandGreens(results) {
 
 const LAYER_REGISTRY = [
   { group: 'Natural', layers: [
-    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, docks, basins',    color:'#7eb8da', defaultOn:true,  type:'area', fillOpacity:0.85, strokeWidth:2,
+    { id:'water_bodies', label:'Water bodies',     hint:'Lakes, reservoirs, docks, basins',    color:'#7eb8da', defaultOn:true, required:true, type:'area', fillOpacity:0.85, strokeWidth:2,
       // Water SURFACES only (things that read as open water). natural=water|bay
       // plus the legacy/harbour variants that carry no natural=water of their
       // own: waterway=riverbank (pre-2018 river-area tagging), waterway=dock
@@ -313,10 +313,10 @@ const LAYER_REGISTRY = [
       // an unclosed line, handled by a separate plan.
       overpassQuery:(b)=>`wr["natural"~"water|bay"](${b});wr["waterway"~"^(riverbank|dock)$"](${b});wr["landuse"~"^(reservoir|basin)$"](${b});wr["leisure"="marina"](${b});`,
       tagFilter:el=>el.type!=='node'&&((/water|bay/.test(el.tags?.natural||''))||/^(riverbank|dock)$/.test(el.tags?.waterway||'')||/^(reservoir|basin)$/.test(el.tags?.landuse||'')||el.tags?.leisure==='marina') },
-    { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true,  type:'line', strokeWidth:12,
+    { id:'waterways',    label:'Waterways',         hint:'Rivers, canals, streams',     color:'#7eb8da', defaultOn:true, required:true, type:'line', strokeWidth:12,
       overpassQuery:(b)=>`way["waterway"~"river|canal|stream|drain"]["name"](${b});`,
       tagFilter:el=>el.type==='way'&&/river|canal|stream|drain/.test(el.tags?.waterway||'')&&el.tags?.name },
-    { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, cemeteries, gardens',     color:'#b8d89a', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
+    { id:'parks',        label:'Parks & green',     hint:'Named parks, forests, cemeteries, gardens',     color:'#b8d89a', defaultOn:true, required:true, type:'area', fillOpacity:1, strokeWidth:0,
       // Two kinds of fetch here. (1) Named green destinations big enough to
       // matter for orientation — parks, forests, cemeteries, gardens, zoos,
       // allotments — kept behind the ["name"] gate + junk-name filter in
@@ -327,7 +327,7 @@ const LAYER_REGISTRY = [
       // forest|wood are fetched nameless (a superset of their named form).
       overpassQuery:(b)=>`wr["leisure"~"^(park|garden)$"](${b});wr["landuse"~"^(grass|village_green|meadow|forest)$"](${b});wr["natural"~"^(wood|scrub|wetland|heath)$"](${b});wr["leisure"~"^(nature_reserve|recreation_ground)$"]["name"](${b});wr["landuse"~"^(cemetery|allotments|recreation_ground)$"]["name"](${b});wr["amenity"="grave_yard"]["name"](${b});wr["tourism"="zoo"]["name"](${b});`,
       tagFilter:el=>parksNamedGate(el)||isIslandGreenCandidate(el) },
-    { id:'landcover',    label:'Countryside',       hint:'Farmland & woods outside built-up areas', color:'#9ec98f', defaultOn:true,  type:'area', fillOpacity:1, strokeWidth:0,
+    { id:'landcover',    label:'Countryside',       hint:'Farmland & woods outside built-up areas', color:'#9ec98f', defaultOn:true, required:true, type:'area', fillOpacity:1, strokeWidth:0,
       // Rural land cover, fetched WITHOUT a name gate: "named destinations
       // only" is an urban rule, and in the countryside the fields and woods ARE
       // the map. It paints at the very bottom of LAYER_ORDER, so in a city
@@ -337,21 +337,18 @@ const LAYER_REGISTRY = [
       overpassQuery:(b)=>`wr["landuse"~"^(farmland|meadow|orchard|vineyard|forest)$"](${b});wr["natural"~"^(wood|scrub|heath)$"](${b});`,
       tagFilter:el=>el.type!=='node'&&!parksNamedGate(el)&&(/^(farmland|meadow|orchard|vineyard|forest)$/.test(el.tags?.landuse||'')||/^(wood|scrub|heath)$/.test(el.tags?.natural||'')) },
   ]},
-  { group: 'Built environment', layers: [
+  { group: 'Built Environment', layers: [
     // City blocks are derived, not fetched: the worker fills the negative space of
     // the road/rail/water/park network (each road-bounded face = one solid block,
     // curb-to-curb). No overpassQuery → the Overpass fetch loop skips this layer; it
     // renders from ctx.precomputedBlocks, computed from the roads/water/parks results.
-    { id:'city_blocks',  label:'City blocks',       hint:'Solid blocks filling the space between streets', color:'#d4c8b4', defaultOn:true,  type:'derived', fillOpacity:1, strokeWidth:0, strokeColor:'#b8a890' },
-    { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true,  type:'roads',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps"](${b});`,
-      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|cycleway|footway|path|pedestrian|steps)$/.test(el.tags?.highway||'') },
-    { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true,  type:'labels',
-      overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
-      // cycleway/footway deliberately absent: PATH_STYLES classes render as
-      // unlabelled dashes. overpassQuery still fetches them — the query string
-      // feeds the cache key, so narrowing it would only invalidate the cache.
-      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$/.test(el.tags?.highway||'')&&el.tags?.name },
+    { id:'city_blocks',  label:'City blocks',       hint:'Solid blocks filling the space between streets', color:'#d4c8b4', defaultOn:true, required:true, type:'derived', fillOpacity:1, strokeWidth:0, strokeColor:'#b8a890' },
+    { id:'roads',        label:'Roads & streets',   hint:'All roads, styled by type',   color:'#ffffff', defaultOn:true, required:true, type:'roads',
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|pedestrian"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|motorway_link|trunk_link|primary|secondary|primary_link|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|pedestrian)$/.test(el.tags?.highway||'') },
+    { id:'paths',        label:'Paths & trails',    hint:'Footways, paths, steps and cycleways', color:'#ffffff', defaultOn:false, type:'roads',
+      overpassQuery:(b)=>`way["highway"~"^(cycleway|footway|path|steps)$"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(cycleway|footway|path|steps)$/.test(el.tags?.highway||'') },
   ]},
   { group: 'Transit', layers: [
     { id:'rail',         label:'Railways',          hint:'Main line & narrow gauge',    color:'#444444', defaultOn:true,  type:'rail',
@@ -368,9 +365,18 @@ const LAYER_REGISTRY = [
       tagFilter:el=>el.type==='node'&&(/stop_position|platform/.test(el.tags?.public_transport||'')||el.tags?.highway==='bus_stop'||/station|halt|tram_stop/.test(el.tags?.railway||'')) },
   ]},
   { group: 'Labels', layers: [
-    { id:'water_labels', label:'Water & park names', hint:'Rivers, lakes, parks',       color:'#1a3a6a', defaultOn:true,  type:'feature_labels',
-      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});wr["natural"="water"]["name"](${b});wr["leisure"~"park|garden"]["name"](${b});`,
-      tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(el.type!=='node'&&/park|garden/.test(el.tags?.leisure||'')&&el.tags?.name) },
+    { id:'street_labels',label:'Street labels',     hint:'Road names by category',      color:'#222211', defaultOn:true, type:'labels',
+      overpassQuery:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian"]["name"](${b});`,
+      tagFilter:el=>el.type==='way'&&/^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian)$/.test(el.tags?.highway||'')&&el.tags?.name },
+    { id:'water_labels', label:'Water & park labels', hint:'Rivers, lakes, parks and recreation areas', color:'#1a3a6a', defaultOn:true, type:'feature_labels',
+      overpassQuery:(b)=>`way["waterway"~"river|canal"]["name"](${b});wr["natural"="water"]["name"](${b});wr["leisure"~"^(park|garden|nature_reserve|recreation_ground|sports_centre|pitch|stadium|golf_course|dog_park)$"]["name"](${b});wr["landuse"~"^(forest|cemetery|allotments|recreation_ground)$"]["name"](${b});wr["natural"~"^(wood|scrub|wetland|heath)$"]["name"](${b});wr["amenity"="grave_yard"]["name"](${b});wr["tourism"="zoo"]["name"](${b});`,
+      tagFilter:el=>(el.type==='way'&&/river|canal/.test(el.tags?.waterway||'')&&el.tags?.name)||(el.type!=='node'&&el.tags?.natural==='water'&&el.tags?.name)||(
+        el.type!=='node' && el.tags?.name && (
+          /^(park|garden|nature_reserve|recreation_ground|sports_centre|pitch|stadium|golf_course|dog_park)$/.test(el.tags?.leisure||'') ||
+          /^(forest|cemetery|allotments|recreation_ground)$/.test(el.tags?.landuse||'') ||
+          /^(wood|scrub|wetland|heath)$/.test(el.tags?.natural||'') ||
+          el.tags?.amenity==='grave_yard' || el.tags?.tourism==='zoo'
+        )) },
   ]},
 ];
 
@@ -391,10 +397,10 @@ const SUPERSESSIONS = {
   // roads' highway regex is a superset of street_labels' — and roads
   // doesn't require `["name"]`, so the named subset is still present.
   street_labels: [
-    { strip:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|cycleway|pedestrian|footway"]["name"](${b});`,
+    { strip:(b)=>`way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|pedestrian"]["name"](${b});`,
       requires:['roads'] },
   ],
-  // water_labels fetches four kinds of names; the river/canal and
+  // water_labels fetches several kinds of names; the river/canal and
   // natural=water slices are covered by waterways and water_bodies
   // respectively. leisure park|garden stays un-stripped: parks now fetches
   // both but name-gates them through a junk-name filter, so its slice isn't a
@@ -404,6 +410,14 @@ const SUPERSESSIONS = {
       requires:['waterways'] },
     { strip:(b)=>`wr["natural"="water"]["name"](${b});`,
       requires:['water_bodies'] },
+    { strip:(b)=>`wr["landuse"~"^(forest|cemetery|allotments|recreation_ground)$"]["name"](${b});`,
+      requires:['parks'] },
+    { strip:(b)=>`wr["natural"~"^(wood|scrub|wetland|heath)$"]["name"](${b});`,
+      requires:['parks'] },
+    { strip:(b)=>`wr["amenity"="grave_yard"]["name"](${b});`,
+      requires:['parks'] },
+    { strip:(b)=>`wr["tourism"="zoo"]["name"](${b});`,
+      requires:['parks'] },
   ],
 };
 
@@ -529,8 +543,12 @@ function renderLayers() {
     group.layers.forEach(layer => {
       const row = document.createElement('div');
       row.className = 'layer-row';
-      row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" ${layer.defaultOn?'checked':''}><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
-      row.querySelector('input').addEventListener('change', scheduleLivePreview);
+      if (layer.required) {
+        row.innerHTML = `<span class="layer-swatch" style="background:${layer.color}"></span><span>${layer.label}<br><span class="layer-hint">${layer.hint}</span></span>`;
+      } else {
+        row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" ${layer.defaultOn?'checked':''}><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
+        row.querySelector('input').addEventListener('change', scheduleLivePreview);
+      }
       list.appendChild(row);
     });
   });
@@ -1346,13 +1364,14 @@ function escXml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 const RESERVED_SVG_IDS = [
   'background', 'beach', 'buildings', 'city_blocks', 'city_blocks_buildings',
   'city_blocks_hamlets', 'fallback_blocks',
+  'building_blocks', 'built_environment',
   'landcover', 'metro', 'parks', 'parks_green',
   'parks_recreation', 'place_labels', 'place_labels_dwelling',
   'place_labels_hamlet', 'place_labels_locality', 'place_labels_village',
   'map-clip', 'map-content', 'place_nodes', 'rail', 'rail_casing', 'rail_service', 'rail_sleepers',
   'rail_tracks', 'roads', 'roads_casings', 'roads_fills',
-  'roads_junction_infill', 'roads_paths',
-  'square_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
+  'roads_junction_infill', 'roads_paths', 'paths',
+  'square_labels', 'square_plaza_labels', 'street_labels', 'transit_stops', 'tram', 'tram_casing',
   'tram_fill', 'water', 'water_bodies', 'water_labels', 'waterways',
 ];
 // Document-wide id allocator. uid(base, ...suffixes) reserves `base` and every
@@ -1401,6 +1420,29 @@ function getScaleFactor(W) {
   return W / 4961;
 }
 
+// Labels below 9pt become hard to read at the print scale this app targets.
+// SVG font-size values are CSS pixels/user units (96 px per inch), not the
+// export raster's PRINT_DPI pixels. Using PRINT_DPI here made a 9pt floor
+// appear as roughly 27pt in Inkscape (300/96 × 9pt). Keep this conversion in
+// one shared helper so every label family uses the same physical floor.
+const MIN_LABEL_PT = 9;
+const SVG_DPI = 96;
+const MIN_LABEL_PX = MIN_LABEL_PT / 72 * SVG_DPI;
+// The Illustrator export profile deliberately keeps the SVG canvas unitless:
+// its existing import contract treats one SVG unit as one Illustrator point.
+// Keep a separate numeric floor, while sharing the same style/placement math.
+const MIN_LABEL_ILLUSTRATOR_PX = MIN_LABEL_PT;
+function labelMinSize(illustratorCompatible = false) {
+  return illustratorCompatible ? MIN_LABEL_ILLUSTRATOR_PX : MIN_LABEL_PX;
+}
+function minLabelSize(size, sf, illustratorCompatible = false) {
+  // Label styles scale with the document, but the minimum is a physical
+  // readability constraint: 12 SVG px remains 9pt in standards-based SVG at
+  // every map size. Illustrator's unitless import profile uses 9 SVG units for
+  // the same 9pt floor. Do not scale either floor a second time with sf.
+  return Math.max(size * sf, labelMinSize(illustratorCompatible));
+}
+
 // ════════════════════════════════════════════════════════════════
 //  ROAD SEGMENT MERGING — stitch adjacent same-name ways into runs
 // ════════════════════════════════════════════════════════════════
@@ -1447,7 +1489,7 @@ function mergeNamedWays(elements) {
 // broken at nodes that aren't a clean degree-2 pass-through (dead ends,
 // forks/T-junctions). Leftover pure cycles (ring roads, roundabouts) are
 // each emitted as one closed run. Connections are endpoint-to-endpoint.
-function stitchWays(ways, endKey) {
+function stitchWayRuns(ways, endKey) {
   const ends = ways.map(w => [endKey(w, 0), endKey(w, 1)]);
   const at = new Map(); // endpoint key -> [way indices touching it]
   ends.forEach(([a, b], i) => {
@@ -1463,6 +1505,7 @@ function stitchWays(ways, endKey) {
   const buildChain = (i, enterKey) => {
     const begin = ends[i][0] === enterKey ? 0 : 1;
     const coords = oriented(i, begin).slice();
+    const chainIndices = [i];
     used[i] = 1;
     let cur = i, far = ends[i][begin === 0 ? 1 : 0];
     while (degree(far) === 2) {
@@ -1472,9 +1515,10 @@ function stitchWays(ways, endKey) {
       const seg = oriented(next, ns);
       for (let k = 1; k < seg.length; k++) coords.push(seg[k]); // skip shared node
       used[next] = 1;
+      chainIndices.push(next);
       cur = next; far = ends[next][ns === 0 ? 1 : 0];
     }
-    return coords;
+    return { geometry: coords, wayIndices: chainIndices };
   };
   const out = [];
   // Pass 1: open chains seeded at every non-degree-2 endpoint.
@@ -1490,16 +1534,75 @@ function stitchWays(ways, endKey) {
   return out;
 }
 
+function stitchWays(ways, endKey) {
+  return stitchWayRuns(ways, endKey).map(run => run.geometry);
+}
+
+// Rail data is usually split at every signal, crossing and tag boundary. A
+// rail run can be merged across those boundaries when its track identity is
+// compatible. Names and refs are deliberately NOT part of the key: a line
+// may be named on only some fragments. Parallel tracks remain separate because
+// they do not share endpoints, while forks stop at degree > 2 in stitchWays.
+function mergeConnectedWays(elements) {
+  const endKey = (el, end) => {
+    if (el.nodes?.length) return 'n' + (end === 0 ? el.nodes[0] : el.nodes[el.nodes.length - 1]);
+    const p = el.geometry[end === 0 ? 0 : el.geometry.length - 1];
+    return p.lat.toFixed(7) + ',' + p.lon.toFixed(7);
+  };
+  const signature = el => ['railway', 'service', 'usage', 'construction', 'disused', 'abandoned', 'gauge', 'electrified']
+    .map(k => `${k}=${el.tags?.[k] || ''}`).join('|');
+  const groups = new Map();
+  for (const el of elements) {
+    if (el.type !== 'way' || el.geometry?.length < 2) continue;
+    const key = signature(el);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(el);
+  }
+  const out = [];
+  for (const ways of groups.values()) {
+    for (const run of stitchWayRuns(ways, endKey)) {
+      const contributing = run.wayIndices.map(i => ways[i]);
+      const first = contributing[0] || ways[0];
+      const runTags = { ...(first.tags || {}) };
+      for (const key of ['name', 'ref', 'line', 'route']) {
+        const values = new Set(contributing.map(w => w.tags?.[key]).filter(Boolean));
+        if (values.size === 1) runTags[key] = [...values][0];
+        else delete runTags[key];
+      }
+      out.push({ type: 'way', id: first.id, tags: runTags, geometry: run.geometry, nodes: [] });
+    }
+  }
+  return out;
+}
+
+function railDisplayName(el) {
+  const tags = el.tags || {};
+  const designation = tags.name || tags.line || tags.route;
+  if (designation) return designation;
+  const kind = tags.service === 'yard' ? 'yard track'
+    : tags.service === 'siding' ? 'siding'
+    : tags.service === 'spur' ? 'spur'
+    : tags.service === 'crossover' ? 'crossover'
+    : tags.usage === 'main' ? 'main line'
+    : tags.railway === 'preserved' ? 'preserved line'
+    : 'track';
+  if (tags.ref) return `Railway · ${kind} ${tags.ref}`;
+  return `Railway · ${kind}`;
+}
+
 // ════════════════════════════════════════════════════════════════
 //  ROADS BUILDER
 // ════════════════════════════════════════════════════════════════
-function buildRoadsLayer(elements, pr, W, ctx) {
+function buildRoadsLayer(elements, pr, W, ctx, layerId = 'roads') {
   const sf = getScaleFactor(W);
   const eps = getEps();
   const preset = PRESETS[activePreset];
   const H = ctx?.H || W;
   const byType = new Map();
-  mergeNamedWays(elements).forEach(el => {
+  const source = layerId === 'paths'
+    ? filterMinorPaths(elements, ctx?.roadNetworkElements || [], ctx)
+    : elements.filter(el => !MINOR_PATH_RE.test(el.tags?.highway || ''));
+  mergeNamedWays(source).forEach(el => {
     if (!el.geometry?.length) return;
     const hw = el.tags?.highway||'_default';
     if (!byType.has(hw)) byType.set(hw,[]);
@@ -1525,17 +1628,19 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   const pathPaintIds = new Map();
   const canPaintPaths = !!ctx?.pathPaintDefs &&
     (waterAreaDs.length > 0 || greenAreaDs.length > 0);
-  const paintPaths = (ds, fill) => ds.map(d => `<path d="${d}" fill="${fill}" fill-rule="evenodd"/>`).join('');
+  const paintPaths = (ds, fill, closeSeams = false) => ds.map(d =>
+    `<path d="${d}" fill="${fill}" fill-rule="evenodd"${closeSeams ? ' stroke="' + fill + '" stroke-width="1" stroke-linejoin="round"' : ''}/>`
+  ).join('');
   const ensurePathPaint = (mode, baseColor) => {
     const key=`${baseColor}:${mode}`;
     if (pathPaintIds.has(key)) return pathPaintIds.get(key);
     const colorId=safeName(baseColor).replace(/^_+/, '') || 'color';
     const id=uid(`roads_path_paint_${colorId}_${mode}`, ...(mode==='hidden'?['_outside_green']:[]));
     const waterPaint=paintPaths(waterAreaDs, '#ffffff');
-    const greenPaint=paintPaths(greenAreaDs, '#ffffff');
+    const greenPaint=paintPaths(greenAreaDs, '#ffffff', true);
     if (mode==='hidden') {
       const maskId=`${id}_outside_green`;
-      const maskMarkup=`<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>${paintPaths(greenAreaDs, '#000000')}</mask>`;
+      const maskMarkup=`<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>${paintPaths(greenAreaDs, '#000000', true)}</mask>`;
       ctx.pathPaintDefs.push(maskMarkup);
       ctx.pathPaintDefs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" patternContentUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect x="0" y="0" width="${W}" height="${H}" fill="${baseColor}" mask="url(#${maskId})"/>${waterPaint}</pattern>`);
     } else {
@@ -1603,6 +1708,9 @@ function buildRoadsLayer(elements, pr, W, ctx) {
   // street passes. Area-specific path colours live in root paint patterns.
   let pathsBlock='';
   if (pathGroups) pathsBlock=`\n  <g id="roads_paths" inkscape:label="Paths &amp; trails">${pathGroups}\n  </g>`;
+  if (layerId === 'paths') return `  <g id="paths" inkscape:label="Paths &amp; trails" inkscape:groupmode="layer">${pathsBlock}
+  </g>
+`;
   return `  <g id="roads" inkscape:label="Roads &amp; streets" inkscape:groupmode="layer">${pathsBlock}\n  <g id="roads_casings" inkscape:label="Road casings">${casingGroups}\n  </g>\n  <g id="roads_fills" inkscape:label="Road fills">${fillGroups}\n  </g>\n  </g>\n`;
 }
 
@@ -1612,15 +1720,15 @@ function buildRoadsLayer(elements, pr, W, ctx) {
 function buildRailLayer(elements, pr, W, uid=makeUidGen()) {
   const sf=getScaleFactor(W), eps=getEps();
   let casings='',sleepers='',rails='';
-  elements.forEach((el,i) => {
+  mergeConnectedWays(elements).forEach((el,i) => {
     if (el.type!=='way'||!el.geometry?.length) return;
     const s=dpSimplify(el.geometry.map(g=>pr(g.lat,g.lon)),eps);
     if (s.length<2) return;
     let d=`M${s[0][0].toFixed(1)},${s[0][1].toFixed(1)}`;
     for(let j=1;j<s.length;j++) d+=`L${s[j][0].toFixed(1)},${s[j][1].toFixed(1)}`;
-    const name=el.tags?.name||el.tags?.ref||'';
-    const pid=uid(name?safeName(name):`rail_${el.id||i}`,'_casing','_sleepers');
-    const lbl=escXml(name||`Railway (${el.id||i})`);
+    const name=railDisplayName(el);
+    const pid=uid(el.tags?.name ? safeName(el.tags.name) : `rail_${el.id||i}`,'_casing','_sleepers');
+    const lbl=escXml(name);
     // Paint attributes are hoisted onto the sub-groups below (plain SVG 1.1
     // inheritance, safe everywhere incl. Illustrator). `opacity` stays on
     // each path: it is NOT an inherited property — on a group it flattens
@@ -1746,7 +1854,9 @@ const ARIAL_ADVANCE_WIDTHS = {
   's': 0.500, 't': 0.278, 'u': 0.556, 'v': 0.500, 'w': 0.722, 'x': 0.500,
   'y': 0.500, 'z': 0.500,
 };
-// Advance width of one character in px. Accented characters (É, Ü, ĳ…)
+// Advance width of one character in px. These are Arial metrics; the Linux
+// fallback Liberation Sans is deliberately chosen because it is metrically
+// compatible with Arial. Accented characters (É, Ü, ĳ…)
 // fall back to their base letter via Unicode decomposition; anything still
 // unknown uses the same 0.65em average as approxTextWidth.
 function glyphAdvanceWidth(character, fontSize) {
@@ -1765,15 +1875,97 @@ function glyphAdvanceWidth(character, fontSize) {
 function illustratorFontWeight(fontWeight) {
   return fontWeight >= 550 ? 700 : 400;
 }
-// Older Illustrator versions read a CSS font-family LIST as one literal
-// font name ("Arial,Helvetica,sans-serif" — not installed), so the
-// Illustrator pipeline names exactly one font.
-const STANDARD_FONT_FAMILY = 'Arial,Helvetica,sans-serif';
+// Arial stays canonical. Liberation Sans is a metrically compatible fallback
+// for Linux; Helvetica and the generic sans-serif cover the remaining cases.
+// Older Illustrator versions read a CSS font-family LIST as one literal font
+// name, so the Illustrator pipeline names exactly one font below.
+const STANDARD_FONT_FAMILY = "Arial,'Liberation Sans',Helvetica,sans-serif";
 const ILLUSTRATOR_FONT_FAMILY = 'Arial';
 function pathLength(pts){let l=0;for(let i=1;i<pts.length;i++)l+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);return l;}
 // Real-world length of a lat/lon polyline in metres (zoom-independent), used
 // to decide whether a street is large enough to deserve a label.
 function geoLength(geom){let m=0;for(let i=1;i<geom.length;i++){const a=geom[i-1],b=geom[i];const dx=(b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180),dy=b.lat-a.lat;m+=Math.hypot(dx,dy);}return m*111320;}
+
+const MINOR_PATH_RE = /^(cycleway|footway|path|steps)$/;
+
+// Optional paths are useful when they explain a route, but isolated scraps
+// and paths completely buried in a park add editor noise without adding map
+// information. Keep named/ref'd paths, connected path networks, and longer
+// unnamed networks. A component is considered connected when any of its OSM
+// nodes is also part of a normal road; this catches crossings even when either
+// way was split at the junction.
+function filterMinorPaths(elements, roadElements = [], ctx = null) {
+  const paths = elements.filter(el => el.type === 'way' && MINOR_PATH_RE.test(el.tags?.highway || '') && el.geometry?.length >= 2);
+  if (!paths.length) return [];
+  const roadNodeKeys = new Set();
+  const roadPointKeys = new Set();
+  const pathNodeKeys = paths.map(() => []);
+  const keysForElement = (el) => el.nodes?.length
+    ? el.nodes.map(n => `n${n}`)
+    : (el.geometry || []).map(p => `p${p.lat.toFixed(7)},${p.lon.toFixed(7)}`);
+  for (const road of roadElements) {
+    if (road.type !== 'way' || MINOR_PATH_RE.test(road.tags?.highway || '')) continue;
+    for (const n of road.nodes || []) roadNodeKeys.add(`n${n}`);
+    for (const p of road.geometry || []) roadPointKeys.add(`p${p.lat.toFixed(7)},${p.lon.toFixed(7)}`);
+  }
+  const parent = paths.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
+  const at = new Map();
+  paths.forEach((el, i) => {
+    // A path can cross another path at an internal OSM node. Treating only
+    // endpoints as graph nodes left those connected networks looking like
+    // isolated scraps and made the retention rule depend on way splitting.
+    pathNodeKeys[i] = keysForElement(el);
+    for (const key of pathNodeKeys[i]) {
+      const previous = at.get(key);
+      if (previous != null) join(i, previous);
+      at.set(key, i);
+    }
+  });
+  const groups = new Map();
+  paths.forEach((el, i) => {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push({ el, i });
+  });
+  const greenContains = (x, y) => (ctx?.greenAreaRings || []).some(({ outer, inner = [] }) =>
+    pointInRing(x, y, outer) && !inner.some(ring => pointInRing(x, y, ring)));
+  const fullyGreen = el => {
+    if (!ctx?.greenAreaRings?.length) return false;
+    const points = [];
+    for (let i = 0; i < el.geometry.length; i++) {
+      points.push(el.geometry[i]);
+      if (i) points.push({ lat: (el.geometry[i - 1].lat + el.geometry[i].lat) / 2, lon: (el.geometry[i - 1].lon + el.geometry[i].lon) / 2 });
+    }
+    return points.every(p => greenContains(...ctx.pr(p.lat, p.lon)));
+  };
+  const keep = new Set();
+  for (const members of groups.values()) {
+    const named = members.some(({ el }) => el.tags?.name || el.tags?.ref);
+    const totalLength = members.reduce((sum, { el }) => sum + geoLength(el.geometry), 0);
+    const roadConnected = members.some(({ i }) => pathNodeKeys[i].some(key =>
+      roadNodeKeys.has(key) || roadPointKeys.has(key)));
+    for (const { el, i } of members) {
+      // A short isolated path is noise whether it happens to lie on green
+      // or on the cream land underneath. Fully green scraps are additionally
+      // omitted even when their component is otherwise retained.
+      if (el.tags?.name || el.tags?.ref || roadConnected || (totalLength >= 120 && !fullyGreen(el))) keep.add(i);
+    }
+  }
+  return paths.filter((_, i) => keep.has(i));
+}
+
+function projectedAreaRings(el, pr, eps) {
+  const rings = el.type === 'way'
+    ? { outer: el.geometry ? [el.geometry] : [], inner: [] }
+    : el.type === 'relation' && el.members ? stitchMultipolygonRings(el.members) : { outer: [], inner: [] };
+  const project = ring => dpSimplify(ring.map(g => pr(g.lat, g.lon)), eps);
+  return {
+    outer: rings.outer.map(project).filter(r => r.length >= 3),
+    inner: rings.inner.map(project).filter(r => r.length >= 3),
+  };
+}
 function angleAtMid(pts){
   const total=pathLength(pts); let acc=0,mid=total*0.5;
   for(let i=1;i<pts.length;i++){
@@ -1893,6 +2085,20 @@ function abbreviateName(name){
   for(const [re,rep] of ABBREV) if(re.test(s)) s=s.replace(re,rep);
   return s;
 }
+// Return a sanctioned compact form, but never invent one. The placement code
+// will still try every candidate position and every readable font size after
+// this choice. If the official abbreviation is too long even at the 9pt floor,
+// the street simply receives no label; vowel stripping, arbitrary clipping and
+// initials are not useful map names and are deliberately forbidden.
+function compactLabel(name, maxWidth, fs, ls) {
+  const full = name.toUpperCase();
+  const abbreviated = abbreviateName(name).toUpperCase();
+  if (abbreviated === full) return null;
+  // The width arguments remain part of the helper's small test-facing API;
+  // actual fit decisions belong to the placement loop below, where the
+  // candidate can be moved and the font can be reduced only to the 9pt floor.
+  return abbreviated;
+}
 
 function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), options = {}) {
   // Illustrator pipeline: identical label PLACEMENT, different EMISSION
@@ -1907,6 +2113,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   }
   const labelFontWeight = weight => illustratorCompatible ? illustratorFontWeight(weight) : weight;
   const sf=getScaleFactor(W);
+  const eps=getEps();
   const preset=PRESETS[activePreset];
   // The export passes one grid shared with feature labels (and pre-stamped
   // rail corridors) via ctx.labelGrid; a fresh grid is only a fallback for
@@ -1939,7 +2146,10 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // (policy 2026-07-03). Entirely-outside placements used to burn the street's
   // same-name budget while being invisible — never place those.
   const fpInside =(fp,r)=>fp.every(p=>p[0]>=r&&p[0]<=W-r&&p[1]>=r&&p[1]<=H-r);
-  const fpVisible=(fp,r)=>fp.some (p=>p[0]>=-r&&p[0]<=W+r&&p[1]>=-r&&p[1]<=H+r);
+  // A clipped repeat may cross the frame edge, but its emitted baseline must
+  // still have a sample on the canvas. Testing only the expanded collision
+  // radius admitted labels whose whole glyph band was outside the frame.
+  const fpVisible=(fp)=>fp.some(p=>p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H);
   // Street names that already own at least one fully visible label (across
   // all of the street's runs) — the precondition for clipped bonus repeats.
   const fullyVisibleNames=new Set();
@@ -2017,6 +2227,7 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // QuickLook and Illustrator don't, which made labels sit on/above their
   // street in exactly the renderers designers use.
   const CAP_HALF=0.36;
+  const CAP_HEIGHT=0.72;
   // Low-pass a label baseline for per-glyph layout (Illustrator pipeline). A
   // bend narrower than a glyph is typographic noise: per-glyph layout samples
   // the tangent locally, so one letter would swallow a whole 8-11° bend while
@@ -2049,6 +2260,87 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
     }
     return samples;
   };
+  // A street label is allowed to curve only while its actual glyph band stays
+  // inside the same road corridor that supplied its baseline. Checking the
+  // source span (rather than the nearest point on the whole street) matters at
+  // loops and junctions: a smoothed label must not take a shortcut across a
+  // nearby branch and start reading as if it belonged to that other path.
+  const distanceToPolyline=(p,pts)=>{
+    let best=Infinity;
+    for(let i=1;i<pts.length;i++){
+      const [x1,y1]=pts[i-1],[x2,y2]=pts[i],dx=x2-x1,dy=y2-y1,ll=dx*dx+dy*dy;
+      const t=ll?Math.max(0,Math.min(1,((p[0]-x1)*dx+(p[1]-y1)*dy)/ll)):0;
+      best=Math.min(best,Math.hypot(p[0]-(x1+dx*t),p[1]-(y1+dy*t)));
+    }
+    return best;
+  };
+  const curveBaseline=(sub,fs)=>{
+    let source=[...sub];
+    let baseline=offsetPolyline(smoothPolyline(source),fs*CAP_HALF);
+    const a=baseline[0],b=baseline[baseline.length-1];
+    if(misoriented(b[0]-a[0],b[1]-a[1])){
+      source.reverse();
+      baseline=offsetPolyline(smoothPolyline(source),fs*CAP_HALF);
+    }
+    // The Illustrator pipeline smooths once more before placing individual
+    // glyphs. Validate that final baseline too; otherwise the two export
+    // variants could disagree about whether a bend is safe.
+    if(illustratorCompatible) baseline=smoothBaselineForGlyphLayout(baseline,fs);
+    return {source,baseline};
+  };
+  const bandFromBaseline=(baseline,fs)=>{
+    const top=[],mid=[];
+    for(let i=0;i<baseline.length;i++){
+      const p0=baseline[Math.max(0,i-1)],p1=baseline[Math.min(baseline.length-1,i+1)];
+      const dx=p1[0]-p0[0],dy=p1[1]-p0[1],l=Math.hypot(dx,dy)||1;
+      // The alphabetic baseline is on one side of the road axis; the cap top
+      // is on the opposite side. Their midpoint is the visible text ribbon's
+      // centre and is also the right collision geometry to stamp.
+      const q=[baseline[i][0]+dy/l*CAP_HEIGHT*fs,baseline[i][1]-dx/l*CAP_HEIGHT*fs];
+      top.push(q);
+      mid.push([(baseline[i][0]+q[0])/2,(baseline[i][1]+q[1])/2]);
+    }
+    return {baseline,top,mid};
+  };
+  const straightBand=(fit,lw,fs)=>{
+    const n=Math.max(2,Math.ceil(lw/6)),rad=fit.angle*Math.PI/180;
+    const ux=Math.cos(rad),uy=Math.sin(rad),vx=-uy,vy=ux;
+    const baseline=[],top=[],mid=[];
+    for(let i=0;i<=n;i++){
+      const t=i/n-0.5;
+      const mx=fit.cx+ux*lw*t,my=fit.cy+uy*lw*t;
+      baseline.push([mx+vx*CAP_HALF*fs,my+vy*CAP_HALF*fs]);
+      top.push([mx-vx*CAP_HALF*fs,my-vy*CAP_HALF*fs]);
+      mid.push([mx,my]);
+    }
+    return {baseline,top,mid};
+  };
+  const roadBandFits=(band,source,fs,roadW)=>{
+    // Keep a small visible gap to both painted road edges. The lower bound is
+    // deliberately non-zero even on a small synthetic/test canvas; at normal
+    // export scale it is 1.5 map px and is therefore visibly meaningful.
+    // 3 map px at the reference scale leaves a visibly clean gap after the
+    // road geometry is simplified. No geometric allowance is added here: the
+    // exported SVG rounds points to
+    // one decimal, and the linter keeps a small separate rounding allowance.
+    // Letting the placement engine use that allowance too can visibly consume
+    // the intended safety margin at a narrow or sharply changing road.
+    const margin=Math.max(0.75,3*sf);
+    const allowed=roadW.fillW*sf/2-margin;
+    if(allowed<=0||source.length<2) return false;
+    // Check along each segment, not only at its vertices. A smoothed curve
+    // can bow outside the source corridor between two otherwise-safe samples.
+    const sampleStep=Math.max(1,fs*0.25);
+    for(const line of [band.baseline,band.top]) for(let i=1;i<line.length;i++){
+      const [x1,y1]=line[i-1],[x2,y2]=line[i];
+      const length=Math.hypot(x2-x1,y2-y1),steps=Math.max(1,Math.ceil(length/sampleStep));
+      for(let k=0;k<=steps;k++){
+        const t=k/steps,p=[x1+(x2-x1)*t,y1+(y2-y1)*t];
+        if(distanceToPolyline(p,source)>allowed) return false;
+      }
+    }
+    return true;
+  };
   // Illustrator emission for curved labels. Illustrator's <textPath> import is
   // the worst SVG quirk this exporter deals with: before 23.0.6 it places the
   // glyphs but never rotates them, every version explodes the text into one
@@ -2058,10 +2350,10 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // standard pipeline hands to <textPath> — and Illustrator opens the group as
   // plain point text that renders identically in every version.
   const emitCurvedLabelAsGlyphs=(hw,name,attrs,label,baseline,fs)=>{
-    // The incoming baseline keeps all its curvature at discrete vertices, which
-    // a browser hides inside <textPath> but per-glyph layout does not — see
-    // smoothBaselineForGlyphLayout for why that has to be low-passed first.
-    const smoothedBaseline=smoothBaselineForGlyphLayout(baseline,fs);
+    // curveBaseline() has already applied the Illustrator low-pass before this
+    // function is called. Do not smooth a second time: another pass can pull a
+    // tight bend across a nearby branch after the containment check.
+    const smoothedBaseline=baseline;
     const arcLens=[0];
     for(let i=1;i<smoothedBaseline.length;i++)
       arcLens.push(arcLens[i-1]+Math.hypot(smoothedBaseline[i][0]-smoothedBaseline[i-1][0],smoothedBaseline[i][1]-smoothedBaseline[i-1][1]));
@@ -2109,17 +2401,14 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
   // sub-path itself is shifted perpendicular by capHeight/2). Used only for
   // genuinely curved stretches: Illustrator imports <textPath> as one
   // point-text object PER LETTER, so straight labels go through emitStraight.
-  const emitPath=(hw,name,attrs,label,sub,fs)=>{
-    sub=smoothPolyline(sub);
-    let off=offsetPolyline(sub,fs*CAP_HALF);
-    // The perpendicular shift can nudge a near-vertical chord across the
-    // reading-orientation deadband (subPath decided on the road chord, not
-    // the emitted one). Re-check on the geometry actually emitted and flip —
-    // reverse + re-offset, so the glyph side flips along with the direction.
-    const oa=off[0],ob=off[off.length-1];
-    if(misoriented(ob[0]-oa[0],ob[1]-oa[1])) off=offsetPolyline([...sub].reverse(),fs*CAP_HALF);
-    if (illustratorCompatible) { emitCurvedLabelAsGlyphs(hw,name,attrs,label,off,fs); return; }
-    const id=`lp${lpN++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(off)}"/>`);texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
+  const emitPath=(hw,name,attrs,label,sub,fs,validatedGeometry=null)=>{
+    // Reuse the exact geometry that passed roadBandFits(). Recomputing it is
+    // currently deterministic, but keeping validation and emission coupled
+    // prevents a future smoothing change from making the visible textPath
+    // differ from the geometry that was checked.
+    const {baseline}=validatedGeometry||curveBaseline(sub,fs);
+    if (illustratorCompatible) { emitCurvedLabelAsGlyphs(hw,name,attrs,label,baseline,fs); return; }
+    const id=`lp${lpN++}`;defs.push(`<path id="${id}" inkscape:label="${escXml(name)} (path)" d="${subD(baseline)}"/>`);texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" fill="${preset.labelColor}"><textPath href="#${id}" startOffset="50%">${escXml(label)}</textPath></text>`});};
   // Emit one straight label as a single rotated <text> — a real, single
   // editable text object (unlike <textPath>, which Illustrator explodes into
   // one object per letter). (cx,cy) is the centroid of the span's fitted
@@ -2162,7 +2451,12 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
     if (!el.geometry||el.geometry.length<2||!el.tags?.name) continue;
     const hw=el.tags.highway||'_default';
     if (LABEL_VISIBILITY.hasOwnProperty(hw)&&!LABEL_VISIBILITY[hw]) continue;
-    const pts=el.geometry.map(g=>pr(g.lat,g.lon));
+    // Keep label placement on the exact same simplified centreline that the
+    // roads renderer paints. Checking the unsimplified OSM geometry here can
+    // accept a label whose smoothed baseline follows a tiny source vertex,
+    // while the rendered road has already removed that vertex and takes a
+    // subtly different route at a junction.
+    const pts=dpSimplify(el.geometry.map(g=>pr(g.lat,g.lon)),eps);
     const r={el,hw,pts,lenPx:pathLength(pts),lenM:geoLength(el.geometry)};
     const a=groups.get(el.tags.name); if(a)a.push(r); else groups.set(el.tags.name,[r]);
   }
@@ -2195,7 +2489,10 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
       const best=pool.reduce((a,b)=>rankOf(a.hw)<=rankOf(b.hw)?a:b);
       const style=LABEL_STYLES[best.hw]||LABEL_STYLES._default;
       const roadW=ROAD_WIDTHS[best.hw]||ROAD_WIDTHS._default;
-      const sz=Math.min(style.size*sf, roadW.fillW*sf*0.75); if(sz<3) continue;
+      // The 9pt floor wins over the road-width heuristic. A label may be a
+      // little wider than a narrow street, but it must remain readable at the
+      // export's print scale.
+      const sz=Math.max(minLabelSize(style.size, sf, illustratorCompatible), roadW.fillW*sf*0.75);
       const ls=sz*0.08, textW=approxTextWidth(displayName,sz,ls), nameGap=style.spacing*sf*0.85;
       const all=rs.flatMap(r=>r.pts);
       const cx=all.reduce((s,p)=>s+p[0],0)/all.length, cy=all.reduce((s,p)=>s+p[1],0)/all.length;
@@ -2212,118 +2509,185 @@ function buildLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(), opti
     // Coverage-first placement: scan many positions along the run, and when
     // every spot collides at full size, progressively shrink the font until a
     // label fits. A street is only skipped when even a tiny label fits nowhere.
-    const MIN_FS=5;
     for (const {el,hw,pts,lenPx,lenM} of pool) {
       if (lenM<MIN_STREET_M) continue; // skip this street's tiny secondary stubs
       const style=LABEL_STYLES[hw]||LABEL_STYLES._default;
       const roadW=ROAD_WIDTHS[hw]||ROAD_WIDTHS._default;
-      const sz0=Math.min(style.size*sf, roadW.fillW*sf*0.75); if(sz0<3) continue;
+      // Keep the print-size floor even on narrow residential streets. The
+      // old width cap was the reason the floor could silently remove every
+      // label from a test-sized document.
+      const sz0=Math.max(minLabelSize(style.size, sf, illustratorCompatible), roadW.fillW*sf*0.75);
       const nameGap=style.spacing*sf*0.85;
+      const endPad=((roadW.fillW+roadW.casingW)*sf)/2 + 4*sf;
       const closed=pts.length>=3 && Math.hypot(pts[0][0]-pts[pts.length-1][0],pts[0][1]-pts[pts.length-1][1])<2;
       const ringLike = closed && el.tags?.junction==='roundabout';
-      // Abbreviate once the full name won't fit at the base size.
-      let label=displayName;
-      if (lenPx<approxTextWidth(label,sz0,sz0*0.08)){ const ab=abbreviateName(name).toUpperCase(); if(ab!==displayName) label=ab; }
       let pathPts=[...pts];
       const arcLens=[0]; for(let i=1;i<pathPts.length;i++) arcLens.push(arcLens[i-1]+Math.hypot(pathPts[i][0]-pathPts[i-1][0],pathPts[i][1]-pathPts[i-1][1]));
       const attrsFor=(fs,ls)=>`font-family="${labelFontFamily}" font-size="${fs.toFixed(1)}" font-weight="${labelFontWeight(style.weight)}" letter-spacing="${ls.toFixed(1)}"`;
       const subFor=(c,lw)=>subPath(pathPts,arcLens,Math.max(0,c-lw*0.55),Math.min(lenPx,c+lw*0.55));
 
-      // Roundabout: name follows the ring curve (centre it if the ring is too small).
-      if (ringLike) {
-        const ls=sz0*0.08, lw=approxTextWidth(label,sz0,ls), r=fpR(sz0), attrs=attrsFor(sz0,ls);
-        if (lenPx>=lw) {
-          const fp=fpPath(pathPts,lenPx/2-lw/2,lenPx/2+lw/2,r);
-          const mid=pointAngleAtLength(pathPts,lenPx/2);
-          // Single-placement site: entirely on the canvas or not at all.
-          if (!fpInside(fp,r)||nearName(name,mid.x,mid.y,nameGap)||!fpFits(fp,r)) continue;
-          fpStamp(fp,r); recordName(name,mid.x,mid.y); fullyVisibleNames.add(name);
-          emitPath(hw,name,attrs,label,subFor(lenPx/2,lw),sz0);
-          continue;
-        }
-        const cx=pts.reduce((s,p)=>s+p[0],0)/pts.length, cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
-        const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
-        if (!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) continue;
-        fpStamp(fp,r); recordName(name,cx,cy); fullyVisibleNames.add(name);
-        texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrs} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+sz0*0.36).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
-        continue;
-      }
+      // Label placement is deliberately staged. The order is part of the map's
+      // readability contract: a complete, straight label always wins over an
+      // abbreviation, a smaller label, or textPath. For any stage that permits
+      // a smaller label, choose the largest feasible size in the continuous
+      // interval [minimum readable size, standard size] rather than stepping
+      // through arbitrary font-size values. The first label may reach the
+      // actual 9pt floor. For a repeat of an already placed street name, the
+      // lower bound also preserves the existing anti-dwarf rule: a tiny second
+      // label is omitted instead of competing with its readable sibling.
+      const officialAbbreviation=compactLabel(name,lenPx,sz0,sz0*0.08);
+      const minFs=Math.max(labelMinSize(illustratorCompatible),placedByName.has(name)?sz0*0.75:0);
+      const fullLabel=displayName;
+      const ideal=ringLike?1:Math.max(1,Math.round(lenPx/(style.spacing*sf)));
+      const MAX_LIGHT_BEND=80;
+      const MAX_LIGHT_TURN=30;
+      // The maximum-curve fallback is for smooth bends and roundabouts, not
+      // for a hairpin or a right-angle junction. A label that follows such a
+      // turn either becomes unreadable or cuts across the inside of the bend.
+      // Keep the local turn limit below a hard corner while still allowing a
+      // long, smoothly curving road to use textPath.
+      const MAX_CURVE_TURN=75;
 
-      // Start at the largest font that fits the run length, then shrink ×0.8 on
-      // collision. At each size scan ~24 positions and place up to the ideal
-      // repeat count; stop shrinking as soon as ≥1 label lands.
-      const baseW=approxTextWidth(label,sz0,sz0*0.08);
-      const fitFs=lenPx>=baseW ? sz0 : sz0*lenPx/baseW*0.98;
-      const ideal=Math.max(1,Math.round(lenPx/(style.spacing*sf)));
-      // Keep the label text clear of the junction mouths at the run's ends —
-      // a label reaching s=0 or s=lenPx visually bleeds onto the crossing
-      // street (the reported "name pokes into another street"). If the inset
-      // range is empty at this size, the shrink loop tries a smaller font.
-      const endPad=((roadW.fillW+roadW.casingW)*sf)/2 + 4*sf;
-      // Shrink floor: shrinking exists to fit a SHORT RUN, not to squeeze
-      // dwarf labels past collisions or same-name suppression. A street with
-      // no label yet may drop to half its class size; once the name is placed
-      // anywhere, extra runs must stay near full size or go unlabelled — a
-      // 9px repeat beside a 22px sibling reads as a rendering bug (the
-      // Roggestraat case), and the histogram showed dozens of 5–9px labels.
-      const minFs=Math.max(MIN_FS, sz0*(placedByName.has(name)?0.75:0.5));
-      // A label draped over a sharp corner/tight elbow is never acceptable:
-      // glyphs jam on the inside of the kink and split on the outside
-      // regardless of size. 30° per ~2 glyph heights empirically: at 40° a
-      // kink under a label still reads as a broken word ("DOC TOR") even
-      // after baseline smoothing.
-      const MAX_TURN=30;
-      for (let fs=fitFs; fs>=minFs; fs*=0.8) {
-        const ls=fs*0.08, lw=approxTextWidth(label,fs,ls), r=fpR(fs);
-        if (lw>lenPx) continue;
-        const attrs=attrsFor(fs,ls);
-        const step=Math.max(8, lenPx/30);
-        // score every candidate by how much the label would wrap, then place
-        // the straightest first — so a label sits on a straight stretch rather
-        // than the first (possibly curved) spot that happens to fit.
-        const cands=[];
-        for (let center=lw/2+endPad; center<=lenPx-lw/2-endPad+0.5; center+=step)
-          cands.push({center, ...bendOver(pathPts,arcLens,center-lw/2,center+lw/2,fs*2.2)});
+      // A candidate scanner for one label variant at one size. It deliberately
+      // scans the whole run: a failed first position is not permission to
+      // abbreviate or shrink before the other positions have been tested.
+      const tryPlace=(label,fs,curved,bendLimit,turnLimit)=>{
+        const ls=fs*0.08,lw=approxTextWidth(label,fs,ls),r=fpR(fs);
+        const placementPad=Math.min(endPad,Math.max(0,(lenPx-lw)/2));
+        if(lw+2*placementPad>lenPx+0.5) return false;
+        const attrs=attrsFor(fs,ls),step=Math.max(8,lenPx/30),cands=[];
+        for(let center=lw/2+placementPad;center<=lenPx-lw/2-placementPad+0.5;center+=step)
+          cands.push({center,...bendOver(pathPts,arcLens,center-lw/2,center+lw/2,fs*2.2)});
         cands.sort((a,b)=>a.bend-b.bend);
-        const cap=80; // total-wrap ceiling; corners are gated by MAX_TURN above
-        // A straight label is allowed only while the road stays close to the
-        // fitted baseline on BOTH measures: within the room between glyph
-        // edge and road-fill edge (so the letters stay inside the street),
-        // and within STRAIGHT_MAX_DEV×font (so a wide road can't carry a
-        // visibly off-road straight label). Beyond either, textPath.
-        const devCap=Math.min(fs*STRAIGHT_MAX_DEV, Math.max(0.5,(roadW.fillW*sf)/2 - fs*0.36 - 1));
+        const devCap=Math.min(fs*STRAIGHT_MAX_DEV,Math.max(0.5,(roadW.fillW*sf)/2-fs*0.36-1));
         const placedC=[];
-        // Two-tier canvas policy: pass 1 places only fully-inside labels;
-        // pass 2 adds partially clipped repeats, and runs only when the name
-        // already owns a fully visible label somewhere. Entirely-offscreen
-        // candidates are never placed by either pass.
         const passPlace=(clippedPass)=>{
-          for (const c of cands) {
-            if (placedC.length>=ideal || c.bend>cap) break;
-            if (c.maxTurn>MAX_TURN) continue;
-            if (placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
+          for(const c of cands){
+            if(placedC.length>=ideal||c.bend>bendLimit) break;
+            if(c.maxTurn>turnLimit) continue;
+            // textPath is a fallback for a genuinely bending road, not a
+            // second way to draw a straight road after a collision failure.
+            // Keeping that distinction also preserves Illustrator-friendly
+            // plain text whenever the geometry permits it.
+            if(curved&&c.bend<0.5) continue;
+            if(placedC.some(pc=>Math.abs(pc-c.center)<style.spacing*sf*0.8)) continue;
             const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
-            const straight=fit.maxDev<=devCap;
-            const p=straight?{x:fit.cx,y:fit.cy}:pointAngleAtLength(pathPts,c.center);
-            if (nearName(name,p.x,p.y,nameGap)) continue;
-            // Footprint matches what is actually drawn: a straight ribbon along
-            // the fitted baseline, or a ribbon along the road for textPath.
-            const rad=fit.angle*Math.PI/180, hx=Math.cos(rad)*lw/2, hy=Math.sin(rad)*lw/2;
-            const fp=straight?fpLine(fit.cx-hx,fit.cy-hy,fit.cx+hx,fit.cy+hy,r)
-                             :fpPath(pathPts,c.center-lw/2,c.center+lw/2,r);
+            if(!curved&&fit.maxDev>devCap) continue;
+            const p=curved?pointAngleAtLength(pathPts,c.center):{x:fit.cx,y:fit.cy};
+            if(nearName(name,p.x,p.y,nameGap)) continue;
+            const source=subFor(c.center,lw);
+            const curvedGeometry=curved?curveBaseline(source,fs):null;
+            const band=curved?bandFromBaseline(curvedGeometry.baseline,fs):straightBand(fit,lw,fs);
+            if(!roadBandFits(band,curvedGeometry?.source||source,fs,roadW)) continue;
+            const fp=band.mid;
             const inside=fpInside(fp,r);
-            if (clippedPass ? (inside||!fpVisible(fp,r)) : !inside) continue;
-            if (!fpFits(fp,r)) continue;
-            fpStamp(fp,r); recordName(name,p.x,p.y);
-            if (inside) fullyVisibleNames.add(name);
-            if (straight) emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
-            else emitPath(hw,name,attrs,label,subFor(c.center,lw),fs);
+            if(clippedPass?(inside||!fpVisible(fp)):!inside) continue;
+            if(!fpFits(fp,r)) continue;
+            fpStamp(fp,r);recordName(name,p.x,p.y);
+            if(inside) fullyVisibleNames.add(name);
+            if(curved) emitPath(hw,name,attrs,label,source,fs,curvedGeometry);
+            else emitStraight(hw,name,attrs,label,fit.cx,fit.cy,fit.angle,fs);
             placedC.push(c.center);
           }
         };
         passPlace(false);
-        if (fullyVisibleNames.has(name)) passPlace(true);
-        if (placedC.length>0) break; // labelled at this size; no need to shrink further
+        if(fullyVisibleNames.has(name)) passPlace(true);
+        return placedC.length>0;
+      };
+
+      // A closed roundabout can be too small for a circumference label. Keep
+      // the same priority and use a centred editable text only as its final
+      // geometry fallback.
+      const tryCentered=(label,fs)=>{
+        const ls=fs*0.08,lw=approxTextWidth(label,fs,ls),r=fpR(fs);
+        const centre=pts.reduce((a,p)=>[a[0]+p[0],a[1]+p[1]],[0,0]);
+        const cx=centre[0]/pts.length,cy=centre[1]/pts.length,fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
+        if(!fpInside(fp,r)||nearName(name,cx,cy,nameGap)||!fpFits(fp,r)) return false;
+        fpStamp(fp,r);recordName(name,cx,cy);fullyVisibleNames.add(name);
+        texts.push({hw,name,svg:`<text id="${uid(`lbl_${safeName(name)}`)}" inkscape:label="${escXml(editorPanelName(name))}" ${attrsFor(fs,ls)} text-anchor="middle" x="${cx.toFixed(1)}" y="${(cy+fs*CAP_HALF).toFixed(1)}" fill="${preset.labelColor}">${escXml(label)}</text>`});
+        return true;
+      };
+
+      // The probing helper above cannot be used directly for optimisation:
+      // successful probes stamp the real grid. Run only the final size once;
+      // the predicate below mirrors tryPlace's geometry/collision checks by
+      // using a private candidate test, then commits through tryPlace.
+      const bestSize=(label,curved,bendLimit,turnLimit)=>{
+        const test=fs=>{
+          const ls=fs*0.08,lw=approxTextWidth(label,fs,ls),r=fpR(fs);
+          const pad=Math.min(endPad,Math.max(0,(lenPx-lw)/2));
+          if(lw+2*pad>lenPx+0.5) return false;
+          const step=Math.max(8,lenPx/30),cands=[];
+          for(let center=lw/2+pad;center<=lenPx-lw/2-pad+0.5;center+=step)
+            cands.push({center,...bendOver(pathPts,arcLens,center-lw/2,center+lw/2,fs*2.2)});
+          cands.sort((a,b)=>a.bend-b.bend);
+          const devCap=Math.min(fs*STRAIGHT_MAX_DEV,Math.max(0.5,(roadW.fillW*sf)/2-fs*0.36-1));
+          for(const c of cands){
+            if(c.bend>bendLimit) break;
+            if(c.maxTurn>turnLimit) continue;
+            if(curved&&c.bend<0.5) continue;
+            const fit=fitStraightBaseline(pathPts,arcLens,c.center-lw/2,c.center+lw/2);
+            if(!curved&&fit.maxDev>devCap) continue;
+            const p=curved?pointAngleAtLength(pathPts,c.center):{x:fit.cx,y:fit.cy};
+            if(nearName(name,p.x,p.y,nameGap)) continue;
+            const source=subFor(c.center,lw);
+            const curvedGeometry=curved?curveBaseline(source,fs):null;
+            const band=curved?bandFromBaseline(curvedGeometry.baseline,fs):straightBand(fit,lw,fs);
+            if(!roadBandFits(band,curvedGeometry?.source||source,fs,roadW)) continue;
+            const fp=band.mid;
+            if(!fpInside(fp,r)||!fpFits(fp,r)) continue;
+            return true;
+          }
+          return false;
+        };
+        if(test(sz0)) return sz0;
+        let lo=minFs,hi=sz0,best=0;
+        for(let i=0;i<14;i++){
+          const mid=(lo+hi)/2;
+          if(test(mid)){best=mid;lo=mid;}else hi=mid;
+        }
+        return best||0;
+      };
+
+      const bestCenteredSize=(label)=>{
+        const test=fs=>{
+          const ls=fs*0.08,lw=approxTextWidth(label,fs,ls),r=fpR(fs);
+          const centre=pts.reduce((a,p)=>[a[0]+p[0],a[1]+p[1]],[0,0]);
+          const cx=centre[0]/pts.length,cy=centre[1]/pts.length;
+          const fp=fpLine(cx-lw/2,cy,cx+lw/2,cy,r);
+          return fpInside(fp,r)&&!nearName(name,cx,cy,nameGap)&&fpFits(fp,r);
+        };
+        if(test(sz0)) return sz0;
+        let lo=minFs,hi=sz0,best=0;
+        for(let i=0;i<14;i++){
+          const mid=(lo+hi)/2;
+          if(test(mid)){best=mid;lo=mid;}else hi=mid;
+        }
+        return best||0;
+      };
+
+      let placed=false;
+      // 1–2: complete name, standard size, straight.
+      if(bestSize(fullLabel,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN)>=sz0-0.01) placed=tryPlace(fullLabel,sz0,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);
+      // 3: sanctioned abbreviation, standard size, straight.
+      if(!placed&&officialAbbreviation&&bestSize(officialAbbreviation,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN)>=sz0-0.01) placed=tryPlace(officialAbbreviation,sz0,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);
+      // 4: complete name, largest smaller straight size down to the floor.
+      if(!placed){const fs=bestSize(fullLabel,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);if(fs&&fs<sz0-0.01) placed=tryPlace(fullLabel,fs,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);}
+      // 5: sanctioned abbreviation, largest smaller straight size.
+      if(!placed&&officialAbbreviation){const fs=bestSize(officialAbbreviation,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);if(fs&&fs<sz0-0.01) placed=tryPlace(officialAbbreviation,fs,false,MAX_LIGHT_BEND,MAX_LIGHT_TURN);}
+
+      if(ringLike){
+        // 6: normal curved treatment, full name first.
+        if(!placed){const fs=bestSize(fullLabel,true,MAX_LIGHT_BEND,MAX_LIGHT_TURN);if(fs) placed=tryPlace(fullLabel,fs,true,MAX_LIGHT_BEND,MAX_LIGHT_TURN);}
+        // 7: maximum curve / centred roundabout treatment, then abbreviation.
+        if(!placed){const fs=bestSize(fullLabel,true,Infinity,180);if(fs) placed=tryPlace(fullLabel,fs,true,Infinity,180);else {const centred=bestCenteredSize(fullLabel);if(centred) placed=tryCentered(fullLabel,centred);}}
+        if(!placed&&officialAbbreviation){const fs=bestSize(officialAbbreviation,true,Infinity,180);if(fs) placed=tryPlace(officialAbbreviation,fs,true,Infinity,180);else {const centred=bestCenteredSize(officialAbbreviation);if(centred) placed=tryCentered(officialAbbreviation,centred);}}
+      } else {
+        // 6: complete name on a light/gentle curved textPath.
+        if(!placed){const fs=bestSize(fullLabel,true,MAX_LIGHT_BEND,MAX_LIGHT_TURN);if(fs) placed=tryPlace(fullLabel,fs,true,MAX_LIGHT_BEND,MAX_LIGHT_TURN);}
+        // 7: only after that, allow the maximum curve and the sanctioned
+        // abbreviation. A name with no viable stage simply gets no label.
+        if(!placed) for(const label of [fullLabel,officialAbbreviation].filter(Boolean)) { const fs=bestSize(label,true,Infinity,MAX_CURVE_TURN); if(fs){placed=tryPlace(label,fs,true,Infinity,MAX_CURVE_TURN);if(placed)break;} }
       }
     }
   }
@@ -2374,6 +2738,11 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
   // dedupes same-named candidates by geographic distance so only the
   // dominant segment ever reaches the grid.
   const candidates=[];
+  const labelOuterRings = (el) => {
+    if (el.type === 'way' && el.geometry?.length) return [el.geometry];
+    if (el.type === 'relation' && el.members) return stitchMultipolygonRings(el.members).outer;
+    return [];
+  };
   elements.forEach(el=>{
     const name=el.tags?.name; if (!name) return;
     let cx,cy,sz,weight,color,sizeMetric=0;
@@ -2383,13 +2752,25 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
       if (el.type!=='way'||!el.geometry?.length) return;
       const pts=el.geometry.map(g=>pr(g.lat,g.lon));
       const mid=pts[Math.floor(pts.length/2)]; [cx,cy]=mid;
-      sz=26*sf; weight=400; color='#3a6a9a';
+      sz=minLabelSize(26, sf, illustratorCompatible); weight=400; color='#3a6a9a';
       // Size metric: total projected polyline length, so the longest run of
       // a multi-way river wins the dedup below.
       for (let i=1;i<pts.length;i++) sizeMetric+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
-    } else if (natural==='water'||leisure==='park'||leisure==='garden') {
-      if (el.type==='way'&&el.geometry?.length) {
-        const pts=el.geometry.map(g=>pr(g.lat,g.lon));
+    } else if (natural==='water'||leisure==='park'||leisure==='garden'||
+               leisure==='nature_reserve'||leisure==='recreation_ground'||leisure==='sports_centre'||
+               leisure==='pitch'||leisure==='stadium'||leisure==='golf_course'||leisure==='dog_park'||
+               el.tags?.landuse==='forest'||el.tags?.landuse==='cemetery'||
+               el.tags?.landuse==='allotments'||el.tags?.landuse==='recreation_ground'||
+               natural==='wood'||natural==='scrub'||natural==='wetland'||natural==='heath'||
+               el.tags?.amenity==='grave_yard'||el.tags?.tourism==='zoo') {
+      const outerRings = labelOuterRings(el);
+      if (outerRings.length) {
+        // Overpass puts multipolygon geometry on relation members. Anchor on
+        // the largest outer ring instead of dropping the named relation.
+        const projectedRings = outerRings.map(ring => ring.map(g=>pr(g.lat,g.lon)));
+        const area = ring => (Math.max(...ring.map(p=>p[0]))-Math.min(...ring.map(p=>p[0]))) *
+          (Math.max(...ring.map(p=>p[1]))-Math.min(...ring.map(p=>p[1])));
+        const pts = projectedRings.sort((a,b)=>area(b)-area(a))[0];
         cx=pts.reduce((s,p)=>s+p[0],0)/pts.length;
         cy=pts.reduce((s,p)=>s+p[1],0)/pts.length;
         // Size metric: √(projected bounding-box area) — a characteristic
@@ -2402,7 +2783,7 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
         sizeMetric=Math.sqrt((Math.max(...xs)-Math.min(...xs))*(Math.max(...ys)-Math.min(...ys)));
       } else if (el.type==='node') { [cx,cy]=pr(el.lat,el.lon); }
       else return;
-      sz=natural==='water'?24*sf:22*sf; weight=400;
+      sz=minLabelSize(natural==='water'?24:22, sf, illustratorCompatible); weight=400;
       color=natural==='water'?'#3a6a9a':'#3a6a3a';
     } else return;
 
@@ -2477,7 +2858,7 @@ function buildFeatureLabelsLayer(elements, pr, W, H, sharedGrid, uid=makeUidGen(
   });
 
   if (!labels) return '';
-  return `  <g id="water_labels" inkscape:label="Water &amp; park names" inkscape:groupmode="layer">\n    ${labels}\n  </g>\n`;
+  return `  <g id="water_labels" inkscape:label="Water &amp; park labels" inkscape:groupmode="layer">\n    ${labels}\n  </g>\n`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2955,7 +3336,7 @@ function prepareBlockData(allResults, pr, W, H, b) {
     // Roads → lines with half-width (merged first: simplifying a stitched
     // run gives different points than simplifying its pieces, and the
     // renderer strokes the stitched run)
-    if (layer.type === 'roads') {
+    if (layer.id === 'roads') {
       for (const el of mergeNamedWays(data.elements)) {
         const hw = el.tags?.highway || '_default';
         if (!BLOCK_ROADS.has(hw)) continue;
@@ -3173,7 +3554,7 @@ function renderLayerSVG({ layer, data }, ctx) {
   if (!data?.elements?.length) return '';
   const elements = data.elements.filter(el => elementInBbox(el, b));
   if (!elements.length) return '';
-  if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W,ctx);
+  if (layer.type==='roads')          return buildRoadsLayer(elements,pr,W,ctx,layer.id);
   if (layer.type==='rail') {
     const svg=buildRailLayer(elements,pr,W,ctx.uid);
     // The hatched rail bed must stay label-free: claim its corridor in the
@@ -3182,7 +3563,7 @@ function renderLayerSVG({ layer, data }, ctx) {
     // grid.hits adds the label's own ribbon radius on top.
     if (ctx.labelGrid && svg) {
       const rr=8*getScaleFactor(W);
-      for (const el of elements) {
+      for (const el of mergeConnectedWays(elements)) {
         if (el.type!=='way'||!el.geometry?.length) continue;
         stampPolyline(ctx.labelGrid, el.geometry.map(g=>pr(g.lat,g.lon)), rr);
       }
@@ -3255,10 +3636,15 @@ function renderLayerSVG({ layer, data }, ctx) {
       }
       if (!d) return;
       const fill = cover === 'forest' || cover === 'wood' ? preset.park : preset.field;
+      const rings = projectedAreaRings(el, pr, EPS.area_large);
+      if (fill === preset.park) {
+        for (const outer of rings.outer) if (ctx.greenAreaRings) ctx.greenAreaRings.push({ outer, inner: rings.inner });
+        if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
+      }
       const name = el.tags?.name;
       const id = name ? uid(`landcover_${safeName(name)}`) : uid(`landcover_${cover}${el.id ? '_' + el.id : ''}`);
       const label = name || cover.replace(/^\w/, c => c.toUpperCase());
-      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="none"/>`;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fill}" fill-rule="evenodd" stroke="${fill}" stroke-width="1" stroke-linejoin="round"/>`;
     });
     if (!content) return '';
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
@@ -3278,6 +3664,8 @@ function renderLayerSVG({ layer, data }, ctx) {
       }
       if (!d) return;
       if (ctx.greenAreaDs) ctx.greenAreaDs.push(d);
+      const rings = projectedAreaRings(el, pr, EPS.area_large);
+      for (const outer of rings.outer) if (ctx.greenAreaRings) ctx.greenAreaRings.push({ outer, inner: rings.inner });
       // Named greens keep their name as id + label. A nameless element only
       // reaches here after pruneIslandGreens confirmed it sits inside a water
       // island, so its id/label come from the land-cover tag instead.
@@ -3288,7 +3676,7 @@ function renderLayerSVG({ layer, data }, ctx) {
         id = uid(`green_${cover}${el.id ? '_' + el.id : ''}`);
         label = cover.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
       }
-      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="none"/>`;
+      content += `<path id="${id}" inkscape:label="${escXml(label)}" d="${d}" fill="${fillColor}" fill-rule="evenodd" stroke="${fillColor}" stroke-width="1" stroke-linejoin="round"/>`;
     });
     if (!content) return '';
     return `  <g id="${layer.id}" inkscape:label="${escXml(layer.label)}" inkscape:groupmode="layer">\n    ${content}\n  </g>\n`;
@@ -3333,7 +3721,7 @@ function renderLayerSVG({ layer, data }, ctx) {
 // possible anchor, so they stamp the shared label grid first and the
 // flexible street labels dodge them. Z-order between the two label groups
 // is irrelevant — the shared grid guarantees they never overlap.
-const LAYER_ORDER = ['landcover','water_bodies','waterways','city_blocks','parks','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
+const LAYER_ORDER = ['landcover','water_bodies','waterways','city_blocks','parks','paths','roads','rail','tram','metro','transit_stops','water_labels','street_labels'];
 
 function buildSVGContext(b, W, precomputedBlocks, options = {}) {
   const { pr, H } = makeProjector(b, W);
@@ -3353,6 +3741,8 @@ function buildSVGContext(b, W, precomputedBlocks, options = {}) {
     // change colour over water or green without a duplicate geometry object.
     waterAreaDs: [],
     greenAreaDs: [],
+    greenAreaRings: [],
+    roadNetworkElements: [],
     pathPaintDefs: [],
     // One collision grid for the whole export: rail corridors stamp it,
     // then feature labels, then street labels — nothing can overlap.
@@ -3462,6 +3852,7 @@ function buildSVG(results, b, W, physicalWidthMm=null, precomputedBlocks=null, o
   // prepareBlockData already ran this when blocks were computed).
   pruneIslandGreens(results);
   const ctx = buildSVGContext(b, W, precomputedBlocks, options);
+  ctx.roadNetworkElements = results.find(r => r.layer.id === 'roads')?.data?.elements || [];
   let layersSVG = '';
   for (const r of sortedResults(results)) layersSVG += renderLayerSVG(r, ctx);
   return ctx.illustratorCompatible
@@ -3475,7 +3866,9 @@ function getExportWidth(b) {
 
 function getAllSelectedLayers() {
   const layers=[];
-  LAYER_REGISTRY.forEach(g=>g.layers.forEach(l=>{ if(document.getElementById('lyr-'+l.id)?.checked) layers.push(l); }));
+  LAYER_REGISTRY.forEach(g=>g.layers.forEach(l=>{
+    if (l.required || document.getElementById('lyr-'+l.id)?.checked) layers.push(l);
+  }));
   return layers;
 }
 
@@ -3914,7 +4307,7 @@ async function doExport() {
   // ── Tile-first combined fetching ─────────────────────────────
   // Instead of one API call per tile per layer, we combine all
   // uncached layers into a single Overpass query per tile, then
-  // split the response by tagFilter. For 10 layers × 4 tiles this
+  // split the response by tagFilter. For 11 layers × 4 tiles this
   // reduces 40 API calls down to at most 4.
   const layerElements={}; // layerId -> [...elements across tiles]
   selected.forEach(l=>{ layerElements[l.id]=[]; });
@@ -4106,6 +4499,7 @@ async function doExport() {
   // Stage — render SVG, per-layer
   progress.setStage('render_svg', 'active', { detail: 'Preparing…' });
   const ctx = buildSVGContext(bbox, W, precomputedBlocks, { illustratorCompatible });
+  ctx.roadNetworkElements = results.find(r => r.layer.id === 'roads')?.data?.elements || [];
   const ordered = sortedResults(results);
   let layersSVG = '';
   const renderStart = needsBlocks ? 90 : 70;

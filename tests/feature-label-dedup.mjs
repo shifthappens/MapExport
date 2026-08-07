@@ -15,6 +15,7 @@ import { loadAppSandbox } from './lib.mjs';
 
 const X = loadAppSandbox([
   'buildFeatureLabelsLayer', 'makeFootprintGrid', 'makeProjector', 'getScaleFactor',
+  'MIN_LABEL_PX', 'MIN_LABEL_ILLUSTRATOR_PX',
 ]);
 
 let pass = 0, fail = 0;
@@ -52,7 +53,15 @@ const rectWay = (tags, cLatFrac, cLonFrac, halfLatFrac, halfLonFrac) => ({
     pt(cLatFrac - halfLatFrac, cLonFrac - halfLonFrac),
   ],
 });
-const run = els => X.buildFeatureLabelsLayer(els, pr, W, H);
+const namedRelation = {
+  type: 'relation', id: 903,
+  tags: { leisure: 'park', name: 'Bezirkssportanlage Relation' },
+  members: [{
+    type: 'way', ref: 904, role: 'outer',
+    geometry: rectWay({}, 0.50, 0.72, 0.04, 0.08).geometry,
+  }],
+};
+const run = (els, options = {}) => X.buildFeatureLabelsLayer(els, pr, W, H, undefined, undefined, options);
 const textsOf = svg => [...svg.matchAll(/<text [^>]*>[^<]*<\/text>/g)].map(t => t[0]);
 const xyOf = t => {
   const x = t.match(/ x="(-?[\d.]+)"/), y = t.match(/ y="(-?[\d.]+)"/);
@@ -123,6 +132,48 @@ const xyOf = t => {
   check('(e) duplicate "Meer" suppressed: exactly one Meer label', meerCount === 1, `${meerCount} labels`);
   check('(e) suppressed label claims no grid space: the park at the same spot still gets labelled',
     svg.includes('>Robert Hoozeepark<'), svg.slice(0, 200));
+}
+
+// (e2) named recreational land is part of the same feature-label contract as
+// parks. These two real-world-shaped names must not depend on a leisure=park
+// tag to become visible labels.
+{
+  const svg = run([
+    rectWay({ leisure: 'sports_centre', name: 'Bezirkssportanlage Mitte' }, 0.20, 0.72, 0.04, 0.08),
+    rectWay({ landuse: 'allotments', name: 'KGV Reuterhamm' }, 0.80, 0.72, 0.04, 0.08),
+  ]);
+  check('(e2) named sports centre receives a visible label', svg.includes('>Bezirkssportanlage Mitte<'));
+  check('(e2) named allotments receive a visible label', svg.includes('>KGV Reuterhamm<'));
+}
+
+// (e3) named multipolygon relations carry their label on the outer ring,
+// rather than disappearing because the relation itself has no geometry array.
+{
+  const svg = run([namedRelation]);
+  check('(e3) named multipolygon relation receives a visible label',
+    svg.includes('>Bezirkssportanlage Relation<'));
+}
+
+// (e4) feature labels, including river/canal names, respect the 9pt print
+// floor at the current scale.
+{
+  const svg = run([riverWay('Minimum Canal', 0.50, 0.40, 0.60), namedRelation]);
+  const sizes = [...svg.matchAll(/font-size="([\d.]+)"/g)].map(m => +m[1]);
+  check('(e4) feature labels never render below the 9pt floor',
+    sizes.length > 0 && sizes.every(size => size >= X.MIN_LABEL_PX - 0.1));
+}
+
+// (e5) Illustrator uses the same physical floor, but its unitless import
+// profile maps one SVG unit to one point rather than CSS px at 96dpi. The
+// park style is deliberately small enough to exercise that separate floor.
+{
+  const park = rectWay({ leisure: 'park', name: 'Illustrator Park' }, 0.25, 0.25, 0.02, 0.03);
+  const svg = run([park], { illustratorCompatible: true });
+  const sizes = [...svg.matchAll(/font-size="([\d.]+)"/g)].map(m => +m[1]);
+  check('(e5) Illustrator feature labels use a 9pt numeric floor',
+    sizes.length > 0 && sizes.every(size => size >= X.MIN_LABEL_ILLUSTRATOR_PX - 0.1));
+  check('(e5) Illustrator floor is distinct from the standards SVG floor',
+    sizes.length > 0 && sizes.some(size => size < X.MIN_LABEL_PX - 0.1));
 }
 
 // (g) cross-name grid priority is by COMPARABLE px extent: a long river must

@@ -9,7 +9,7 @@
 #
 #   tools/pin-cache.sh status    what is pinned, what is live, what is missing
 #   tools/pin-cache.sh pin       copy the current live entries into pinned/
-#   tools/pin-cache.sh refresh   re-fetch all 70 keys from Overpass, then pin
+#   tools/pin-cache.sh refresh   re-fetch all 77 keys from Overpass, then pin
 #
 # The key list is derived from the app sources by
 # tools/prefetch-validation-cache.mjs --list-keys, so it follows layer/query
@@ -120,7 +120,7 @@ restore_stash() {
     echo "WARNING: $STASH still holds entries that could not be restored" >&2
 }
 
-# Explicit refresh: really go back to Overpass for all 70 keys.
+# Explicit refresh: really go back to Overpass for all 77 keys.
 #
 # The prefetcher only fetches what the cache cannot already answer, so two
 # things must be out of the way: pinned serving (the .disabled marker) and the
