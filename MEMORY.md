@@ -1,6 +1,6 @@
 - [MapExport overview](memory/project_mapexport.md) — USE-IT City Map Builder: architecture, colors, layers, block generation, parks filtering
 - [Engine v2 contract](ENGINE-V2.md) — binding invariants for `engine-v2.js` (coverage promise, complement rule, paint order); read before touching v2. v1 stays production until cutover.
-- [Deploy target](memory/reference_deploy.md) — SSH/rsync details for coen.at server
+- [Deploy target](memory/reference_deploy.md) — SSH/rsync details for coen.at server (file is gitignored/untracked since 2026-08-08, present locally only)
 - [Workflow preferences](memory/feedback_workflow.md) — Don't auto-deploy, minified files gitignored (generated, never committed), deploy.sh gitignored
 - [Reference materials](memory/reference_materials.md) — Tutorial PDF and Ghent .ai file in references/ folder
 - [Self-hosted Overpass](memory/reference_self_hosted_overpass.md) — Hardware/cost/difficulty background; production-primary idea still parked, dev/test-only variant now planned in `plans/2026-07-13_local-overpass-dev-instance.md`

@@ -38,7 +38,7 @@ jobs:
       - name: Trust host key
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
       # This account (mapexport-deploy) is a restricted, non-root user that
       # only owns the files listed below inside DEPLOY_PATH — it can't touch
@@ -47,7 +47,7 @@ jobs:
       # memory/reference_deploy.md for how it was set up.
       - name: Sync production files (whitelist only)
         run: |
-          rsync -avz --delete \
+          rsync -avz --delete -e "ssh -p ${{ secrets.DEPLOY_PORT }}" \
             --include='/script.min.js' \
             --include='/style.min.css' \
             --include='/cache.php' \
@@ -58,7 +58,7 @@ jobs:
 
       - name: Sync production index.html
         run: |
-          rsync -avz /tmp/prod-index.html \
+          rsync -avz -e "ssh -p ${{ secrets.DEPLOY_PORT }}" /tmp/prod-index.html \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}index.html"
 
       # rsync -a syncs the target directory's own permissions from the local
@@ -67,5 +67,5 @@ jobs:
       # Re-assert it every run so it can never drift.
       - name: Restore sticky bit on deploy directory
         run: |
-          ssh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+          ssh -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "chmod 1755 ${{ secrets.DEPLOY_PATH }}"

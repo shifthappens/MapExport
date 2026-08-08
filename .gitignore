@@ -19,3 +19,6 @@ cache/.refresh-stash/
 # Generated build artifacts — regenerate with `bash tools/minify.sh`, never commit.
 /script.min.js
 /style.min.css
+
+# Runbook with server access details — kept local, not published to this public repo.
+memory/reference_deploy.md
