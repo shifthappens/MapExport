@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Map Output Colors" subtitle="SVG layer colors for USE-IT preset" viewport="700x250" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f7f4ed;font-family:'Geist Mono',monospace;padding:20px}
+.title{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#7c7b68;margin-bottom:10px}
+.map-preview{border:1px solid #d4cebc;border-radius:2px;overflow:hidden;margin-bottom:10px}
+.swatches{display:flex;gap:6px;flex-wrap:wrap}
+.swatch{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#fff;border:1px solid #d4cebc;border-radius:2px;flex:1;min-width:120px}
+.dot{width:16px;height:16px;border-radius:2px;flex-shrink:0}
+.info{flex:1}
+.info-name{font-size:9.5px;color:#3d3d2e}
+.info-hex{font-size:9px;color:#7c7b68}
+</style></head><body>
+<div class="title">Map Output — USE-IT Preset</div>
+<svg width="100%" height="120" viewBox="0 0 660 120" xmlns="http://www.w3.org/2000/svg" class="map-preview">
+  <rect width="660" height="120" fill="#ffffff"/>
+  <!-- Blocks -->
+  <rect x="20" y="14" width="80" height="45" fill="#FEF6ED" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="115" y="14" width="55" height="45" fill="#FEF6ED" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="185" y="14" width="90" height="45" fill="#FEF6ED" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="20" y="70" width="65" height="38" fill="#FEF6ED" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="100" y="70" width="90" height="38" fill="#FEF6ED" stroke="#F4AFA7" stroke-width="1"/>
+  <!-- Water -->
+  <rect x="295" y="14" width="130" height="94" fill="#A4DBF3"/>
+  <!-- Park -->
+  <rect x="440" y="14" width="100" height="55" fill="#51A886"/>
+  <!-- Roads -->
+  <rect x="0" y="60" width="290" height="10" fill="#ffffff" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="100" y="0" width="10" height="60" fill="#ffffff" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="175" y="0" width="10" height="120" fill="#ffffff" stroke="#F4AFA7" stroke-width="1"/>
+  <rect x="0" y="108" width="290" height="8" fill="#ffffff" stroke="#F4AFA7" stroke-width="1"/>
+  <!-- Rail -->
+  <line x1="440" y1="80" x2="660" y2="80" stroke="#3d3d2e" stroke-width="2" stroke-dasharray="6,3"/>
+</svg>
+<div class="swatches">
+  <div class="swatch"><div class="dot" style="background:#FEF6ED;border:1px solid #F4AFA7"></div><div class="info"><div class="info-name">Buildings</div><div class="info-hex">#FEF6ED / #F4AFA7</div></div></div>
+  <div class="swatch"><div class="dot" style="background:#A4DBF3"></div><div class="info"><div class="info-name">Water</div><div class="info-hex">#A4DBF3</div></div></div>
+  <div class="swatch"><div class="dot" style="background:#51A886"></div><div class="info"><div class="info-name">Parks</div><div class="info-hex">#51A886</div></div></div>
+  <div class="swatch"><div class="dot" style="background:#ffffff;border:1px solid #F4AFA7"></div><div class="info"><div class="info-name">Roads</div><div class="info-hex">#fff / #F4AFA7</div></div></div>
+</div>
+</body></html>

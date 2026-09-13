@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Panels & Layers" subtitle="Sidebar panels, step labels, layer rows" viewport="700x360" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Apfel Grotezk',sans-serif;padding:20px}
+.panel{padding:14px 16px;border:2.5px solid #ddd6b4;border-radius:2px;background:#fff;margin-bottom:10px}
+.panel-label{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.step-num{width:22px;height:22px;border-radius:50%;border:2.5px solid #f4501e;display:inline-flex;align-items:center;justify-content:center;font-family:'Mayonnaise',sans-serif;font-size:13px;font-weight:900;color:#f4501e;flex-shrink:0}
+.panel-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;color:#18180f}
+.help-btn{margin-left:auto;width:20px;height:20px;border-radius:50%;border:2px solid #ddd6b4;background:none;font-family:'Mayonnaise',sans-serif;font-size:11px;font-weight:700;color:#8a8870;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bbox{padding:10px 12px;background:#f5edcc;border:2px solid #ece2b8;border-radius:2px;font-family:'Apfel Grotezk',sans-serif;font-size:14px;font-weight:500;line-height:1.8;color:#3d3d2e}
+.layer-row{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:2px;cursor:pointer}
+.layer-row:hover{background:#f5edcc}
+.layer-swatch{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.layer-label{font-family:'Apfel Grotezk',sans-serif;font-size:15px;font-weight:500;color:#18180f;flex:1}
+.layer-hint{font-family:'Mayonnaise',sans-serif;font-size:12px;font-weight:700;color:#bfbb9e;text-transform:uppercase;letter-spacing:.5px}
+input[type=checkbox]{width:15px;height:15px;accent-color:#f4501e;cursor:pointer;flex-shrink:0}
+</style></head><body>
+
+<div class="panel">
+  <div class="panel-label">
+    <span class="step-num">1</span>
+    <span class="panel-title">Select Export Area</span>
+    <button class="help-btn">?</button>
+  </div>
+  <div class="bbox">N 51.0621 &nbsp;&nbsp; S 51.0340<br>W 3.6881 &nbsp;&nbsp; E 3.7521</div>
+</div>
+
+<div class="panel">
+  <div class="panel-label">
+    <span class="step-num">2</span>
+    <span class="panel-title">Map Layers</span>
+    <button class="help-btn">?</button>
+  </div>
+  <label class="layer-row"><input type="checkbox" checked><span class="layer-swatch" style="background:#F4AFA7"></span><span class="layer-label">Roads</span></label>
+  <label class="layer-row"><input type="checkbox" checked><span class="layer-swatch" style="background:#FEF6ED;border:1.5px solid #F4AFA7"></span><span class="layer-label">Buildings</span></label>
+  <label class="layer-row"><input type="checkbox" checked><span class="layer-swatch" style="background:#51A886"></span><span class="layer-label">Parks</span></label>
+  <label class="layer-row"><input type="checkbox" checked><span class="layer-swatch" style="background:#A4DBF3"></span><span class="layer-label">Water</span></label>
+  <label class="layer-row"><input type="checkbox"><span class="layer-swatch" style="background:#3d3d2e"></span><span class="layer-label">Metro</span><span class="layer-hint">off</span></label>
+</div>
+
+</body></html>

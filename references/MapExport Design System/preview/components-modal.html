@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Help Modal" subtitle="Modal with bold title, tip callout" viewport="700x220" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Apfel Grotezk',sans-serif;padding:20px}
+.modal-box{background:#fff;border:2.5px solid #ddd6b4;border-radius:2px;width:320px;overflow:hidden}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:2px solid #f5edcc;background:#fff}
+.modal-title{font-family:'Mayonnaise',sans-serif;font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#18180f}
+.modal-close{background:none;border:2px solid #ddd6b4;border-radius:50%;width:24px;height:24px;font-size:13px;font-weight:700;color:#8a8870;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.modal-close:hover{border-color:#f4501e;color:#f4501e}
+.modal-body{padding:16px;font-size:15px;font-weight:400;color:#3d3d2e;line-height:1.6}
+.modal-body p{margin-bottom:12px}
+.modal-body p:last-child{margin-bottom:0}
+.modal-body strong{font-weight:600;color:#18180f}
+.tip{margin-top:12px;padding:10px 14px;background:#f5edcc;border-left:4px solid #f4501e;border-radius:0 2px 2px 0;font-size:14px;font-weight:500;color:#8a8870}
+.tip strong{color:#f4501e}
+</style></head><body>
+
+<div class="modal-box">
+  <div class="modal-header">
+    <span class="modal-title">Select Export Area</span>
+    <button class="modal-close">✕</button>
+  </div>
+  <div class="modal-body">
+    <p>Click <strong>Draw Rectangle</strong> then drag on the map to select the area you want to export.</p>
+    <p>Keep your selection tight — large areas take much longer to process.</p>
+    <div class="tip">Tip: use <strong>Admin Boundary</strong> to auto-select a city's official outline.</div>
+  </div>
+</div>
+
+</body></html>

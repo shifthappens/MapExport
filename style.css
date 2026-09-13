@@ -1,8 +1,8 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
-@font-face{font-family:'Mayonnaise';font-weight:900;font-style:normal;src:url('fonts/Mayonnaise_Black.woff2') format('woff2');font-display:swap}
-@font-face{font-family:'Apfel Grotezk';font-weight:400;font-style:normal;src:url('fonts/Apfel_Grotezk_Regular.woff2') format('woff2');font-display:swap}
-@font-face{font-family:'Apfel Grotezk';font-weight:700;font-style:normal;src:url('fonts/Apfel_Grotezk_Fett.woff2') format('woff2');font-display:swap}
+@font-face{font-family:'Mayonnaise';font-weight:900;font-style:normal;src:url('references/MapExport%20Design%20System/fonts/Mayonnaise_Black.woff2') format('woff2');font-display:swap}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;font-style:normal;src:url('references/MapExport%20Design%20System/fonts/Apfel_Grotezk_Regular.woff2') format('woff2');font-display:swap}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;font-style:normal;src:url('references/MapExport%20Design%20System/fonts/Apfel_Grotezk_Fett.woff2') format('woff2');font-display:swap}
 
 :root{
   --ink:#18180f;--ink2:#3d3d2e;--muted:#8a8870;

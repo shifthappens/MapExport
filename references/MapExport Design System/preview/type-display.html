@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Type" name="Display Type — Barlow Condensed" subtitle="Bold condensed display — wordmark, headlines, badges" viewport="700x320" -->
+<html><head><meta charset="UTF-8">
+<head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;padding:20px}
+.label{font-family:'Apfel Grotezk',sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#8a8870;margin-bottom:6px}
+.divider{height:2px;background:#ece2b8;margin:14px 0}
+.wordmark{font-family:'Mayonnaise',sans-serif;font-size:68px;font-weight:900;line-height:.95;color:#18180f;letter-spacing:-1px}
+.wordmark em{font-style:normal;color:#f4501e}
+.tagline{font-family:'Mayonnaise',sans-serif;font-size:36px;font-weight:900;text-transform:uppercase;color:#18180f;line-height:1.05;margin-top:2px}
+.sub{font-family:'Mayonnaise',sans-serif;font-size:20px;font-weight:900;text-transform:uppercase;color:#8a8870;letter-spacing:1px}
+.badge-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.badge{font-family:'Mayonnaise',sans-serif;font-weight:900;display:inline-block;background:#f4501e;color:white;font-size:15px;text-transform:uppercase;letter-spacing:1px;padding:5px 14px;border-radius:2px}
+.badge.mint{background:#7ecab6;color:#18180f}
+</style></head><body>
+
+<div class="label">Mayonnaise Black — Wordmark</div>
+<div class="wordmark">MAP<em>EXPORT</em></div>
+
+<div class="divider"></div>
+
+<div class="label">Display Headline</div>
+<div class="tagline">No Nonsense<br>Tourist Info</div>
+
+<div class="divider"></div>
+
+<div class="label">Sub-heading + Badges</div>
+<div class="sub">Made by Locals</div>
+<div class="badge-row">
+  <span class="badge">USE-IT</span>
+  <span class="badge mint">City Map Builder</span>
+</div>
+
+</body></html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MapExport — OSM to Vector</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@300;400;500&display=swap">
+<link rel="stylesheet" href="style.min.css">
+</head>
+<body>
+
+<div id="hdr">
+  <div id="hdr-title">
+    <div>
+      <h1>Map<em>Export</em></h1>
+      <div id="hdr-sub">OSM → Illustrator-ready SVG</div>
+    </div>
+  </div>
+  <div id="hdr-badge">USE-IT City Map Builder</div>
+</div>
+
+<div id="layout">
+  <div id="sidebar">
+    <div id="sidebar-scroll-wrap">
+    <div id="sidebar-inner">
+
+      <!-- Search -->
+      <div class="panel">
+        <div class="panel-label">&#9906; Find a city <button class="help-btn" data-help="search">?</button></div>
+        <div id="search-wrap">
+          <input type="text" id="search-input" placeholder="e.g. Amsterdam, Esch-sur-Alzette…" autocomplete="off">
+          <button id="btn-search">Go</button>
+          <div id="search-results"></div>
+        </div>
+        <div id="search-status"></div>
+        <button id="btn-boundary">Use admin boundary</button>
+        <div id="boundary-results"></div>
+      </div>
+
+      <!-- Step 1: Area -->
+      <div class="panel">
+        <div class="panel-label"><span class="step-num">1</span>Select export area <button class="help-btn" data-help="step1">?</button></div>
+        <button id="btn-draw">&#9634; Draw rectangle</button>
+        <div id="bbox-display"><div>No area selected yet</div></div>
+        <div id="size-warning">
+          <strong>Large area detected</strong>
+          <span id="size-warning-text"></span>
+        </div>
+      </div>
+
+      <!-- Step 2: Layers -->
+      <div class="panel">
+        <div class="panel-label"><span class="step-num">2</span>Map layers <button class="help-btn" data-help="step3">?</button></div>
+        <div id="layers-list"></div>
+      </div>
+
+      <!-- Step 3: Export options -->
+      <div class="panel" id="format-wrap">
+        <div class="panel-label"><span class="step-num">3</span>Export options <button class="help-btn" data-help="step4">?</button></div>
+        <select id="format-select">
+          <option value="svg">SVG — Illustrator / Inkscape</option>
+        </select>
+        <div class="opts-row">
+          <label>Print size</label>
+          <select id="print-size" style="flex:1;padding:5px 6px;background:var(--paper2);border:1px solid var(--border);border-radius:2px;font-family:'Geist Mono',monospace;font-size:10px;color:var(--ink);cursor:pointer">
+            <option value="custom">Custom px</option>
+            <option value="a4_300">A4 @ 300dpi</option>
+            <option value="a3_300" selected>A3 @ 300dpi</option>
+            <option value="a2_300">A2 @ 300dpi</option>
+            <option value="a1_300">A1 @ 300dpi</option>
+          </select>
+        </div>
+        <div class="opts-row" id="custom-width-row" style="display:none">
+          <label>Width (px)</label>
+          <input type="number" id="svg-width" value="3508" min="500" max="20000" step="100">
+        </div>
+        <div class="opts-row">
+          <label>Simplify</label>
+          <input type="range" id="simplify-slider" min="1" max="5" step="1" value="2">
+          <span class="range-val" id="simplify-val">2</span>
+        </div>
+        <div class="opts-row">
+          <label>Street name labels</label>
+          <div style="flex:1;display:flex;flex-wrap:wrap;gap:4px;margin-top:2px" id="label-toggles"></div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="panel">
+        <div class="panel-label">&#9203; Recent exports <button class="help-btn" data-help="history">?</button></div>
+        <div id="history-header" style="display:none;justify-content:flex-end;margin-bottom:4px">
+          <button id="btn-history-clear" style="font-size:9px;padding:2px 6px;background:none;border:1px solid var(--border);border-radius:2px;color:var(--muted);cursor:pointer">Delete all</button>
+        </div>
+        <div id="history-list"><div id="no-history">No exports yet</div></div>
+      </div>
+
+    </div>
+    <div id="sidebar-fade"></div>
+    </div><!-- /sidebar-scroll-wrap -->
+
+    <div id="status-bar">
+      <div class="spinner"></div>
+      <span id="status-text">Ready — draw an area to begin</span>
+    </div>
+    <button id="btn-export" disabled>Export SVG</button>
+  </div>
+
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div class="map-toast" id="map-toast">Pan to your city and click Draw rectangle</div>
+    <div id="progress-overlay">
+      <div id="progress-label">Initialising…</div>
+      <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+    </div>
+    <div id="preview-pane">
+      <h4>Live preview</h4>
+      <div id="preview-svg-wrap"></div>
+      <div id="preview-actions">
+        <button id="btn-preview-close">✕ Close</button>
+        <button id="btn-dl">↓ Download</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="help-modal">
+  <div id="help-modal-box">
+    <div id="help-modal-header">
+      <span id="help-modal-title"></span>
+      <button id="help-modal-close">✕</button>
+    </div>
+    <div id="help-modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="script.min.js"></script>
+</body>
+</html>

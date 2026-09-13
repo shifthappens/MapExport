@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Type" name="Label & Status Patterns" subtitle="Step numbers, badges, status states" viewport="700x280" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;padding:20px;font-family:'Apfel Grotezk',sans-serif}
+.section-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+.step-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.step{display:flex;align-items:center;gap:7px}
+.step-num{width:22px;height:22px;border-radius:50%;border:2.5px solid #f4501e;display:inline-flex;align-items:center;justify-content:center;font-family:'Mayonnaise',sans-serif;font-size:13px;font-weight:900;color:#f4501e;flex-shrink:0}
+.step-label{font-family:'Mayonnaise',sans-serif;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:1.2px;color:#18180f}
+.badge{font-family:'Mayonnaise',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;padding:4px 10px;border:2px solid #ddd6b4;border-radius:2px;color:#3d3d2e;text-transform:uppercase;display:inline-block}
+.status-row{display:flex;align-items:center;gap:8px;font-family:'Apfel Grotezk',sans-serif;font-size:14px;font-weight:500;padding:5px 10px;border-radius:2px;margin-bottom:4px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-ready{background:#f5edcc;color:#8a8870}
+.status-loading{background:#e8f0fc;color:#1e5cbf}
+.status-error{background:#fde8e3;color:#d43d0e}
+.status-success{background:#e3f2e6;color:#2d6b35}
+</style></head><body>
+
+<div class="section-title">Step Labels</div>
+<div class="step-row">
+  <div class="step"><div class="step-num">1</div><div class="step-label">Select Area</div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-label">Map Layers</div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-label">Export Options</div></div>
+</div>
+
+<div class="section-title">Badge</div>
+<div style="margin-bottom:2px"><span class="badge">USE-IT City Map Builder</span></div>
+
+<div class="section-title">Status States</div>
+<div class="status-row status-ready"><div class="dot" style="background:#8a8870"></div>Ready — draw an area to begin</div>
+<div class="status-row status-loading"><div class="dot" style="background:#1e5cbf"></div>Fetching Overpass tiles…</div>
+<div class="status-row status-error"><div class="dot" style="background:#d43d0e"></div>Overpass timeout — retrying (2/3)</div>
+<div class="status-row status-success"><div class="dot" style="background:#2d6b35"></div>Export complete — 4.2 MB SVG</div>
+
+</body></html>

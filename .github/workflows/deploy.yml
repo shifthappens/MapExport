@@ -17,6 +17,12 @@ jobs:
       - name: Build minified assets
         run: bash tools/minify.sh
 
+      - name: Prepare production fonts
+        run: |
+          mkdir -p fonts
+          cp "references/MapExport Design System/fonts/"*.woff2 fonts/
+          sed -i 's#references/MapExport%20Design%20System/fonts/#fonts/#g' style.min.css
+
       - name: Build production index.html
         run: |
           # Engine v2 is dev/test only until it ships (see plans/2026-07-10_
@@ -26,6 +32,7 @@ jobs:
           # index.html; delete every such block.
           sed -e 's/href="style\.css"/href="style.min.css"/' \
               -e 's/src="script\.js[^"]*"/src="script.min.js"/' \
+              -e 's#references/MapExport%20Design%20System/fonts/#fonts/#g' \
               -e '/engine-v2:start/,/engine-v2:end/d' \
               index.html > /tmp/prod-index.html
           chmod 644 /tmp/prod-index.html

@@ -1,0 +1,471 @@
+/**
+ * MapExport Component Styles
+ * ==========================
+ * Ready-to-use CSS classes for the MapExport / USE-IT design system.
+ * Requires colors_and_type.css to be loaded first (for CSS variables).
+ *
+ * Font files must be served from /fonts/:
+ *   fonts/Mayonnaise_Black.woff2
+ *   fonts/Apfel_Grotezk_Regular.woff2
+ *   fonts/Apfel_Grotezk_Fett.woff2
+ */
+
+/* ── Reset ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ── Base ──────────────────────────────────────────────────────── */
+body {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 400;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--cream);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Typography ────────────────────────────────────────────────── */
+.t-display {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 0.95;
+  letter-spacing: -0.5px;
+}
+.t-heading {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+.t-label {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+.t-body   { font-family: 'Apfel Grotezk', sans-serif; font-weight: 400; font-size: 15px; line-height: 1.6; }
+.t-small  { font-family: 'Apfel Grotezk', sans-serif; font-weight: 400; font-size: 12px; color: var(--muted); }
+.t-bold   { font-family: 'Apfel Grotezk', sans-serif; font-weight: 700; }
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 20px;
+  border-radius: var(--radius);
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s, border-color 0.15s, color 0.15s;
+  border: 2.5px solid transparent;
+  line-height: 1;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Primary — orange fill */
+.btn-primary {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: white;
+}
+.btn-primary:hover:not(:disabled) { background: var(--orange-dk); border-color: var(--orange-dk); }
+
+/* Outline — ink border, fills on hover */
+.btn-outline {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.btn-outline:hover:not(:disabled) { background: var(--ink); color: var(--cream); }
+.btn-outline.active { background: var(--orange); border-color: var(--orange); color: white; }
+
+/* Secondary — mint */
+.btn-secondary {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: var(--ink);
+}
+.btn-secondary:hover:not(:disabled) { background: var(--mint-dk); border-color: var(--mint-dk); }
+
+/* Ghost — subtle border */
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+.btn-ghost:hover:not(:disabled) { background: var(--cream2); color: var(--ink); }
+
+/* Destructive — red outline, fills on hover */
+.btn-danger {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-danger:hover:not(:disabled) { background: var(--accent); color: white; }
+
+/* Icon/help button — small circle */
+.btn-help {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-help:hover { border-color: var(--orange); color: var(--orange); }
+
+/* ── Inputs ────────────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--white);
+  border: 2.5px solid var(--border);
+  border-radius: var(--radius);
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 400;
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.input::placeholder { color: var(--muted); }
+.input:focus { border-color: var(--orange); }
+
+.input-group { display: flex; }
+.input-group .input { border-right: none; border-radius: var(--radius) 0 0 var(--radius); }
+.input-group .btn  { border-radius: 0 var(--radius) var(--radius) 0; flex-shrink: 0; }
+
+select.input {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M0 0l6 7 6-7z' fill='%23f4501e'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+}
+
+input[type="range"] { accent-color: var(--orange); width: 100%; }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--orange); cursor: pointer; }
+
+/* ── Panels ────────────────────────────────────────────────────── */
+.panel {
+  padding: 14px 16px;
+  border-bottom: 2px solid var(--cream3);
+  background: var(--cream);
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.panel-title {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--ink);
+  flex: 1;
+}
+.step-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--orange);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 13px;
+  color: var(--orange);
+  flex-shrink: 0;
+}
+
+/* ── Layer rows ────────────────────────────────────────────────── */
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.layer-row:hover { background: var(--cream2); }
+.layer-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.layer-label {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink);
+  flex: 1;
+}
+.layer-hint {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+/* ── Status bar ────────────────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 16px;
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+  border-top: 2px solid var(--cream3);
+  min-height: 40px;
+}
+.status-bar.loading { color: var(--mint-dk); }
+.status-bar.error   { color: var(--orange); }
+.status-bar.success { color: #2d6b35; }
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Progress bar ──────────────────────────────────────────────── */
+.progress-label {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.progress-track {
+  height: 6px;
+  background: var(--cream3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--orange);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* ── Toasts + warnings ─────────────────────────────────────────── */
+.toast {
+  display: inline-block;
+  background: rgba(24, 24, 15, 0.88);
+  color: var(--cream);
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.warning {
+  padding: 10px 14px;
+  background: rgba(191, 59, 30, 0.08);
+  border: 2.5px solid var(--accent);
+  border-radius: var(--radius);
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--accent);
+  line-height: 1.5;
+}
+.warning-title {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: block;
+  margin-bottom: 3px;
+}
+
+/* ── Dropdowns / result lists ──────────────────────────────────── */
+.result-list {
+  border: 2.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--white);
+}
+.result-item {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--cream2);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.result-item:last-child { border-bottom: none; }
+.result-item:hover { background: var(--cream2); }
+.result-name  { font-weight: 700; font-size: 15px; color: var(--ink); }
+.result-detail { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+/* ── History items ─────────────────────────────────────────────── */
+.history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--white);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.history-item:hover { background: var(--cream2); }
+.history-label { font-weight: 700; font-size: 15px; color: var(--ink); }
+.history-meta  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* ── Modals ────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 24, 15, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.modal {
+  background: var(--white);
+  border: 2.5px solid var(--border);
+  border-radius: var(--radius);
+  width: 320px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 2px solid var(--cream2);
+  flex-shrink: 0;
+}
+.modal-title {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+.modal-tip {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--cream2);
+  border-left: 4px solid var(--orange);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ── Bbox display ──────────────────────────────────────────────── */
+.bbox-display {
+  padding: 10px 12px;
+  background: var(--cream2);
+  border: 2px solid var(--cream3);
+  border-radius: var(--radius);
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.8;
+  color: var(--ink2);
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+.app-header {
+  height: var(--hdr);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  background: var(--orange);
+  flex-shrink: 0;
+}
+.app-logo {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  color: white;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+.app-product-name {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  color: white;
+  line-height: 1;
+}
+.app-product-sub {
+  font-family: 'Apfel Grotezk', sans-serif;
+  font-weight: 400;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+.app-header-divider {
+  width: 1px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+}
+.header-badge {
+  font-family: 'Mayonnaise', sans-serif;
+  font-weight: 900;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  padding: 4px 14px;
+  white-space: nowrap;
+}

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Inputs & Selects" subtitle="Search, select, range, number inputs" viewport="700x320" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Apfel Grotezk',sans-serif;padding:20px}
+.section-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+
+/* Inputs */
+.input-row{display:flex;gap:0;margin-bottom:8px}
+input[type=text]{flex:1;padding:11px 13px;background:#fff;border:2.5px solid #ddd6b4;border-right:none;border-radius:2px 0 0 2px;font-family:'Apfel Grotezk',sans-serif;font-size:15px;font-weight:500;color:#18180f;outline:none}
+input[type=text]:focus{border-color:#f4501e;background:#fff}
+input[type=text]::placeholder{color:#bfbb9e;font-weight:400}
+input.focused{border-color:#f4501e;border-right:none}
+.btn-go{padding:11px 16px;background:#f4501e;border:2.5px solid #f4501e;border-radius:0 2px 2px 0;color:white;font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:16px;cursor:pointer;letter-spacing:.5px;text-transform:uppercase}
+
+/* Select */
+select{width:100%;padding:10px 13px;background:#fff;border:2.5px solid #ddd6b4;border-radius:2px;font-family:'Apfel Grotezk',sans-serif;font-size:15px;font-weight:500;color:#18180f;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M0 0l6 7 6-7z' fill='%23f4501e'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;margin-bottom:8px}
+
+/* Opts row */
+.opts-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.opts-row label{font-family:'Mayonnaise',sans-serif;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#8a8870;white-space:nowrap;min-width:70px}
+input[type=range]{flex:1;accent-color:#f4501e;height:4px}
+.range-val{font-family:'Mayonnaise',sans-serif;font-size:15px;font-weight:700;color:#18180f;min-width:24px;text-align:right}
+input[type=number]{flex:1;padding:9px 12px;background:#fff;border:2.5px solid #ddd6b4;border-radius:2px;font-family:'Apfel Grotezk',sans-serif;font-size:15px;font-weight:500;color:#18180f}
+</style></head><body>
+
+<div class="section-title">Search Input</div>
+<div class="input-row">
+  <input type="text" placeholder="e.g. Amsterdam, Esch-sur-Alzette…">
+  <button class="btn-go">Go</button>
+</div>
+<div class="input-row">
+  <input type="text" class="focused" value="Ghent" style="border-right:none">
+  <button class="btn-go">Go</button>
+</div>
+
+<div class="section-title">Select</div>
+<select><option>SVG — Illustrator / Inkscape</option></select>
+<select><option selected>A3 @ 300 dpi</option><option>A4 @ 300 dpi</option><option>A2 @ 300 dpi</option></select>
+
+<div class="section-title">Range + Number</div>
+<div class="opts-row"><label>Simplify</label><input type="range" min="1" max="5" value="2"><span class="range-val">2</span></div>
+<div class="opts-row"><label>Width px</label><input type="number" value="4961"></div>
+
+</body></html>

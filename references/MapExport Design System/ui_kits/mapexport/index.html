@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<!-- @dsCard group="UI Kit — Mapexport" name="MapExport UI Kit — USE-IT Style" subtitle="Full prototype with real Mayonnaise Black + Apfel Grotezk fonts" viewport="1200x600" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MapExport — USE-IT City Map Builder</title>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --orange:    #f4501e;
+  --orange-dk: #d43d0e;
+  --mint:      #7ecab6;
+  --mint-dk:   #5ab0a0;
+  --cream:     #fef9e4;
+  --cream2:    #f5edcc;
+  --cream3:    #ece2b8;
+  --ink:       #18180f;
+  --ink2:      #3d3d2e;
+  --muted:     #8a8870;
+  --border:    #ddd6b4;
+  --white:     #ffffff;
+  --sidebar:   300px;
+  --hdr:       60px;
+  --display:   'Mayonnaise', sans-serif;
+  --body:      'Apfel Grotezk', sans-serif;
+}
+html, body { height: 100%; overflow: hidden; background: var(--cream); }
+body { font-family: var(--body); color: var(--ink); font-size: 14px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+/* ── Fake map ─────────────────────────────────────────────────── */
+function FakeMap({ drawMode }) {
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 900 600"
+      preserveAspectRatio="xMidYMid slice" style={{ display:'block', background:'#f0ede4' }}>
+      <path d="M0,320 Q180,290 360,310 Q540,330 720,300 Q810,285 900,295 L900,600 L0,600Z"
+        fill="#A4DBF3" opacity=".7"/>
+      {[[60,80,110,60],[200,60,80,80],[310,70,90,55],[430,55,70,70],[530,65,100,60],
+        [60,165,100,55],[195,160,85,60],[310,155,80,65],[420,150,95,55],[550,140,80,70],
+        [65,250,85,55],[180,245,100,50],[315,240,75,60],[415,235,110,55],[555,230,90,55],
+        [650,70,90,60],[670,160,80,65],[660,245,95,55]
+      ].map(([x,y,w,h],i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="1"
+          fill="#FEF6ED" stroke="#F4AFA7" strokeWidth="1.5"/>
+      ))}
+      <rect x="760" y="55" width="130" height="160" fill="#51A886" opacity=".9"/>
+      <text x="825" y="138" textAnchor="middle" fontSize="10" fill="white"
+        fontFamily="Barlow,sans-serif" fontWeight="600" opacity=".8">CITY PARK</text>
+      <line x1="0" y1="145" x2="750" y2="145" stroke="#fff" strokeWidth="8"/>
+      <line x1="0" y1="145" x2="750" y2="145" stroke="#F4AFA7" strokeWidth="9" strokeOpacity=".5"/>
+      <line x1="0" y1="230" x2="760" y2="230" stroke="#fff" strokeWidth="6"/>
+      <line x1="0" y1="230" x2="760" y2="230" stroke="#F4AFA7" strokeWidth="7" strokeOpacity=".5"/>
+      <line x1="160" y1="0" x2="160" y2="320" stroke="#fff" strokeWidth="10"/>
+      <line x1="160" y1="0" x2="160" y2="320" stroke="#F4AFA7" strokeWidth="11" strokeOpacity=".5"/>
+      <line x1="400" y1="0" x2="400" y2="320" stroke="#fff" strokeWidth="8"/>
+      <line x1="400" y1="0" x2="400" y2="320" stroke="#F4AFA7" strokeWidth="9" strokeOpacity=".5"/>
+      <line x1="630" y1="0" x2="630" y2="320" stroke="#fff" strokeWidth="6"/>
+      <line x1="0" y1="275" x2="750" y2="275" stroke="#3d3d2e" strokeWidth="2" strokeDasharray="8,4"/>
+      {drawMode && (
+        <rect x="200" y="80" width="380" height="200" rx="2"
+          fill="rgba(244,80,30,0.08)" stroke="#f4501e" strokeWidth="2.5" strokeDasharray="7,4"/>
+      )}
+      {[["HIGH STREET",250,139],["CANAL RING",90,139],["MARKET ST",490,139],
+        ["NORTH AVE",90,224],["SOUTH BLVD",400,224]].map(([t,x,y])=>(
+        <text key={t} x={x} y={y} fontSize="8" fill="#8a8870"
+          fontFamily="Barlow,sans-serif" textAnchor="middle" fontWeight="500">{t}</text>
+      ))}
+    </svg>
+  );
+}
+
+/* ── Layer row ────────────────────────────────────────────────── */
+function LayerRow({ color, border, label, hint, checked, onToggle }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <label style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 6px',
+      cursor:'pointer', borderRadius:2, background: hov ? 'var(--cream2)' : 'transparent',
+      transition:'background .1s' }}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>
+      <input type="checkbox" checked={checked} onChange={onToggle}
+        style={{ width:15, height:15, accentColor:'var(--orange)', cursor:'pointer', flexShrink:0 }}/>
+      <span style={{ width:12, height:12, borderRadius:'50%', flexShrink:0,
+        background: color, border: border ? `1.5px solid ${border}` : 'none' }}/>
+      <span style={{ fontFamily:'var(--body)', fontSize:15, fontWeight:500,
+        color:'var(--ink)', flex:1 }}>{label}</span>
+      {hint && <span style={{ fontFamily:'var(--display)', fontSize:11, fontWeight:700,
+        color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.5px' }}>{hint}</span>}
+    </label>
+  );
+}
+
+/* ── Panel heading ────────────────────────────────────────────── */
+function PanelHead({ step, children }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:12 }}>
+      {step && (
+        <span style={{ width:22, height:22, borderRadius:'50%',
+          border:'2.5px solid var(--orange)', display:'inline-flex',
+          alignItems:'center', justifyContent:'center',
+          fontFamily:'var(--display)', fontSize:13, fontWeight:800,
+          color:'var(--orange)', flexShrink:0 }}>{step}</span>
+      )}
+      <span style={{ fontFamily:'var(--display)', fontWeight:800, fontSize:14,
+        textTransform:'uppercase', letterSpacing:'1.5px', color:'var(--ink)' }}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
+/* ── History item ─────────────────────────────────────────────── */
+function HistoryItem({ city, meta }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div style={{ padding:'8px 10px', background: hov ? 'var(--cream2)' : 'var(--white)',
+      border:'2px solid var(--border)', borderRadius:2,
+      display:'flex', justifyContent:'space-between', alignItems:'center',
+      marginBottom:5, cursor:'pointer', transition:'background .1s' }}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>
+      <div>
+        <div style={{ fontFamily:'var(--body)', fontSize:15, fontWeight:600,
+          color:'var(--ink)' }}>{city}</div>
+        <div style={{ fontFamily:'var(--body)', fontSize:12, color:'var(--muted)',
+          marginTop:1 }}>{meta}</div>
+      </div>
+      <button style={{ fontFamily:'var(--body)', fontSize:14, fontWeight:600,
+        color:'var(--muted)', background:'none', border:'none',
+        cursor:'pointer', padding:'0 4px', transition:'color .15s' }}
+        onMouseEnter={e=>e.currentTarget.style.color='var(--orange)'}
+        onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}>✕</button>
+    </div>
+  );
+}
+
+/* ── Main ─────────────────────────────────────────────────────── */
+function App() {
+  const [drawMode, setDrawMode] = useState(false);
+  const [hasArea, setHasArea] = useState(true);
+  const [layers, setLayers] = useState({ roads:true, buildings:true, parks:true, water:true, labels:true, tram:false, metro:false });
+  const [status, setStatus] = useState('ready');
+  const [searchVal, setSearchVal] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const toggleLayer = k => setLayers(l => ({ ...l, [k]: !l[k] }));
+
+  const handleDraw = () => {
+    if (!drawMode) {
+      setDrawMode(true);
+      setTimeout(() => { setHasArea(true); setDrawMode(false); }, 1400);
+    }
+  };
+  const handleExport = () => {
+    setStatus('loading');
+    setTimeout(() => setStatus('success'), 2400);
+  };
+
+  const statusColor = { ready:'var(--muted)', loading:'#1e5cbf', error:'var(--orange)', success:'#2d6b35' }[status];
+  const statusText  = { ready:'Ready — draw an area to begin', loading:'Fetching Overpass tiles…', error:'Overpass timeout — retrying', success:'Export complete — 4.2 MB SVG' }[status];
+
+  return (
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column' }}>
+
+      {/* ── Header ── */}
+      <header style={{ height:'var(--hdr)', flexShrink:0, display:'flex', alignItems:'center',
+        justifyContent:'space-between', padding:'0 18px',
+        background:'var(--orange)', zIndex:10 }}>
+
+        {/* Left: USE-IT logo + divider + product name */}
+        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+          {/* USE-IT wordmark */}
+          <div style={{ fontFamily:'var(--display)', fontWeight:900, fontSize:28,
+            color:'white', letterSpacing:'-0.5px', lineHeight:1, whiteSpace:'nowrap' }}>
+            USE·IT
+          </div>
+          <div style={{ width:1, height:30, background:'rgba(255,255,255,.35)', flexShrink:0 }}/>
+          {/* Product name */}
+          <div>
+            <div style={{ fontFamily:'var(--display)', fontWeight:900, fontSize:24,
+              color:'white', lineHeight:1, letterSpacing:'-0.3px' }}>
+              MAP<em style={{ fontStyle:'italic', fontWeight:700 }}>EXPORT</em>
+            </div>
+            <div style={{ fontFamily:'var(--body)', fontSize:11, color:'rgba(255,255,255,.7)',
+              letterSpacing:'.5px', marginTop:2 }}>
+              OSM → Illustrator-ready SVG
+            </div>
+          </div>
+        </div>
+
+        {/* Right: simple badge pill */}
+        <div style={{ fontFamily:'var(--display)', fontWeight:700, fontSize:12,
+          textTransform:'uppercase', letterSpacing:'1px', color:'rgba(255,255,255,.85)',
+          border:'2px solid rgba(255,255,255,.4)', borderRadius:20,
+          padding:'4px 14px', whiteSpace:'nowrap' }}>
+          City Map Builder
+        </div>
+      </header>
+
+      {/* ── Body ── */}
+      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+
+        {/* ── Sidebar ── */}
+        <aside style={{ width:'var(--sidebar)', minWidth:'var(--sidebar)',
+          background:'var(--cream)', borderRight:'2.5px solid var(--cream3)',
+          display:'flex', flexDirection:'column', overflow:'hidden' }}>
+
+          <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'thin' }}>
+
+            {/* Search */}
+            <div style={{ padding:'14px 16px', borderBottom:'2px solid var(--cream3)' }}>
+              <PanelHead>Find a city</PanelHead>
+              <div style={{ display:'flex', position:'relative' }}>
+                <input type="text" value={searchVal}
+                  onChange={e => { setSearchVal(e.target.value); setShowResults(e.target.value.length > 0); }}
+                  onBlur={() => setTimeout(() => setShowResults(false), 150)}
+                  placeholder="e.g. Ghent, Amsterdam…"
+                  style={{ flex:1, padding:'10px 12px', background:'var(--white)',
+                    border:'2.5px solid var(--border)', borderRight:'none',
+                    borderRadius:'2px 0 0 2px', fontFamily:'var(--body)',
+                    fontSize:15, fontWeight:500, color:'var(--ink)', outline:'none' }}/>
+                <button style={{ padding:'10px 14px', background:'var(--orange)',
+                  border:'2.5px solid var(--orange)', borderRadius:'0 2px 2px 0',
+                  color:'white', fontFamily:'var(--display)', fontWeight:800, fontSize:14,
+                  cursor:'pointer', textTransform:'uppercase', letterSpacing:'.5px',
+                  transition:'background .15s' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='var(--orange-dk)'}
+                  onMouseLeave={e=>e.currentTarget.style.background='var(--orange)'}>GO</button>
+                {showResults && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, marginTop:3,
+                    background:'var(--white)', border:'2.5px solid var(--border)',
+                    borderRadius:2, zIndex:200 }}>
+                    {['Ghent — East Flanders, Belgium','Amsterdam — North Holland, NL','Esch-sur-Alzette — Luxembourg'].map(r => (
+                      <div key={r} onMouseDown={() => { setSearchVal(r.split(' — ')[0]); setShowResults(false); }}
+                        style={{ padding:'9px 12px', cursor:'pointer', borderBottom:'1px solid var(--cream2)',
+                          transition:'background .1s' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--cream2)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <div style={{ fontFamily:'var(--body)', fontSize:15, fontWeight:600, color:'var(--ink)' }}>
+                          {r.split(' — ')[0]}</div>
+                        <div style={{ fontFamily:'var(--body)', fontSize:12, color:'var(--muted)', marginTop:1 }}>
+                          {r.split(' — ')[1]}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button style={{ width:'100%', marginTop:7, padding:'8px 0',
+                border:'2.5px solid var(--border)', borderRadius:2, background:'transparent',
+                fontFamily:'var(--display)', fontWeight:700, fontSize:13, color:'var(--muted)',
+                cursor:'pointer', textTransform:'uppercase', letterSpacing:'.5px', transition:'all .15s' }}
+                onMouseEnter={e=>{e.currentTarget.style.background='var(--cream2)';e.currentTarget.style.color='var(--ink)'}}
+                onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--muted)'}}>
+                Use Admin Boundary
+              </button>
+            </div>
+
+            {/* Step 1 */}
+            <div style={{ padding:'14px 16px', borderBottom:'2px solid var(--cream3)' }}>
+              <PanelHead step="1">Select Export Area</PanelHead>
+              <button onClick={handleDraw}
+                style={{ width:'100%', padding:'10px 0',
+                  border: drawMode ? 'none' : '2.5px solid var(--ink)',
+                  borderRadius:2, fontFamily:'var(--display)', fontWeight:800, fontSize:14,
+                  background: drawMode ? 'var(--orange)' : 'transparent',
+                  color: drawMode ? 'white' : 'var(--ink)',
+                  cursor:'pointer', textTransform:'uppercase', letterSpacing:'.5px', transition:'all .15s' }}
+                onMouseEnter={e=>{ if(!drawMode){e.currentTarget.style.background='var(--ink)';e.currentTarget.style.color='var(--cream)';}}}
+                onMouseLeave={e=>{ if(!drawMode){e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--ink)';}}}
+              >{drawMode ? '⬛ Drawing…' : '⬛ Draw Rectangle'}</button>
+              {hasArea && (
+                <div style={{ marginTop:8, padding:'10px 12px', background:'var(--cream2)',
+                  border:'2px solid var(--cream3)', borderRadius:2,
+                  fontFamily:'var(--body)', fontSize:14, fontWeight:500,
+                  lineHeight:1.8, color:'var(--ink2)' }}>
+                  <span style={{ color:'var(--muted)' }}>N</span> 51.0621 &nbsp;
+                  <span style={{ color:'var(--muted)' }}>S</span> 51.0340<br/>
+                  <span style={{ color:'var(--muted)' }}>W</span> 3.6881 &nbsp;
+                  <span style={{ color:'var(--muted)' }}>E</span> 3.7521
+                </div>
+              )}
+            </div>
+
+            {/* Step 2 */}
+            <div style={{ padding:'14px 16px', borderBottom:'2px solid var(--cream3)' }}>
+              <PanelHead step="2">Map Layers</PanelHead>
+              <LayerRow color="#F4AFA7" label="Roads" checked={layers.roads} onToggle={()=>toggleLayer('roads')}/>
+              <LayerRow color="#FEF6ED" border="#F4AFA7" label="Buildings" checked={layers.buildings} onToggle={()=>toggleLayer('buildings')}/>
+              <LayerRow color="#51A886" label="Parks" checked={layers.parks} onToggle={()=>toggleLayer('parks')}/>
+              <LayerRow color="#A4DBF3" label="Water" checked={layers.water} onToggle={()=>toggleLayer('water')}/>
+              <LayerRow color="#7c7b68" label="Street Labels" checked={layers.labels} onToggle={()=>toggleLayer('labels')}/>
+              <div style={{ borderTop:'1.5px solid var(--cream3)', marginTop:6, paddingTop:6 }}>
+                <LayerRow color="#ddd6b4" label="Tram" hint="off" checked={layers.tram} onToggle={()=>toggleLayer('tram')}/>
+                <LayerRow color="#3d3d2e" label="Metro" hint="off" checked={layers.metro} onToggle={()=>toggleLayer('metro')}/>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div style={{ padding:'14px 16px', borderBottom:'2px solid var(--cream3)' }}>
+              <PanelHead step="3">Export Options</PanelHead>
+              <select style={{ width:'100%', padding:'9px 12px', background:'var(--white)',
+                border:'2.5px solid var(--border)', borderRadius:2, fontFamily:'var(--body)',
+                fontSize:15, fontWeight:500, color:'var(--ink)', cursor:'pointer', appearance:'none',
+                backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M0 0l6 7 6-7z' fill='%23f4501e'/%3E%3C/svg%3E")`,
+                backgroundRepeat:'no-repeat', backgroundPosition:'right 12px center',
+                paddingRight:34, marginBottom:8 }}>
+                <option>SVG — Illustrator / Inkscape</option>
+              </select>
+              {[
+                ['Print size',
+                  <select style={{ flex:1, padding:'7px 10px', background:'var(--white)',
+                    border:'2.5px solid var(--border)', borderRadius:2,
+                    fontFamily:'var(--body)', fontSize:14, fontWeight:500, color:'var(--ink)', cursor:'pointer' }}>
+                    <option>A3 @ 300 dpi</option><option>A4 @ 300 dpi</option><option>A2 @ 300 dpi</option>
+                  </select>
+                ],
+                ['Simplify',
+                  <><input type="range" min="1" max="5" defaultValue="2"
+                    style={{ flex:1, accentColor:'var(--orange)' }}/>
+                  <span style={{ fontFamily:'var(--display)', fontSize:16, fontWeight:800,
+                    color:'var(--ink)', minWidth:22, textAlign:'right' }}>2</span></>
+                ]
+              ].map(([lbl, ctrl], i) => (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:7 }}>
+                  <label style={{ fontFamily:'var(--display)', fontWeight:700, fontSize:12,
+                    color:'var(--muted)', textTransform:'uppercase', letterSpacing:'1px',
+                    whiteSpace:'nowrap', minWidth:64 }}>{lbl}</label>
+                  {ctrl}
+                </div>
+              ))}
+            </div>
+
+            {/* History */}
+            <div style={{ padding:'14px 16px' }}>
+              <PanelHead>Recent Exports</PanelHead>
+              <HistoryItem city="Ghent centre" meta="A3 · 2 min ago"/>
+              <HistoryItem city="Amsterdam canal ring" meta="A2 · yesterday"/>
+            </div>
+          </div>
+
+          {/* Status + CTA */}
+          <div style={{ flexShrink:0, borderTop:'2.5px solid var(--cream3)' }}>
+            <div style={{ padding:'10px 16px', display:'flex', alignItems:'center', gap:9,
+              fontFamily:'var(--body)', fontSize:14, fontWeight:500,
+              color: statusColor, minHeight:40 }}>
+              {status === 'loading' && (
+                <span style={{ width:12, height:12, border:'2px solid currentColor',
+                  borderRightColor:'transparent', borderRadius:'50%',
+                  animation:'spin .7s linear infinite', display:'inline-block', flexShrink:0 }}/>
+              )}
+              {statusText}
+            </div>
+            <button onClick={handleExport} disabled={status==='loading'}
+              style={{ margin:'0 16px 14px', display:'block', width:'calc(100% - 32px)',
+                padding:'13px 0', background: status==='loading' ? 'rgba(244,80,30,.4)' : 'var(--orange)',
+                border:'none', borderRadius:2, fontFamily:'var(--display)', fontWeight:800,
+                fontSize:18, color:'white', cursor: status==='loading' ? 'not-allowed' : 'pointer',
+                textTransform:'uppercase', letterSpacing:'1px', transition:'background .15s' }}
+              onMouseEnter={e=>{ if(status!=='loading') e.currentTarget.style.background='var(--orange-dk)'; }}
+              onMouseLeave={e=>{ if(status!=='loading') e.currentTarget.style.background='var(--orange)'; }}>
+              Export SVG
+            </button>
+          </div>
+        </aside>
+
+        {/* ── Map area ── */}
+        <div style={{ flex:1, position:'relative', overflow:'hidden' }}>
+          <FakeMap drawMode={drawMode}/>
+
+          {drawMode && (
+            <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)',
+              background:'rgba(24,24,15,.88)', color:'var(--cream)',
+              fontFamily:'var(--body)', fontWeight:500, fontSize:14,
+              padding:'9px 20px', borderRadius:2, pointerEvents:'none',
+              whiteSpace:'nowrap', zIndex:100 }}>
+              Drag on the map to select an area
+            </div>
+          )}
+
+          {status === 'success' && (
+            <div style={{ position:'absolute', bottom:18, right:18, zIndex:100 }}>
+              <button style={{ padding:'12px 24px', background:'var(--orange)', border:'none',
+                borderRadius:2, fontFamily:'var(--display)', fontWeight:800, fontSize:16,
+                color:'white', cursor:'pointer', textTransform:'uppercase', letterSpacing:'.5px' }}>
+                ↓ Download SVG
+              </button>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div style={{ position:'absolute', bottom:18, left:18,
+            background:'rgba(254,249,228,.94)', border:'2px solid var(--border)',
+            borderRadius:2, padding:'10px 14px' }}>
+            <div style={{ fontFamily:'var(--display)', fontWeight:800, fontSize:12,
+              textTransform:'uppercase', letterSpacing:'1px', color:'var(--ink2)',
+              marginBottom:7 }}>Map Layers</div>
+            {[['#F4AFA7','Roads'],['#FEF6ED','Buildings'],['#51A886','Parks'],['#A4DBF3','Water']].map(([c,l])=>(
+              <div key={l} style={{ display:'flex', alignItems:'center', gap:7, marginBottom:4 }}>
+                <span style={{ width:10, height:10, borderRadius:2, background:c, flexShrink:0,
+                  border: c==='#FEF6ED' ? '1.5px solid #F4AFA7' : 'none' }}/>
+                <span style={{ fontFamily:'var(--body)', fontSize:13, fontWeight:500,
+                  color:'var(--ink2)' }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

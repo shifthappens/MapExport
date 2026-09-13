@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Lists & History" subtitle="Search results, recent exports" viewport="700x300" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Apfel Grotezk',sans-serif;padding:20px}
+.section-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+
+.search-results{border:2.5px solid #ddd6b4;border-radius:2px;overflow:hidden;background:#fff;margin-bottom:4px}
+.result-item{padding:9px 12px;border-bottom:1.5px solid #f5edcc;cursor:pointer;transition:background .1s}
+.result-item:last-child{border-bottom:none}
+.result-item:hover{background:#f5edcc}
+.res-name{font-size:16px;font-weight:600;color:#18180f}
+.res-detail{font-size:13px;color:#8a8870;margin-top:1px;font-weight:400}
+
+.history-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px}
+.history-item{padding:9px 12px;background:#fff;border:2.5px solid #ddd6b4;border-radius:2px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:background .1s}
+.history-item:hover{background:#f5edcc}
+.hi-label{font-size:15px;font-weight:600;color:#18180f}
+.hi-meta{font-size:12px;color:#8a8870;margin-top:2px;font-weight:400}
+.hi-del{font-size:14px;color:#bfbb9e;background:none;border:none;cursor:pointer;padding:0 2px;transition:color .15s;font-weight:600}
+.hi-del:hover{color:#f4501e}
+.no-history{font-size:14px;color:#bfbb9e;font-weight:500;font-style:italic}
+</style></head><body>
+
+<div class="section-title">Search Results</div>
+<div class="search-results">
+  <div class="result-item"><div class="res-name">Ghent</div><div class="res-detail">East Flanders, Belgium</div></div>
+  <div class="result-item"><div class="res-name">Amsterdam</div><div class="res-detail">North Holland, Netherlands</div></div>
+  <div class="result-item"><div class="res-name">Esch-sur-Alzette</div><div class="res-detail">Esch, Luxembourg</div></div>
+</div>
+
+<div class="section-title">Recent Exports</div>
+<div class="history-list">
+  <div class="history-item">
+    <div><div class="hi-label">Ghent centre</div><div class="hi-meta">A3 · 2 min ago</div></div>
+    <button class="hi-del">✕</button>
+  </div>
+  <div class="history-item">
+    <div><div class="hi-label">Amsterdam canal ring</div><div class="hi-meta">A2 · yesterday</div></div>
+    <button class="hi-del">✕</button>
+  </div>
+</div>
+<div class="no-history">No exports yet</div>
+
+</body></html>

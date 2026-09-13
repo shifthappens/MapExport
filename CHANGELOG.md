@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-13 — Workshop materials and consolidated fonts
+- Added the MapExport workshop deck, preview and live Gent export example, and
+  consolidated UI font files in the MapExport Design System for web and
+  desktop authoring.
+
 ### 2026-08-07 — Cleaner map layers and more complete labels
 - Natural layers, city blocks and roads are now always part of the export; paths
   and trails are an optional Built Environment layer, while labels are grouped

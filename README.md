@@ -24,7 +24,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 ├── ENGINE-V2.md           # v2 design contract — binding invariants, read before changing engine-v2.js
 ├── style.css              # UI styles
 ├── cache.php              # Server-side Overpass response cache (PHP)
-├── fonts/                 # Mayonnaise Black + Apfel Grotezk (WOFF2)
+├── presentations/         # Workshop deck, browser preview, source and demo assets
 ├── tests/                 # Node.js regression harness (no deps) — see tests/README.md
 │   ├── lib.mjs            # Shared helpers (bbox, Overpass POST, registry parser)
 │   ├── smoke.sh           # Runs the offline suites + query-equivalence
@@ -37,11 +37,27 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 │   ├── road-merge.mjs / abbreviate.mjs
 │   ├── expectations.json  # Recorded per-area floors/allowances (--record, human-approved)
 │   └── fixtures/tilburg/  # Baseline Overpass responses for regression
-├── references/            # Design reference files (tutorial PDF, Ghent .ai sample)
+├── references/            # Design references, including the canonical font files
 ├── memory/                # Architecture docs and session notes
 ├── plans/                 # Implementation plans (dated; Status line at top of each)
 └── LICENSE                # GPL-3.0
 ```
+
+## Workshop materials
+
+The [16-slide MapExport workshop deck](presentations/mapexport-workshop.pptx)
+has English speaker notes for a live Inkscape demo, hands-on work and feedback.
+Open its [browser preview](presentations/preview.html), inspect the live Gent
+example at [assets/ghent-demo.svg](presentations/assets/ghent-demo.svg), or
+rebuild the presentation from [source/build.mjs](presentations/source/build.mjs).
+
+### Fonts
+
+`references/MapExport Design System/fonts/` is the canonical source for the
+UI fonts: Mayonnaise Black for display text and Apfel Grotezk Regular/Fett for
+body text. It includes WOFF2 files for the web UI and matching desktop TTF
+files for authoring. Root `fonts/` is intentionally absent from the checkout;
+the deployment workflow recreates it only in its production build.
 
 ### Source of truth
 

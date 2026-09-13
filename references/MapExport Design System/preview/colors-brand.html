@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Brand Colors" subtitle="USE-IT primary + extended palette" viewport="700x260" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Geist Mono',monospace;padding:20px}
+.section-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:10px;margin-top:18px}
+.section-title:first-child{margin-top:0}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.swatch{flex:1;min-width:90px;height:80px;border-radius:2px;display:flex;flex-direction:column;justify-content:flex-end;padding:10px;position:relative}
+.swatch-name{font-family:'Mayonnaise',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:1px;line-height:1.2}
+.swatch-hex{font-family:'Geist Mono',monospace;font-size:9px;margin-top:2px;opacity:.7}
+.light{color:#fef9e4}.dark{color:rgba(24,24,15,.65)}
+.swatch-hex.light{color:rgba(254,249,228,.65)}.swatch-hex.dark{color:rgba(24,24,15,.4)}
+</style></head><body>
+
+<div class="section-title">USE-IT Primary</div>
+<div class="row">
+  <div class="swatch" style="background:#f4501e;flex:2;min-width:160px">
+    <div class="swatch-name light">Orange</div>
+    <div class="swatch-hex light">#f4501e</div>
+  </div>
+  <div class="swatch" style="background:#7ecab6">
+    <div class="swatch-name dark">Mint</div>
+    <div class="swatch-hex dark">#7ecab6</div>
+  </div>
+  <div class="swatch" style="background:#fef9e4;border:1px solid #ddd6b4">
+    <div class="swatch-name dark">Cream</div>
+    <div class="swatch-hex dark">#fef9e4</div>
+  </div>
+</div>
+
+<div class="section-title">USE-IT Extended</div>
+<div class="row">
+  <div class="swatch" style="background:#8b8a4a">
+    <div class="swatch-name light">Olive</div>
+    <div class="swatch-hex light">#8b8a4a</div>
+  </div>
+  <div class="swatch" style="background:#3d7a8a">
+    <div class="swatch-name light">Teal</div>
+    <div class="swatch-hex light">#3d7a8a</div>
+  </div>
+  <div class="swatch" style="background:#c23b2a">
+    <div class="swatch-name light">Dark Red</div>
+    <div class="swatch-hex light">#c23b2a</div>
+  </div>
+  <div class="swatch" style="background:#18180f">
+    <div class="swatch-name light">Ink</div>
+    <div class="swatch-hex light">#18180f</div>
+  </div>
+</div>
+
+</body></html>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Colors" name="Paper & Ink Palette" subtitle="Background tones, ink hierarchy, borders" viewport="700x200" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f7f4ed;font-family:'Geist Mono',monospace;padding:20px}
+.row{display:flex;gap:6px}
+.swatch{flex:1;height:64px;border-radius:2px;border:1px solid #d4cebc;display:flex;flex-direction:column;justify-content:flex-end;padding:8px}
+.swatch-name{font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:#7c7b68}
+.swatch-hex{font-size:9px;color:#c5bea8;margin-top:1px}
+.ink-row{display:flex;gap:6px;margin-top:8px}
+.ink{flex:1;height:48px;border-radius:2px;display:flex;flex-direction:column;justify-content:flex-end;padding:8px}
+.ink-name{font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:rgba(247,244,237,.6)}
+.ink-hex{font-size:9px;color:rgba(247,244,237,.4);margin-top:1px}
+.section-title{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#7c7b68;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+</style></head><body>
+<div class="section-title">Paper</div>
+<div class="row">
+  <div class="swatch" style="background:#f7f4ed"><div class="swatch-name">Paper</div><div class="swatch-hex">#f7f4ed</div></div>
+  <div class="swatch" style="background:#efeade"><div class="swatch-name">Paper 2</div><div class="swatch-hex">#efeade</div></div>
+  <div class="swatch" style="background:#e5dfce"><div class="swatch-name">Paper 3</div><div class="swatch-hex">#e5dfce</div></div>
+  <div class="swatch" style="background:#d4cebc"><div class="swatch-name">Border</div><div class="swatch-hex">#d4cebc</div></div>
+  <div class="swatch" style="background:#c5bea8"><div class="swatch-name">Border 2</div><div class="swatch-hex">#c5bea8</div></div>
+</div>
+<div class="section-title">Ink</div>
+<div class="ink-row">
+  <div class="ink" style="background:#18180f"><div class="ink-name">Ink</div><div class="ink-hex">#18180f</div></div>
+  <div class="ink" style="background:#3d3d2e"><div class="ink-name">Ink 2</div><div class="ink-hex">#3d3d2e</div></div>
+  <div class="ink" style="background:#7c7b68"><div class="ink-name">Muted</div><div class="ink-hex">#7c7b68</div></div>
+</div>
+</body></html>

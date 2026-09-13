@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Buttons" subtitle="Primary, outline, mint secondary, destructive delete" viewport="700x280" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Mayonnaise',sans-serif;padding:20px}
+.section-title{font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:2px}
+button{border-radius:2px;font-family:'Mayonnaise',sans-serif;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;transition:all .15s}
+
+/* Primary */
+.btn-primary{padding:11px 20px;background:#f4501e;border:none;color:white;font-size:16px;font-weight:900}
+.btn-primary:hover{background:#d43d0e}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed}
+
+/* Outline */
+.btn-outline{padding:10px 20px;background:transparent;border:2.5px solid #18180f;color:#18180f;font-size:15px;font-weight:700}
+.btn-outline:hover{background:#18180f;color:#fef9e4}
+.btn-outline.active{background:#f4501e;border-color:#f4501e;color:white}
+
+/* Secondary — mint filled, not ghost */
+.btn-secondary{padding:10px 20px;background:#7ecab6;border:2.5px solid #7ecab6;color:#18180f;font-size:15px;font-weight:700}
+.btn-secondary:hover{background:#5ab0a0;border-color:#5ab0a0}
+
+/* Outline secondary */
+.btn-outline-mint{padding:10px 20px;background:transparent;border:2.5px solid #7ecab6;color:#3d7a8a;font-size:15px;font-weight:700}
+.btn-outline-mint:hover{background:#7ecab6;color:#18180f}
+
+/* Help */
+.help-btn{padding:0;background:none;border:2px solid #ddd6b4;border-radius:50%;font-size:11px;font-weight:700;color:#8a8870;cursor:pointer;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;transition:all .15s}
+.help-btn:hover{border-color:#f4501e;color:#f4501e}
+</style></head><body>
+
+<div class="section-title">Primary CTA</div>
+<div class="row">
+  <button class="btn-primary">Export SVG</button>
+  <button class="btn-primary" disabled>Export SVG</button>
+</div>
+
+<div class="section-title">Outline — Default / Active</div>
+<div class="row">
+  <button class="btn-outline">⬛ Draw Rectangle</button>
+  <button class="btn-outline active">⬛ Drawing…</button>
+</div>
+
+<div class="section-title">Secondary — Mint</div>
+<div class="row">
+  <button class="btn-secondary">Use Admin Boundary</button>
+  <button class="help-btn">?</button>
+</div>
+
+<div class="section-title">Destructive</div>
+<div class="row">
+  <button style="padding:10px 20px;background:transparent;border:2.5px solid #bf3b1e;border-radius:2px;font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:15px;color:#bf3b1e;cursor:pointer;text-transform:uppercase;letter-spacing:.8px;transition:all .15s"
+    onmouseover="this.style.background='#bf3b1e';this.style.color='white'"
+    onmouseout="this.style.background='transparent';this.style.color='#bf3b1e'">
+    ⚠ Delete All
+  </button>
+</div>
+
+</body></html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Components" name="Status & Progress" subtitle="Status bar, progress, toast, warning — mint loading state" viewport="700x340" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#fef9e4;font-family:'Apfel Grotezk',sans-serif;padding:20px}
+.section-title{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#8a8870;margin-bottom:8px;margin-top:14px}
+.section-title:first-child{margin-top:0}
+
+.status-bar{padding:11px 14px;border:2.5px solid #ddd6b4;border-radius:2px;background:#fff;display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:15px;font-weight:500}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.spinner{width:14px;height:14px;border:2.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.prog-wrap{margin-bottom:14px}
+.prog-label{font-family:'Mayonnaise',sans-serif;font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:#18180f;margin-bottom:6px}
+.prog-track{height:6px;background:#ece2b8;border-radius:3px;overflow:hidden}
+.prog-bar{height:100%;background:#f4501e;border-radius:3px}
+
+.toast{display:inline-block;background:#18180f;color:#fef9e4;font-family:'Apfel Grotezk',sans-serif;font-size:14px;font-weight:500;padding:9px 18px;border-radius:2px;margin-bottom:8px}
+
+.warning{padding:10px 14px;background:#fde8e3;border:2.5px solid #f4501e;border-radius:2px;font-size:14px;font-weight:500;color:#d43d0e;line-height:1.5}
+.warning strong{font-family:'Mayonnaise',sans-serif;font-weight:900;font-size:16px;display:block;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px}
+</style></head><body>
+
+<div class="section-title">Status Bar States</div>
+<div class="status-bar" style="color:#8a8870"><div class="dot" style="background:#bfbb9e"></div>Ready — draw an area to begin</div>
+<div class="status-bar" style="color:#5ab0a0;border-color:#7ecab6"><div class="spinner" style="border-color:#5ab0a0;border-right-color:transparent"></div>Fetching Overpass tiles…</div>
+<div class="status-bar" style="color:#d43d0e;border-color:#f4501e"><div class="dot" style="background:#d43d0e"></div>Overpass timeout — retrying (2/3)</div>
+<div class="status-bar" style="color:#2d6b35;border-color:#51A886"><div class="dot" style="background:#2d6b35"></div>Export complete — 4.2 MB SVG</div>
+
+<div class="section-title">Progress Bar</div>
+<div class="prog-wrap">
+  <div class="prog-label">Building city blocks…</div>
+  <div class="prog-track"><div class="prog-bar" style="width:62%"></div></div>
+</div>
+
+<div class="section-title">Map Toast</div>
+<div class="toast">Pan to your city and click Draw Rectangle</div>
+
+<div class="section-title">Size Warning</div>
+<div class="warning"><strong>Large area detected</strong>This export covers ~12×9 km. Processing may take 30–60 seconds.</div>
+
+</body></html>

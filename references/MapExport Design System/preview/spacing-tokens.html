@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Spacing" name="Spacing & Radius Tokens" subtitle="4–20px scale, 2px universal radius" viewport="700x260" -->
+<html><head>
+<style>
+@font-face{font-family:'Mayonnaise';font-weight:900;src:url('../fonts/Mayonnaise_Black.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:400;src:url('../fonts/Apfel_Grotezk_Regular.woff2') format('woff2')}
+@font-face{font-family:'Apfel Grotezk';font-weight:700;src:url('../fonts/Apfel_Grotezk_Fett.woff2') format('woff2')}
+</style><meta charset="UTF-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#f7f4ed;font-family:'Geist Mono',monospace;padding:20px}
+.section-title{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:#7c7b68;margin-bottom:8px;margin-top:16px}
+.section-title:first-child{margin-top:0}
+.spacing-row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.bar{height:14px;background:#d4cebc;border-radius:1px;flex-shrink:0}
+.bar-label{font-size:9px;color:#7c7b68;width:36px}
+.bar-val{font-size:9px;color:#3d3d2e}
+.radius-row{display:flex;gap:8px;align-items:center;margin-top:4px}
+.radius-box{width:40px;height:32px;background:#efeade;border:1px solid #d4cebc;flex-shrink:0}
+.radius-label{font-size:9px;color:#7c7b68;margin-top:4px;text-align:center}
+.radius-item{display:flex;flex-direction:column;align-items:center}
+.divider{height:1px;background:#d4cebc;margin:12px 0}
+</style></head><body>
+<div class="section-title">Spacing Scale</div>
+<div class="spacing-row"><div class="bar-label">--space-1</div><div class="bar" style="width:4px"></div><div class="bar-val">4px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-2</div><div class="bar" style="width:6px"></div><div class="bar-val">6px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-3</div><div class="bar" style="width:8px"></div><div class="bar-val">8px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-4</div><div class="bar" style="width:10px"></div><div class="bar-val">10px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-5</div><div class="bar" style="width:12px"></div><div class="bar-val">12px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-6</div><div class="bar" style="width:14px"></div><div class="bar-val">14px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-7</div><div class="bar" style="width:16px"></div><div class="bar-val">16px</div></div>
+<div class="spacing-row"><div class="bar-label">--space-8</div><div class="bar" style="width:20px"></div><div class="bar-val">20px</div></div>
+<div class="divider"></div>
+<div class="section-title">Border Radius — 2px universal</div>
+<div class="radius-row">
+  <div class="radius-item"><div class="radius-box" style="border-radius:0"></div><div class="radius-label">0px</div></div>
+  <div class="radius-item"><div class="radius-box" style="border-radius:2px"></div><div class="radius-label">2px ✓</div></div>
+  <div class="radius-item"><div class="radius-box" style="border-radius:50%;width:32px;height:32px"></div><div class="radius-label">50% steps</div></div>
+</div>
+</body></html>

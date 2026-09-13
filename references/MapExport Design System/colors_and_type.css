@@ -1,0 +1,176 @@
+/**
+ * MapExport Design System — Colors & Typography
+ * ================================================
+ * Two font families sourced from Google Fonts:
+ *   - Instrument Serif (display/wordmark)
+ *   - Geist Mono (all UI text)
+ */
+
+@font-face {
+  font-family: 'Mayonnaise';
+  font-weight: 900;
+  font-style: normal;
+  src: url('fonts/Mayonnaise_Black.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Apfel Grotezk';
+  font-weight: 400;
+  font-style: normal;
+  src: url('fonts/Apfel_Grotezk_Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Apfel Grotezk';
+  font-weight: 700;
+  font-style: normal;
+  src: url('fonts/Apfel_Grotezk_Fett.woff2') format('woff2');
+}
+
+/* ── Base color tokens ─────────────────────────────────────────── */
+:root {
+  /* Ink (text) */
+  --ink:        #18180f;   /* Primary text — warm near-black */
+  --ink2:       #3d3d2e;   /* Secondary text */
+  --muted:      #7c7b68;   /* Muted / placeholder / label */
+
+  /* Paper (backgrounds) */
+  --paper:      #f7f4ed;   /* Page background — warm parchment */
+  --paper2:     #efeade;   /* Input background, hover surface */
+  --paper3:     #e5dfce;   /* Deeper surface, pressed state */
+
+  /* Accent */
+  --accent:     #bf3b1e;   /* Primary CTA / error / active — red-orange */
+  --accent2:    #1e5cbf;   /* Secondary — blue (loading, link) */
+  --green:      #2d6b35;   /* Success */
+
+  /* Borders */
+  --border:     #d4cebc;   /* Default border */
+  --border2:    #c5bea8;   /* Hover / focus border */
+
+  /* ── Map output colors (SVG USE-IT preset) ── */
+  --map-building-fill:   #FEF6ED;
+  --map-building-stroke: #F4AFA7;
+  --map-road-fill:       #ffffff;
+  --map-road-casing:     #F4AFA7;
+  --map-water:           #A4DBF3;
+  --map-park:            #51A886;
+
+  /* ── USE-IT upstream brand palette ── */
+  --useit-orange:  #f4501e;
+  --useit-mint:    #7ecab6;
+  --useit-olive:   #8b8a4a;
+  --useit-teal:    #3d7a8a;
+  --useit-red:     #c23b2a;
+  --useit-cream:   #fef9e4;
+}
+
+/* ── Typography tokens ─────────────────────────────────────────── */
+:root {
+  /* Font families */
+  --font-display: 'Mayonnaise', 'Big Shoulders Display', sans-serif;
+  --font-body:    'Apfel Grotezk', 'Barlow', sans-serif;
+
+  /* Scale */
+  --text-xs:     9px;
+  --text-sm:     10px;
+  --text-base:   11px;
+  --text-md:     13px;
+  --text-lg:     15px;
+  --text-xl:     22px;
+  --text-2xl:    32px;
+
+  /* Letter spacing */
+  --tracking-label:  1.5px;   /* ALL CAPS panel labels */
+  --tracking-badge:  0.8px;   /* Badge / tag text */
+  --tracking-btn:    0.8px;   /* Button text */
+  --tracking-wide:   1.4px;   /* Sub-header labels */
+}
+
+/* ── Semantic typography classes ───────────────────────────────── */
+
+/* Wordmark — "MapExport" */
+.t-wordmark {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+.t-wordmark em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* Panel / section label */
+.t-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--muted);
+}
+
+/* UI badge */
+.t-badge {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-badge);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Input / button text */
+.t-ui {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--ink);
+}
+
+/* Body / help text */
+.t-body {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  line-height: 1.7;
+  color: var(--ink2);
+}
+
+/* Muted / meta */
+.t-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Modal title */
+.t-modal-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* ── Spacing & layout tokens ───────────────────────────────────── */
+:root {
+  --space-1:  4px;
+  --space-2:  6px;
+  --space-3:  8px;
+  --space-4:  10px;
+  --space-5:  12px;
+  --space-6:  14px;
+  --space-7:  16px;
+  --space-8:  20px;
+
+  --radius:   2px;          /* Universal border radius — nearly square */
+  --sidebar:  268px;
+  --hdr:      54px;
+}
+
+/* ── Base resets for design system components ──────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
