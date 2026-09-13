@@ -45,11 +45,11 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 
 ## Workshop materials
 
-The [16-slide MapExport workshop deck](presentations/mapexport-workshop.pptx)
+The [12-slide MapExport workshop deck](presentations/mapexport-workshop-merged.pptx)
 has English speaker notes for a live Inkscape demo, hands-on work and feedback.
 Open its [browser preview](presentations/preview.html), inspect the live Gent
 example at [assets/ghent-demo.svg](presentations/assets/ghent-demo.svg), or
-rebuild the presentation from [source/build.mjs](presentations/source/build.mjs).
+see the [authoring notes](presentations/README.md) for source and rebuild details.
 
 ### Fonts
 

@@ -1,9 +1,10 @@
 # MapExport workshop
 
-[mapexport-workshop.pptx](mapexport-workshop.pptx) is a 16-slide English
+[mapexport-workshop-merged.pptx](mapexport-workshop-merged.pptx) is a 12-slide English
 workshop deck. Its speaker notes support a live Inkscape demo, hands-on work
-and feedback. Use [preview.html](preview.html) to review it in a browser and
-[source/build.mjs](source/build.mjs) to rebuild it.
+and feedback. Use [preview.html](preview.html) to review it in a browser with the merged exercise on slide 11. It preserves the edits in the
+14-slide PowerPoint that was open at the time of the merge. That original
+file is left intact.
 
 `assets/ghent-demo.svg` is a live Gent v1 export captured on 2026-09-13. It is
 the SVG used for the demo; `assets/` also contains the supporting screenshots.
@@ -28,34 +29,42 @@ it only while building production assets.
 
 ## Rebuilding
 
-The source uses the `@oai/artifact-tool` presentation library supplied by the
-Codex presentation runtime. It is not part of the web app's dependencies or
-deployment. From the repository root, with that runtime's Node executable on
-`PATH` and `NODE_PATH` pointing to its `node_modules` directory, run:
+The current PPTX is the source of truth for the manually edited deck.
+`source/build.mjs` reproduces the original 16-slide version and must not be
+used to overwrite the current deck. For this merge, `source/build-workshop-slide.mjs`
+creates the replacement workshop slide using `@oai/artifact-tool` in the Codex
+presentation runtime. `source/merge-workshop.py` (Python with lxml) inserts
+that slide into a copy of the edited 14-slide source and removes its old
+slides 12–13, preserving other slide content and adding clickable links.
+
+With the runtime's Node executable on `PATH` and `NODE_PATH` pointing to its
+`node_modules`, the merge can be repeated from the repository root:
 
 ```sh
-BUILD_DIR=/tmp/mapexport-workshop-build node presentations/source/build.mjs
+BUILD_DIR=/tmp/mapexport-workshop-merge node presentations/source/build-workshop-slide.mjs
+python3 presentations/source/merge-workshop.py source-14-slides.pptx /tmp/mapexport-workshop-merge/workshop-slide.pptx candidate.pptx
 ```
 
-This writes `candidate.pptx` and slide PNGs to the build directory. Before
+Before
 replacing the published deck, use the Presentations skill's
 `finalizePresentation` workflow to check package integrity, slide geometry,
 font policy and re-import. The intended fonts are `Mayonnaise Black` and
 `Apfel Grotezk`; slide dimensions are 12192000 × 6858000 EMU (16:9).
 Render the final imported PPTX into `preview/slide-01.png` through
-`preview/slide-16.png`, inspect every slide, and regenerate the gallery with:
+`preview/slide-12.png`, inspect every slide, and regenerate the gallery with:
 
 ```sh
 python3 presentations/source/make-preview.py
 ```
 
 The checked-in deck passed those automated checks and visual inspection of
-all 16 final slide renders. Native Microsoft PowerPoint rendering was not
+all 12 final slide renders. Native Microsoft PowerPoint rendering was not
 tested. Speaker notes contain the workshop script, sources and demo steps.
 
 ## Demo files
 
-Open `assets/ghent-demo.svg` in Inkscape before the workshop. The comparison
+The workshop slide links to https://coen.at/ghent.svg, the public demo URL
+provided by Coen. `assets/ghent-demo.svg` remains the local backup. The comparison
 file, `assets/ghent-recoloured.svg`, changes the fill of its 581 City blocks
 paths to `#F2CA76`. Both preview maps were rendered with Inkscape. Keep the
 original available as a fallback for participants whose export is still

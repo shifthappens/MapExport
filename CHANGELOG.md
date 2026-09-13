@@ -11,6 +11,9 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+- Combined the workshop exercise and help into one on-screen slide, with a
+  clickable Gent demo link, while preserving the presenter’s deck edits.
+
 ### 2026-09-13 — Workshop materials and consolidated fonts
 - Added the MapExport workshop deck, preview and live Gent export example, and
   consolidated UI font files in the MapExport Design System for web and

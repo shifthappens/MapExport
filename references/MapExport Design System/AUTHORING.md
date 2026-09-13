@@ -27,10 +27,10 @@ production bundle, where font URLs remain `fonts/...`.
 
 ## Workshop deliverables
 
-The English workshop is a 16-slide deck with speaker notes, a live Inkscape
+The English workshop is a 12-slide deck with speaker notes, a live Inkscape
 demo, hands-on work and feedback:
 
-- [Deck](../../presentations/mapexport-workshop.pptx)
+- [Deck](../../presentations/mapexport-workshop-merged.pptx)
 - [Browser preview](../../presentations/preview.html)
 - [Live Gent export](../../presentations/assets/ghent-demo.svg), captured on
   2026-09-13
