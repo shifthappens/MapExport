@@ -1,6 +1,6 @@
 # Tussen-sprint: cartografische audit verwerken
 
-**Status: ACTIVE (2026-07-17).** Deze tussen-sprint is door Coen expliciet
+**Status: COMPLETE (2026-09-13).** Deze tussen-sprint is door Coen expliciet
 ingevoegd na maintenance Sprint 2 en vóór Sprint 3. De maintenance-roadmap blijft
 de bron voor ME-06–ME-12, maar Sprint 3 start pas nadat deze tussen-sprint haar
 eindpoort heeft gehaald of resterende productbesluiten bewust zijn uitgesteld.
@@ -104,24 +104,25 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Geen magenta dekkingsgaten | PASS | Regressie-invariant; opnieuw bewijzen in AF-08 |
 | Crèmekleurige city blocks | ACCEPTED_STYLE | Bewuste abstractie; niet wijzigen |
 | Niet-unieke SVG-ID's | FIXED | AF-01 (2026-07-17); documentbrede allocator, regressietest `tests/svg-id-uniqueness.mjs`; ME-06c gesynchroniseerd |
-| Herhaalde water-/parklabels | FIXED | AF-02a (2026-07-17); dedup op naam+afstand, `tests/feature-label-dedup.mjs`; visuele bevestiging in AF-08-sweep |
-| Pleinen als park én straat | FIXED | AF-02b (2026-07-17); eigen `square_labels`-groep, `tests/square-labels.mjs`; visuele bevestiging in AF-08-sweep |
+| Herhaalde water-/parklabels | FIXED | AF-02a (2026-07-17); dedup op naam+afstand, `tests/feature-label-dedup.mjs`; bevestigd 2026-08-07-sweep |
+| Pleinen als park én straat | FIXED | AF-02b (2026-07-17); eigen `square_labels`-groep, `tests/square-labels.mjs`; bevestigd 2026-08-07-sweep |
 | Afgesneden randlabels/resterende botsingen | PASS | AF-02c-hercontrole: geen reproduceerbaar restgeval (svg-lint 0/0 op alle zeven exports); rest herleid naar AF-05/AF-06 |
-| Scrub/heath in fallback | FIXED | AF-03a (2026-07-17); paint-only binding, `tests/area-binding.mjs`; visuele bevestiging in AF-08-sweep |
-| Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
-| Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; visuele bevestiging in AF-08-sweep |
+| Scrub/heath in fallback | FIXED | AF-03a (2026-07-17); paint-only binding, `tests/area-binding.mjs`; bevestigd 2026-08-07-sweep |
+| Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
+| Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
-| Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 |
-| Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; visuele bevestiging in AF-08-sweep |
+| Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 offline af (`tests/place-labels.mjs` groen), maar geen enkele echte export bevat de laag: `doExportV2` (`engine-v2.js` 4005) en `tests/real-export.mjs` (313) filteren `place_nodes` als fetch-only weg vóór `buildSVG`, dat het op 3659 juist uit `results` leest. Gevonden 2026-09-13 bij P4-prep; Coens sign-off van die dag gold dus een plaat zonder plaatsnamen en is ingetrokken. Fix = unit P10 in `plans/2026-09-13_af08-eindpoort-en-sprint3-start.md` |
+| Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; bevestigd 2026-08-07-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | FIXED | AF-05d (2026-07-23): Coen koos "zichtbaar maar subtieler"; geen casing, gestreepte lijn, lagere opacity, lijnkleur behouden; `tests/metro-tunnel.mjs` |
 | Te dichte park-/cemeterypaden | FIXED | AF-06 (2026-07-21): area-aware path paint; water houdt alle paden wit, groen alleen cycleways/benoemde paden; naamloze trails worden op groen transparant gemaskeerd, `tests/park-paths.mjs`; lokale Oulu/Bremerhaven/Ghent-crops bevestigd |
-| Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; visuele bevestiging in AF-08-sweep |
+| Tram-/city-blocksubgroepen en labels | FIXED | AF-07a (2026-07-19): tram casing/fill-groepslabels + Hamlets/Standalone buildings-subgroepen in city_blocks, `tests/editor-structure.mjs`; bevestigd 2026-08-07-sweep |
 | Technische OSM-namen zoals `Place FO/13` | FIXED | AF-07b (2026-07-19): editorwaarschuwing (⚠-prefix op `inkscape:label`), geen filter — corpusbewijs: alleen Parijse kadastrale namen + kale refcodes bereiken gerenderde labels en zijn legitiem (wikidata/kadaster); `tests/technical-names.mjs` |
 | Countryside versus Parks & green | FIXED | AF-07c (2026-07-23): Coen koos optie (b); Countryside geknipt tot zichtbare rest (worker occlusion-clip) en genest onder "Parks & green" als eerste kind — één renderlaag, één paintpositie, rasterisatie-identiek; merged green ook geknipt (Oulu-gebouwenregressie gevonden+verholpen); `tests/editor-structure.mjs` uitgebreid; 7-steden cache-only sweep 0.000% bare |
-| Parken verdwijnen onder city blocks (Piushaven) | NEEDS_COEN | AF-07d bouwde een tagregel, door Coen afgekeurd (2026-07-23: te veel klein groen). Opgegaan in AF-07f: de groenmassa beslist, niet de tag. Gebouwd in `c1e57fb`+`2fdac60`; wacht op visuele sign-off |
-| Te veel naamloos groen op de plaat (Countryside/Recreation) | NEEDS_COEN | AF-07f (2026-07-26): massatoets in `engine-v2.js`, 2500 m² per gedissolvede massa met 6 m-brug; geschilderde stukken tilburg 694→270, oulu 1407→908, paris 882→485. Wacht op visuele sign-off |
-| Ongetagd stedelijk groencomplex verdwijnt onder city blocks (Cobbenhagen) | NEEDS_COEN | AF-07f: haalt de drempel via de 6 m-brug (5 massa's, 2 ha) waar het grootste losse stuk 3590 m² blijft. AF-07e (buffer) en de ⌀-rasteraanpak zijn beide door meting weerlegd |
+| Parken verdwijnen onder city blocks (Piushaven) | FIXED | AF-07d bouwde een tagregel, door Coen afgekeurd (2026-07-23: te veel klein groen). Opgegaan in AF-07f: de groenmassa beslist, niet de tag. Gebouwd in `c1e57fb`+`2fdac60`; visuele sign-off Coen 2026-09-13 |
+| Te veel naamloos groen op de plaat (Countryside/Recreation) | FIXED | AF-07f (2026-07-26): massatoets in `engine-v2.js`, 2500 m² per gedissolvede massa met 6 m-brug; geschilderde stukken tilburg 694→270, oulu 1407→908, paris 882→485. Visuele sign-off Coen 2026-09-13 |
+| Ongetagd stedelijk groencomplex verdwijnt onder city blocks (Cobbenhagen) | FIXED | AF-07f: haalt de drempel via de 6 m-brug (5 massa's, 2 ha) waar het grootste losse stuk 3590 m² blijft. AF-07e (buffer) en de ⌀-rasteraanpak zijn beide door meting weerlegd. Visuele sign-off Coen 2026-09-13 |
+| Corridor-lint op 2026-08-07-exports | ACCEPTED_STYLE | Zes van zeven exports zijn vóór 3e782e6 gemaakt en falen de lintregel uit die commit; Coen accepteert de sweep zonder herexport (2026-09-13) |
 
 Statuswaarden: `OPEN`, `IN_PROGRESS`, `FIXED`, `PASS`, `ACCEPTED_STYLE`,
 `SOURCE_DATA`, `NEEDS_COEN`, `DEFERRED_DESIGN`.
@@ -491,7 +492,7 @@ daar volledig transparant gemaskeerd en buiten groen niet gewijzigd.
 browsercrops van Oulu cemetery, Bremerhaven Bürgerpark en Ghent Citadelpark
 bevestigen dat de technische hatching weg is.*
 
-### [ ] AF-07 — Editorstructuur en uitgestelde productkeuzes
+### [x] AF-07 — Editorstructuur en uitgestelde productkeuzes
 
 - [x] **AF-07a — laagnamen/subgroepen.** Geef tram casing/fill consistente
   `inkscape:label`s; scheid waar zinvol Hamlets/Standalone buildings zonder
@@ -628,7 +629,7 @@ bevestigen dat de technische hatching weg is.*
   `green_park_138166896`), landcover 420 → 400, 0.000% bare, 10/10 cache-hits,
   nul Overpass, lint 0/0.
 
-- [ ] **AF-07f — Groenmassa op de plaat bepaalt wat groen wordt.**
+- [x] **AF-07f — Groenmassa op de plaat bepaalt wat groen wordt.**
   Vervangt AF-07e (clusterbuffer), dat door meting is weerlegd. Ontstaan uit
   Coens review van AF-07d op 2026-07-23.
 
@@ -724,9 +725,11 @@ bevestigen dat de technische hatching weg is.*
   **Acceptatie.** Cobbenhagen zichtbaar; Tilburg meetbaar rustiger; Nièvre
   behoudt zijn landelijke tint; complement-/coverage-invariant en paint order
   opnieuw bewezen; zeven-steden cached sweep 0.000% bare — allemaal gehaald.
-  Rest: **Coens visuele sign-off op de PNG's**. De huidige root-paint-aanpak
-  vermijdt de oude renderer-specifieke clipPath-problemen; alleen de visuele
-  bevestiging op verse PNG's staat nog open.
+  Coens visuele sign-off: gegeven op 2026-09-13 op de 2026-08-07-plaat van
+  Tilburg (Korvel-crop rond `way/220614168` plus de hele plaat). Cobbenhagen
+  ligt geheel buiten de Tilburg-validatiebbox (oost van 5.07 begint de plaat,
+  de campus eindigt op 5.064) en is dus niet visueel bevestigd op een huidige
+  export; het bewijs daarvoor blijft de meting hierboven.
 
   **Buiten scope, definitief.** De palet-splitsing (verzadigd groen voor
   bestemmingen, bleke tint voor bos/natuurgebied/begraafplaats) is op
@@ -738,7 +741,14 @@ bevestigen dat de technische hatching weg is.*
 een reproduceerbaar beleid; CF-03 heeft een vastgelegde keuze of blijft bewust
 `DEFERRED_DESIGN` met concrete beslisvraag.
 
-### [ ] AF-08 — Zeven-steden-eindpoort en overdracht
+### [x] AF-08 — Zeven-steden-eindpoort en overdracht
+
+*Status 2026-09-13: gesloten op Coens besluit. De 2026-08-07-exports gelden
+als de sweep, hoewel zes van de zeven vóór de eindcode van `3e782e6` zijn
+gemaakt en de corridor-lintregel uit die commit niet halen (matrixregel
+`ACCEPTED_STYLE`). Eén bevinding blijft open en gaat mee naar Sprint 3:
+AF-04 rendert in geen enkele echte export (zie matrix). Afsluitplan:
+`plans/2026-09-13_af08-eindpoort-en-sprint3-start.md`.*
 
 **Route:** E0 genereert/inventariseert sequentieel; O beoordeelt; reviewer doet
 onafhankelijke contractcheck. Coen blijft eigenaar van visuele sign-off.

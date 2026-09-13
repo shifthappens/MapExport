@@ -1,8 +1,7 @@
 # Roadmap: maintenance sprints
 
-**Status: IN PROGRESS (2026-07-17) — Sprint 1 en 2 COMPLETE. De expliciet
-ingevoegde cartografische audit-tussen-sprint is nu ACTIVE; Sprint 3 blijft
-PLANNED en hervat daarna. Zie `plans/ACTIVE.md`.** Geprioriteerde technische
+**Status: IN PROGRESS (2026-09-13) — Sprint 1 en 2 COMPLETE, de cartografische
+tussen-sprint COMPLETE, Sprint 3 gestart met ME-06b.** Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
