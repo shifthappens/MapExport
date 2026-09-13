@@ -6,6 +6,11 @@ and feedback. Use [preview.html](preview.html) to review it in a browser with th
 14-slide PowerPoint that was open at the time of the merge. That original
 file is left intact.
 
+Slide 11 keeps the red workshop background. Its four-step checklist asks
+participants to export a small area, recolour the blocks, explore layers and
+save a working copy with one observation. All three original slides' help
+tips remain visible, including the Gent SVG link and the early-finisher task.
+
 `assets/ghent-demo.svg` is a live Gent v1 export captured on 2026-09-13. It is
 the SVG used for the demo; `assets/` also contains the supporting screenshots.
 

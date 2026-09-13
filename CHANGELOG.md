@@ -11,6 +11,9 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+- Restored the red workshop slide style and all exercise and help instructions
+  in the merged slide, with a clear participant checklist.
+
 - Combined the workshop exercise and help into one on-screen slide, with a
   clickable Gent demo link, while preserving the presenter’s deck edits.
 
