@@ -137,18 +137,40 @@ reinstall with `curl -fsSL https://chatgpt.com/codex/install.sh | sh`. (A
 build.)
 
 `codex exec` **cannot** select a `.codex/agents/*.toml` profile, so spell the
-reviewer's settings out and feed the brief on stdin:
+reviewer's settings out and feed the brief on stdin. Capture the printed
+session id — round 1's output header prints `session id: <uuid>` before any
+findings — instead of relying on `--last` for the follow-up:
 
 ```sh
 codex exec -m gpt-5.6-sol -c model_reasoning_effort=medium \
-  -s read-only --skip-git-repo-check - < brief.md
+  -s read-only --skip-git-repo-check - < brief.md | tee round1.txt
+SID=$(grep -m1 '^session id: ' round1.txt | cut -d' ' -f3)
 ```
 
-Follow-up rounds resume the most recent session for this cwd:
+Follow-up rounds resume that captured id:
 
 ```sh
-codex exec resume --last - < followup.md
+codex exec resume "$SID" - < followup.md | tee round2.txt
 ```
+
+**Use the captured id, not `codex exec resume --last`.** `--last` picks the
+most recent recorded session for the cwd at the moment you run it, with no
+regard for which session that is — if Coen or another agent runs any `codex`
+command in this repo between round 1 and the follow-up (even an unrelated
+one), `--last` silently resumes the wrong session and the follow-up loses
+round 1's context without any error. The captured uuid is immune to that.
+
+**`resume` does not accept `codex exec`'s own flags** (`-m`, `-s`,
+`--skip-git-repo-check`, etc.) — it inherits model, sandbox and reasoning
+effort from the session being resumed. Passing them fails with `error:
+unexpected argument '-s' found`; only the prompt (and, per `--help`, `-c`
+config overrides) are valid on `resume`.
+
+**Read output from the tail, not the head.** A review run reprints
+`AGENTS.md`, the binding design doc and the whole diff before its findings,
+so the actual verdict is always at the very end and the front is pure
+re-derivation noise. `tail -c 6000` (or similar) on the saved output gets
+straight to the "## Findings" section instead of scrolling past all of it.
 
 `-s read-only` is a real filesystem sandbox, which is stronger than Route A's
 permission mode, but it also blocks any test that creates a temp directory.
