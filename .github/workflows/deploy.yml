@@ -31,10 +31,22 @@ jobs:
           # There is no engine toggle in the UI anywhere: the engine is chosen
           # by the ?engine=1|2 URL parameter (script.js engineV2Selected),
           # default v2, so the production index needs no stripping.
-          sed -e 's/href="style\.css"/href="style.min.css"/' \
-              -e 's/src="script\.js[^"]*"/src="script.min.js"/' \
+          #
+          # Every asset URL gets the deployed commit as its ?v= query. The
+          # server sends no Cache-Control, so without a changing query a
+          # browser may keep an older script.min.js for days and pair it with
+          # the new index.html (the 2026-09-14 deploy had exactly such a
+          # mismatch: the old script looked up an element the new HTML no
+          # longer had, which would have thrown during page init). The
+          # hand-maintained ?v= in the repo's index.html is for dev only.
+          V="${GITHUB_SHA:0:8}"
+          test -n "$V"
+          sed -e "s/href=\"style\.css[^\"]*\"/href=\"style.min.css?v=$V\"/" \
+              -e "s/src=\"script\.js[^\"]*\"/src=\"script.min.js?v=$V\"/" \
+              -e "s/src=\"engine-v2\.js[^\"]*\"/src=\"engine-v2.js?v=$V\"/" \
               -e 's#references/MapExport%20Design%20System/fonts/#fonts/#g' \
               index.html > /tmp/prod-index.html
+          grep -c "?v=$V" /tmp/prod-index.html | grep -qx 3
           chmod 644 /tmp/prod-index.html
 
       - name: Install deploy SSH key

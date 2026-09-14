@@ -92,7 +92,6 @@ const HELP = {
         <li><strong>SVG (Illustrator)</strong> — tweaked so the file opens cleanly in Illustrator (and places in InDesign 2020+): curved street names arrive pre-positioned letter by letter, and everything sticks to the SVG subset Illustrator understands. Don't expect this file to be optimal in other SVG viewers/editors.</li>
         <li><strong>SVG (Inkscape / others)</strong> — standards-based SVG for Inkscape, web browsers, and other conforming tools, with real Inkscape layers and text-on-path street names. Don't expect this file to open perfectly in Illustrator.</li>
       </ul>
-      <p><strong>Sea name:</strong> overrides the name OSM gives the sea along a coastline; leave blank to keep OSM's name.</p>
       <div class="tip">For large areas, disable layers and labels you don't need to keep file sizes manageable.</div>
     `
   },

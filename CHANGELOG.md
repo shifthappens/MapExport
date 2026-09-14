@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-15 — Deploy cache-busting, stale help text
+- Production `index.html` now references `style.min.css`, `script.min.js` and
+  `engine-v2.js` with the deployed commit as `?v=` query, so a browser can no
+  longer pair a cached older script with a newer page after a deploy (the
+  server sends no `Cache-Control`; the previous deploy dropped the query from
+  `script.min.js`). Found by the independent review of the 2026-09-14 deploy.
+- The Help panel no longer describes the "Sea name" field that was removed on
+  2026-09-14.
+
 ### 2026-09-14 — Slow "Cut faces" step on river frames, overlapping activity log
 - Exports whose frame touches a large water relation (Nijmegen with the Waal:
   13,613 vertices, 333 of them inside the frame) no longer spend minutes in
