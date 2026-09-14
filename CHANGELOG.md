@@ -11,6 +11,18 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-14 — Slow "Cut faces" step on river frames, overlapping activity log
+- Exports whose frame touches a large water relation (Nijmegen with the Waal:
+  13,613 vertices, 333 of them inside the frame) no longer spend minutes in
+  the "Cut faces" step. The v2 face worker now trims every void and cover
+  polygon to the frame before building its spatial indexes and clipping, and
+  the hamlet closing only considers building rings within reach of a
+  countryside face instead of every building in the export. Nijmegen's worker
+  went from about 3 minutes to a few seconds; landcover elements that lie
+  entirely outside the frame are now culled instead of painted off-canvas.
+- The activity log in the progress panel no longer squashes its lines on top
+  of each other once it fills up; it scrolls instead.
+
 ### 2026-09-14 — Layer panel cleanup, engine choice moved to the URL
 - The "Sea name" override field is gone (and with it the `--sea-name` flag of
   the export test). The sea is named from OSM alone: a name shared by the open

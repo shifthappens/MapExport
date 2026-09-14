@@ -195,7 +195,8 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #progress-log-wrap{margin-top:4px;border-top:1px solid var(--cream3);padding-top:8px}
 #progress-log-label{font-family:var(--display);font-weight:900;font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px}
 #progress-log{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--muted);line-height:1.55;max-height:100px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
-#progress-log .log-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* flex-shrink:0 - a column flex box with max-height shrinks its children once the log overflows, so lines overlapped instead of scrolling */
+#progress-log .log-line{flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #progress-log .log-time{color:var(--cream3);margin-right:7px}
 #btn-progress-cancel{align-self:flex-end;padding:5px 9px;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:var(--body);font-size:11px;font-weight:700;cursor:pointer}
 #btn-progress-cancel:hover{background:var(--cream2);color:var(--ink)}
