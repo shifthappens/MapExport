@@ -20,7 +20,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 .
 ├── index.html             # Single HTML entry point (loads script.js/style.css directly, always)
 ├── script.js              # All application logic (v1 engine + shared UI/fetch/labels, source of truth)
-├── engine-v2.js           # Experimental v2 map-construction engine (behind a UI toggle)
+├── engine-v2.js           # v2 map-construction engine (production; ?engine=1 selects v1 for comparison)
 ├── ENGINE-V2.md           # v2 design contract — binding invariants, read before changing engine-v2.js
 ├── style.css              # UI styles
 ├── cache.php              # Server-side Overpass response cache (PHP)
@@ -148,7 +148,7 @@ All map features are defined in `LAYER_REGISTRY` — an array of layer objects w
 - `type` — `'area'`, `'line'`, `'roads'`, `'rail'`, `'labels'`, `'point'`, `'derived'`
 - Rendering hints: `fillOpacity`, `strokeWidth`, `strokeColor`, `color`
 
-Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks` (derived), `roads`, optional `paths`, `rail`, `metro`, `tram`, `transit_stops`, `street_labels`, and `water_labels` (Water & park labels). Natural layers, City blocks and Roads & streets are required in the GUI; transit, paths and labels remain selectable. (`block_buildings` is fetched on demand for hamlet detection, outside the registry; engine v2 adds its own fetch-only and derived layers in `engine-v2.js`.)
+Current layers: `water_bodies`, `waterways`, `parks`, `landcover`, `city_blocks` (derived), `roads`, optional `paths`, `rail`, `metro`, `tram`, `transit_stops`, `street_labels`, and `water_labels` (Water & park labels). Natural layers, City blocks and Roads & streets are required in the GUI (shown as ticked, disabled checkboxes); transit, paths and labels remain selectable, and the per-category street-name checkboxes sit under the Street labels row and follow it. (`block_buildings` is fetched on demand for hamlet detection, outside the registry; engine v2 adds its own fetch-only and derived layers in `engine-v2.js`.)
 
 ### Render pipeline (`doExport`)
 
@@ -177,7 +177,7 @@ The `city_blocks` layer produces the signature USE-IT look: solid cream shapes f
 4. Douglas-Peucker simplify each block
 5. Each block → `<path id="block_N" inkscape:label="Block N">`
 
-Engine v2 (`engine-v2.js`, behind a UI toggle, experimental) replaces this whole construction stage — faces, countryside/hamlet classification, the synthetic sea, and a full-coverage guarantee — while sharing v1's fetch, label and road/area rendering code. Its invariants live in `ENGINE-V2.md`; v1 stays the production engine until cutover.
+Engine v2 (`engine-v2.js`, the production engine since 2026-09-13) replaces this whole construction stage — faces, countryside/hamlet classification, the synthetic sea, and a full-coverage guarantee — while sharing v1's fetch, label and road/area rendering code. Its invariants live in `ENGINE-V2.md`. The engine is not a UI option: `?engine=1` in the URL selects v1 for a comparison export, anything else means v2, and the export-options panel shows which one is active.
 
 ### Street label engine
 
@@ -223,7 +223,8 @@ Name-centric label placement with cartographic quality:
 |--------|--------|
 | Print size | A4 (3508px), A3 (4961px, default), A2 (7016px), A1 (9933px), custom px |
 | Simplify | Douglas-Peucker epsilon: 0.3 / 0.6 / 1.0 / 1.6 / 2.4 (slider 1–5) |
-| Label visibility | Per road class toggles (motorway, primary, secondary, tertiary, residential, cycleway) |
+| Label visibility | Per road class checkboxes under the Street labels layer (motorway, primary, secondary, tertiary, residential); greyed out while Street labels is off |
+| Engine | URL parameter, not a control: `?engine=1` = v1 comparison export, otherwise v2 |
 
 All widths and sizes are tuned for A3 @ 300dpi. `getScaleFactor(W)` returns `W / 4961` to scale proportionally at other sizes.
 

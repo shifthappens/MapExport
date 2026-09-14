@@ -43,6 +43,10 @@ retired).
   Never run it, or any bulk Overpass refetch of these areas, unasked.
 - After a layer query changes, its keys change too and `status` reports them as
   unpinned. Report that; do not silently refresh.
+- Ad-hoc corpora (e.g. the ten workshop cities in `tools/workshop-cities.json`)
+  use the fine 0.025° grid: `tools/pin-cache.sh status --cities=<file>
+  --grid=fine`. Those pins (`cache/pinned/*_f_*`) are gitignored and live only
+  locally and on the server; the same `never refresh unasked` rule applies.
 
 ## Background Overpass cache warming — rate limits are not blockers
 
@@ -260,6 +264,8 @@ rule is restated at the top of `CHANGELOG.md` itself.
   orchestration-level: fake worker),
   `tests/overpass-fetch.mjs` (shared Overpass timeout/failover/abort contract,
   mocked fetch),
+  `tests/fine-grid.mjs` (fine 0.025° cache tiles: a small selection reads
+  pre-warmed tiles only when all are cached, mocked cache.php/Overpass),
   `tests/cache-php.mjs` (cache.php limits/validation/atomic writes — needs a
   `php` CLI; spins up its own `php -S` on localhost, no network beyond that),
   `tests/pin-cache.mjs` (tools/pin-cache.sh: pin validation, atomic pinning,

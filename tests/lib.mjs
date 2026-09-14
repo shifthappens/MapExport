@@ -262,7 +262,10 @@ export function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // functions (buildLabelsLayer, makeProjector, …) without slicing source by
 // string offsets. real-export.mjs does the same trick against script.MIN.js
 // on purpose — it tests the shipped artifact; unit tests test the source.
-export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8')) {
+// `globals` is merged into the sandbox before the script runs; the main use is
+// `location` (e.g. `{ location: { search: '?engine=1' } }`) so a test can pick
+// the export engine the same way a browser does, through the URL parameter.
+export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8'), globals = {}) {
   const elProxy = new Proxy(function () {}, {
     get(_t, p) {
       if (p === 'style' || p === 'classList' || p === 'dataset') return elProxy;
@@ -277,10 +280,11 @@ export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8'))
   const sandbox = {
     console, setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask, performance,
     fetch: () => Promise.reject(new Error('no network in loadAppSandbox')),
-    Blob, Response, Request, Headers, URL, AbortController, AbortSignal, TextEncoder, TextDecoder,
+    Blob, Response, Request, Headers, URL, URLSearchParams, AbortController, AbortSignal, TextEncoder, TextDecoder,
     document: { getElementById: () => elProxy, querySelector: () => elProxy, querySelectorAll: () => [], createElement: () => elProxy, createElementNS: () => elProxy, addEventListener() {}, body: elProxy, documentElement: elProxy },
     navigator: { userAgent: 'node', clipboard: {} },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    ...globals,
   };
   sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.self = sandbox;
   vm.createContext(sandbox);
@@ -288,7 +292,7 @@ export function makeAppContext(scriptSrc = fs.readFileSync(SCRIPT_PATH, 'utf8'))
   return sandbox;
 }
 
-export function makeExportDomHarness({ engineV2 = false, selectedLayerIds = null } = {}) {
+export function makeExportDomHarness({ selectedLayerIds = null } = {}) {
   const elements = new Map();
   const historyWrites = [];
 
@@ -311,9 +315,7 @@ export function makeExportDomHarness({ engineV2 = false, selectedLayerIds = null
     const layerId = id.startsWith('lyr-') ? id.slice(4) : null;
     return {
       id,
-      checked: id === 'engine-v2-toggle'
-        ? engineV2
-        : !!layerId && (!selectedLayerIds || selectedLayerIds.includes(layerId)),
+      checked: !!layerId && (!selectedLayerIds || selectedLayerIds.includes(layerId)),
       disabled: false,
       value: id === 'format-select' ? 'svg-standard' : '',
       textContent: '',

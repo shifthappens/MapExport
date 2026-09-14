@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_CACHE_BASE = 'http://localhost:8080/mapexport/';
-const ATTEMPT_TIMEOUT_MS = 30_000;
+const DEFAULT_ATTEMPT_TIMEOUT_S = 30;
 const CACHE_TIMEOUT_MS = 30_000;
 const COOLDOWN_MS = 10_000;
-const MAX_RUNTIME_MS = 60 * 60_000;
+const DEFAULT_MAX_RUNTIME_MINUTES = 60;
 const OVERPASS_UA = 'MapExport validation-cache prefetch/1.0 (+https://coen.at; hello@coen.at)';
 
 const HELP = `Usage: node tools/prefetch-validation-cache.mjs [options]
@@ -35,17 +35,41 @@ Options:
                          no cache probe, no network (used by tools/pin-cache.sh)
   --cache-base=<url>     App base containing cache.php
                          (default: ${DEFAULT_CACHE_BASE})
+  --cities=<file>        JSON object {name: "south,west,north,east"} to use
+                         instead of the seven validation cities
+  --grid=fine            Tile every bbox on the app's shareable fine grid
+                         (bboxToFineTiles) instead of the export tiling, so any
+                         hand-drawn selection inside the area hits the cache
+  --max-runtime=<min>    Give up after this many minutes (default 60);
+                         0 means run until every key is cached or interrupted
+  --attempt-timeout=<s>  Client and Overpass [timeout:] per attempt (default 30);
+                         raise it when the public mirrors queue for longer
   --help, -h             Show this help
 `;
 
 function parseArgs(argv) {
-  const options = { dryRun: false, listKeys: false, cacheBase: DEFAULT_CACHE_BASE };
+  const options = {
+    dryRun: false, listKeys: false, cacheBase: DEFAULT_CACHE_BASE,
+    citiesFile: null, grid: 'export', maxRuntimeMinutes: DEFAULT_MAX_RUNTIME_MINUTES,
+    attemptTimeoutS: DEFAULT_ATTEMPT_TIMEOUT_S,
+  };
   for (const arg of argv) {
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--list-keys') options.listKeys = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg.startsWith('--cache-base=')) options.cacheBase = arg.slice('--cache-base='.length);
+    else if (arg.startsWith('--cities=')) options.citiesFile = arg.slice('--cities='.length);
+    else if (arg.startsWith('--grid=')) options.grid = arg.slice('--grid='.length);
+    else if (arg.startsWith('--max-runtime=')) options.maxRuntimeMinutes = Number(arg.slice('--max-runtime='.length));
+    else if (arg.startsWith('--attempt-timeout=')) options.attemptTimeoutS = Number(arg.slice('--attempt-timeout='.length));
     else throw new Error(`Unknown option: ${arg}`);
+  }
+  if (!['export', 'fine'].includes(options.grid)) throw new Error(`--grid must be export or fine, not ${options.grid}`);
+  if (!Number.isFinite(options.maxRuntimeMinutes) || options.maxRuntimeMinutes < 0) {
+    throw new Error('--max-runtime must be a number of minutes, 0 for no limit');
+  }
+  if (!Number.isInteger(options.attemptTimeoutS) || options.attemptTimeoutS < 5 || options.attemptTimeoutS > 300) {
+    throw new Error('--attempt-timeout must be a whole number of seconds between 5 and 300');
   }
   let base;
   try { base = new URL(options.cacheBase); }
@@ -85,6 +109,21 @@ function findClosingBrace(source, open) {
   throw new Error('Could not find the end of CITIES in tests/real-export.mjs');
 }
 
+// An explicit city file skips the seven-city contract: it is for ad-hoc
+// areas such as workshop cities, not for the pinned validation corpus.
+function loadCitiesFile(file) {
+  const cities = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8'));
+  const entries = Object.entries(cities || {});
+  if (!entries.length) throw new Error(`${file} holds no cities`);
+  for (const [name, bboxText] of entries) {
+    const parts = String(bboxText).split(',').map(Number);
+    if (parts.length !== 4 || parts.some(n => !Number.isFinite(n)) || parts[0] >= parts[2] || parts[1] >= parts[3]) {
+      throw new Error(`${file}: ${name} must be "south,west,north,east", got ${JSON.stringify(bboxText)}`);
+    }
+  }
+  return cities;
+}
+
 function loadCities() {
   const source = fs.readFileSync(path.join(REPO, 'tests/real-export.mjs'), 'utf8');
   const marker = source.indexOf('const CITIES =');
@@ -106,7 +145,7 @@ function loadAppContract() {
     buildingsLayer: EngineV2.buildingsLayer,
     padBboxMeters: EngineV2.padBboxMeters,
     buildingFetchPadM: EngineV2.BUILDING_FETCH_PAD_M,
-    bboxToTiles, tileCacheKey, endpoints: OVERPASS_ENDPOINTS,
+    bboxToTiles, bboxToFineTiles, tileCacheKey, endpoints: OVERPASS_ENDPOINTS,
   };`;
   const el = new Proxy(function () {}, {
     get(_target, prop) {
@@ -151,8 +190,9 @@ function loadAppContract() {
   return { ...contract, fetchable };
 }
 
-function makePlan(cities, contract) {
+function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_ATTEMPT_TIMEOUT_S) {
   const plan = [];
+  const tilesFor = grid === 'fine' ? contract.bboxToFineTiles : contract.bboxToTiles;
   for (const [city, bboxText] of Object.entries(cities)) {
     const [south, west, north, east] = bboxText.split(',').map(Number);
     const bbox = { south, west, north, east };
@@ -160,10 +200,10 @@ function makePlan(cities, contract) {
       const fetchBbox = layer.id === contract.buildingsLayer.id
         ? contract.padBboxMeters(bbox, contract.buildingFetchPadM)
         : bbox;
-      for (const tile of contract.bboxToTiles(fetchBbox)) {
+      for (const tile of tilesFor(fetchBbox)) {
         const bboxString = `${tile.s},${tile.w},${tile.n},${tile.e}`;
         const statement = layer.overpassQuery(bboxString).replaceAll(`(${bboxString})`, '');
-        const query = `[out:json][bbox:${bboxString}][timeout:30];(${statement});out ${layer.overpassOut || 'body geom'} qt;`;
+        const query = `[out:json][bbox:${bboxString}][timeout:${attemptTimeoutS}];(${statement});out ${layer.overpassOut || 'body geom'} qt;`;
         plan.push({
           city, layer, tile, bboxString, query,
           key: contract.tileCacheKey(layer, tile),
@@ -226,7 +266,7 @@ async function writeCache(task, data, options, controller, remainingMs) {
   if (response.status !== 204) throw new Error(`cache.php POST failed with HTTP ${response.status}`);
 }
 
-async function fetchOverpass(task, endpoint, controller, remainingMs) {
+async function fetchOverpass(task, endpoint, controller, remainingMs, attemptTimeoutMs) {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -234,7 +274,7 @@ async function fetchOverpass(task, endpoint, controller, remainingMs) {
       'User-Agent': OVERPASS_UA,
     },
     body: `data=${encodeURIComponent(task.query)}`,
-    signal: signalFor(controller, Math.min(ATTEMPT_TIMEOUT_MS, remainingMs)),
+    signal: signalFor(controller, Math.min(attemptTimeoutMs, remainingMs)),
   });
   if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
   let data;
@@ -274,7 +314,7 @@ async function main() {
   if (options.help) { console.log(HELP); return; }
 
   const startedAt = performance.now();
-  const deadlineAt = startedAt + MAX_RUNTIME_MS;
+  const deadlineAt = options.maxRuntimeMinutes === 0 ? Infinity : startedAt + options.maxRuntimeMinutes * 60_000;
   const controller = new AbortController();
   let interrupted = false;
   const stop = () => {
@@ -286,14 +326,14 @@ async function main() {
   process.once('SIGTERM', stop);
 
   try {
-    const cities = loadCities();
+    const cities = options.citiesFile ? loadCitiesFile(options.citiesFile) : loadCities();
     const contract = loadAppContract();
-    const plan = makePlan(cities, contract);
+    const plan = makePlan(cities, contract, options.grid, options.attemptTimeoutS);
     if (options.listKeys) {
       for (const task of plan) console.log(task.key);
       return;
     }
-    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v2 layers = ${plan.length} cache keys`);
+    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v2 layers = ${plan.length} cache keys (${options.grid} grid, ${options.maxRuntimeMinutes === 0 ? 'no time limit' : `${options.maxRuntimeMinutes} min limit`})`);
     console.log(`Cache: ${options.cacheBase}`);
     console.log(`Endpoints: ${contract.endpoints.map(value => new URL(value).hostname).join(' → ')}`);
 
@@ -336,14 +376,17 @@ async function main() {
         continue;
       }
 
-      const endpoint = contract.endpoints[endpointCursor++ % contract.endpoints.length];
+      // Stay on an endpoint while it answers; rotate only after a failure.
+      // Round-robin per request spends a full timeout plus cooldown on every
+      // dead mirror for every key, which turns a slow sweep into a day.
+      const endpoint = contract.endpoints[endpointCursor % contract.endpoints.length];
       const host = new URL(endpoint).hostname;
       task.attempts++;
       liveAttempts++;
       let succeeded = false;
       try {
         console.log(`TRY  ${task.city}/${task.layer.id} attempt ${task.attempts} via ${host}`);
-        const data = await fetchOverpass(task, endpoint, controller, deadlineAt - performance.now());
+        const data = await fetchOverpass(task, endpoint, controller, deadlineAt - performance.now(), options.attemptTimeoutS * 1000);
         await writeCache(task, data, options, controller, deadlineAt - performance.now());
         const confirmed = await readCache(task, options, controller, deadlineAt - performance.now());
         if (!confirmed.hit) throw new Error('cache write was not visible as a HIT');
@@ -352,6 +395,7 @@ async function main() {
         console.log(`OK   ${task.city}/${task.layer.id}: ${data.elements.length} raw, ${retainedCount(task, data)} after filter (${queue.length} gaps remain)`);
       } catch (error) {
         failures++;
+        endpointCursor++;
         console.warn(`FAIL ${task.city}/${task.layer.id} via ${host}: ${error.message}`);
         // Keep the in-flight key in the remainder count on SIGINT/deadline;
         // only ordinary attempt failures rotate it to the tail.

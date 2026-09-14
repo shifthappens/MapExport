@@ -25,15 +25,15 @@ jobs:
 
       - name: Build production index.html
         run: |
-          # Engine v2 is dev/test only until it ships (see plans/2026-07-10_
-          # export-engine-v2.md): neither its script tag (not in the rsync
-          # whitelist — would 404) nor its UI toggle may reach production.
-          # Both live between engine-v2:start/end marker comments in
-          # index.html; delete every such block.
+          # Engine v2 ships to production since 2026-09-13 (engine-v2.js is in
+          # the rsync whitelist below, unminified: its face worker is built
+          # from function source at runtime, which a mangler could break).
+          # There is no engine toggle in the UI anywhere: the engine is chosen
+          # by the ?engine=1|2 URL parameter (script.js engineV2Selected),
+          # default v2, so the production index needs no stripping.
           sed -e 's/href="style\.css"/href="style.min.css"/' \
               -e 's/src="script\.js[^"]*"/src="script.min.js"/' \
               -e 's#references/MapExport%20Design%20System/fonts/#fonts/#g' \
-              -e '/engine-v2:start/,/engine-v2:end/d' \
               index.html > /tmp/prod-index.html
           chmod 644 /tmp/prod-index.html
 
@@ -56,6 +56,7 @@ jobs:
         run: |
           rsync -avz --delete -e "ssh -p ${{ secrets.DEPLOY_PORT }}" \
             --include='/script.min.js' \
+            --include='/engine-v2.js' \
             --include='/style.min.css' \
             --include='/cache.php' \
             --include='/fonts/' --include='/fonts/**' \

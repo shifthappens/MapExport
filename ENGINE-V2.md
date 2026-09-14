@@ -581,8 +581,9 @@ it is now one true render layer, made safe by clipping landcover to its visible
 remainder in the worker (§5) so the move reorders no visible pixel. The parent
 is structural SVG organization; each child stays independently selectable in
 the editor. The shared panel's Natural rows, City blocks and Roads & streets
-are required and therefore render without checkboxes. Paths & trails, Transit,
-and the label rows remain optional controls. `tests/layer-selection.mjs`
+are required and therefore render a checked, disabled indicator checkbox that
+is never read. Paths & trails, Transit, and the label rows remain optional
+controls; the street-name category checkboxes nest under Street labels. `tests/layer-selection.mjs`
 guards both the selected-id contract and the required/optional GUI rows.
 
 ## 8. v1 parity quirks, kept deliberately

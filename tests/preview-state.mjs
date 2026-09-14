@@ -18,7 +18,7 @@ const expose = `
     exportInProgress = false;
     previewDebounce = null;
     previewRequestSequence = 0;
-    document.getElementById('engine-v2-toggle').checked = engine === EXPORT_ENGINE.V2;
+    requestedEngineVersion = engine === EXPORT_ENGINE.V2 ? 2 : 1;
     // Required map layers have no checkbox now, so a valid export source must
     // carry those layers even when the test harness only exposes one optional
     // control. Mirror the real selection rather than hard-coding the old
@@ -62,7 +62,9 @@ const expose = `
     });
   },
   switchEngine(engine) {
-    document.getElementById('engine-v2-toggle').checked = engine === EXPORT_ENGINE.V2;
+    // In the browser this is a page reload with ?engine=1|2; the preview
+    // contract only needs the selection to change under a live preview.
+    requestedEngineVersion = engine === EXPORT_ENGINE.V2 ? 2 : 1;
     scheduleLivePreview();
   },
   snapshot() {

@@ -11,10 +11,36 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
-### 2026-09-14 — Sea name override removed
+### 2026-09-14 — Layer panel cleanup, engine choice moved to the URL
 - The "Sea name" override field is gone (and with it the `--sea-name` flag of
   the export test). The sea is named from OSM alone: a name shared by the open
   coastline in view gets a label, a nameless sea gets none.
+- Natural and Built Environment layers that are always exported now show a
+  ticked, greyed-out checkbox instead of plain text, making clear they are part
+  of every export and cannot be switched off.
+- The street-name category checkboxes (Motorway, Primary, Secondary, Tertiary,
+  Residential) moved from Export options to directly under the Street labels
+  layer, in a larger, readable size. They grey out when Street labels is off
+  and become clickable again when it is on.
+- The Engine v2 checkbox is gone. The engine is chosen with a URL parameter
+  (`?engine=1` for a v1 comparison export, `?engine=2` or nothing for v2) and
+  the export-options panel shows a small "Export engine v2/v1" line at the
+  bottom. The deploy workflow no longer strips a dev-only block from
+  `index.html`.
+
+### 2026-09-13 — Engine v2 in production, shareable cache for city centres
+- Engine v2 is now the production export engine: `engine-v2.js` ships with
+  every deploy and production has no v1/v2 toggle (the dev checkbox stays for
+  comparison exports). The sea-name override is available in production too.
+- A hand-drawn city-centre selection can now reuse pre-warmed map data: when
+  every 0.025° "fine" tile covering the selection is already cached, the
+  export reads those shared tiles instead of asking Overpass for the exact
+  bbox. Unprepared areas behave exactly as before.
+- `tools/prefetch-validation-cache.mjs` gained `--cities=<file>`,
+  `--grid=fine` and `--max-runtime=<min>` (0 = unlimited);
+  `tools/pin-cache.sh` accepts the same corpus selectors, so ad-hoc city sets
+  such as `tools/workshop-cities.json` (the ten workshop cities) can be warmed
+  and pinned without touching the seven validation cities.
 
 - Restored the red workshop slide style and all exercise and help instructions
   in the merged slide, with a clear participant checklist.

@@ -164,8 +164,11 @@ const lifecycleExpose = `
 };`;
 
 function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds }) {
-  const dom = makeExportDomHarness({ engineV2, selectedLayerIds });
-  const ctx = makeAppContext(`${scriptSrc}\n;${engineSrc}\n;${lifecycleExpose}`);
+  const dom = makeExportDomHarness({ selectedLayerIds });
+  // The engine is a URL setting, not a control: ?engine=1 forces v1.
+  const ctx = makeAppContext(`${scriptSrc}\n;${engineSrc}\n;${lifecycleExpose}`, {
+    location: { search: engineV2 ? '?engine=2' : '?engine=1' },
+  });
   ctx.document = dom.document;
   ctx.localStorage = dom.localStorage;
 

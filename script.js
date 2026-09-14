@@ -72,14 +72,14 @@ const HELP = {
   step3: {
     title: 'Map layers',
     content: `
-      <p>Toggle which types of features appear in the exported SVG. Unchecked layers are skipped entirely, making exports faster and files smaller.</p>
+      <p>Toggle which types of features appear in the exported SVG. Unchecked layers are skipped entirely, making exports faster and files smaller. Layers shown ticked and greyed out are part of every export and cannot be switched off.</p>
       <p>Each layer becomes a <strong>separate named group</strong> in the SVG — you can show, hide, lock, or re-style them individually in Illustrator or Inkscape.</p>
       <ul>
         <li><strong>Roads</strong> — all road types from motorways to footpaths</li>
         <li><strong>Water</strong> — rivers, lakes, and coastlines</li>
         <li><strong>Parks & green</strong> — parks, forests, and natural areas</li>
         <li><strong>Buildings</strong> — building footprints</li>
-        <li><strong>Labels</strong> — road name text (per road type)</li>
+        <li><strong>Labels</strong> — road name text; with Street labels on, choose which road types get a name</li>
       </ul>
       <div class="tip">Disable layers you don't need to make exports faster and files smaller.</div>
     `
@@ -92,7 +92,7 @@ const HELP = {
         <li><strong>SVG (Illustrator)</strong> — tweaked so the file opens cleanly in Illustrator (and places in InDesign 2020+): curved street names arrive pre-positioned letter by letter, and everything sticks to the SVG subset Illustrator understands. Don't expect this file to be optimal in other SVG viewers/editors.</li>
         <li><strong>SVG (Inkscape / others)</strong> — standards-based SVG for Inkscape, web browsers, and other conforming tools, with real Inkscape layers and text-on-path street names. Don't expect this file to open perfectly in Illustrator.</li>
       </ul>
-      <p><strong>Labels on:</strong> Control which road types include name labels. More labels means a larger file and slower rendering in Illustrator.</p>
+      <p><strong>Sea name:</strong> overrides the name OSM gives the sea along a coastline; leave blank to keep OSM's name.</p>
       <div class="tip">For large areas, disable layers and labels you don't need to keep file sizes manageable.</div>
     `
   },
@@ -544,12 +544,25 @@ function renderLayers() {
       const row = document.createElement('div');
       row.className = 'layer-row';
       if (layer.required) {
-        row.innerHTML = `<span class="layer-swatch" style="background:${layer.color}"></span><span>${layer.label}<br><span class="layer-hint">${layer.hint}</span></span>`;
+        // Required layers are always exported (getAllSelectedLayers ignores
+        // the DOM for them). The checkbox is shown checked and disabled purely
+        // to tell the user "this is in every export and cannot be switched
+        // off"; it carries no state.
+        row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" checked disabled><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
       } else {
         row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" ${layer.defaultOn?'checked':''}><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
         row.querySelector('input').addEventListener('change', scheduleLivePreview);
       }
       list.appendChild(row);
+      if (layer.id === 'street_labels') {
+        // The per-category street-name toggles belong to this layer: they are
+        // only meaningful while Street labels itself is on.
+        const sub = document.createElement('div');
+        sub.className = 'label-toggles';
+        sub.id = 'label-toggles';
+        list.appendChild(sub);
+        renderLabelToggles(sub, row.querySelector('input'));
+      }
     });
   });
 }
@@ -557,19 +570,31 @@ function renderLayers() {
 // ════════════════════════════════════════════════════════════════
 //  LABEL TOGGLES
 // ════════════════════════════════════════════════════════════════
-function renderLabelToggles() {
-  const wrap = document.getElementById('label-toggles');
+// Per-road-category street-name checkboxes, rendered under the Street labels
+// layer row. They follow that row's checkbox: unticking Street labels greys
+// them out (their checked state is kept, so re-ticking restores the previous
+// choice); ticking it makes them clickable again.
+function renderLabelToggles(wrap, streetLabelsToggle) {
   wrap.innerHTML = '';
   const cats = ['motorway','primary','secondary','tertiary','residential'];
   const fullNames = {motorway:'Motorway',primary:'Primary',secondary:'Secondary',tertiary:'Tertiary',residential:'Residential'};
-  cats.forEach(cat => {
+  const inputs = cats.map(cat => {
     const id = `lbl-${cat}`;
-    const label = document.createElement('label');
-    label.style.cssText='display:flex;align-items:center;gap:3px;font-size:9px;color:var(--muted);cursor:pointer;white-space:nowrap';
-    label.innerHTML = `<input type="checkbox" id="${id}" ${LABEL_VISIBILITY[cat]?'checked':''} style="width:10px;height:10px;accent-color:var(--accent2)"> ${fullNames[cat]}`;
-    label.querySelector('input').addEventListener('change', e => { LABEL_VISIBILITY[cat] = e.target.checked; scheduleLivePreview(); });
-    wrap.appendChild(label);
+    const row = document.createElement('label');
+    row.className = 'label-toggle-row';
+    row.innerHTML = `<input type="checkbox" id="${id}" ${LABEL_VISIBILITY[cat]?'checked':''}><span>${fullNames[cat]}</span>`;
+    const input = row.querySelector('input');
+    input.addEventListener('change', e => { LABEL_VISIBILITY[cat] = e.target.checked; scheduleLivePreview(); });
+    wrap.appendChild(row);
+    return input;
   });
+  function syncToStreetLabels() {
+    const enabled = !!streetLabelsToggle?.checked;
+    inputs.forEach(input => { input.disabled = !enabled; });
+    wrap.classList?.toggle('disabled', !enabled);
+  }
+  streetLabelsToggle?.addEventListener('change', syncToStreetLabels);
+  syncToStreetLabels();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -732,11 +757,54 @@ function bboxToTiles(bbox) {
   return tiles;
 }
 
+// Fine grid: a second, shareable tiling for city-centre-sized selections.
+// The adaptive path above keys a small bbox by its exact coordinates, so two
+// people drawing "roughly the centre of Amsterdam" never share a cache entry
+// and nothing can be pre-warmed for them. Fine tiles (0.025°, ~2.8 × 1.7 km at
+// 52°N) are grid-aligned, so any hand-drawn bbox inside a pre-warmed area
+// resolves to tiles that already exist. They are only ever READ: fetchLayer
+// switches to them when every fine tile a layer needs is already cached (see
+// fineTilesIfCached), and otherwise keeps the exact-bbox behaviour unchanged.
+// tools/prefetch-validation-cache.mjs --grid=fine is what writes them.
+const FINE_TILE_SIZE = 0.025;
+function bboxToFineTiles(bbox) {
+  const tiles = [];
+  const EPS = 1e-9;
+  const s0 = Math.floor(bbox.south / FINE_TILE_SIZE + EPS) * FINE_TILE_SIZE;
+  const w0 = Math.floor(bbox.west  / FINE_TILE_SIZE + EPS) * FINE_TILE_SIZE;
+  for (let s = s0; s < bbox.north - EPS; s = +(s + FINE_TILE_SIZE).toFixed(10)) {
+    for (let w = w0; w < bbox.east - EPS; w = +(w + FINE_TILE_SIZE).toFixed(10)) {
+      tiles.push({ s: +s.toFixed(3), w: +w.toFixed(3),
+                   n: +(s + FINE_TILE_SIZE).toFixed(3), e: +(w + FINE_TILE_SIZE).toFixed(3),
+                   fine: true });
+    }
+  }
+  return tiles;
+}
+
 function tileCacheKey(layer, tile) {
   if (tile.adaptive) {
     return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_a_${tile.s}_${tile.w}_${tile.n}_${tile.e}`;
   }
+  if (tile.fine) {
+    // toFixed(3) keeps 52.35 and 52.350 the same key.
+    return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_f_${tile.s.toFixed(3)}_${tile.w.toFixed(3)}`;
+  }
   return `${CACHE_PREFIX}${layer.id}_${layerQHash(layer)}_${tile.s}_${tile.w}`;
+}
+
+// For an adaptive (exact-bbox) selection: the fine tiles covering it, but only
+// when every one of them is already cached for this layer. A partial set is
+// worth nothing — the missing tiles would still need Overpass, and the
+// exact-bbox query fetches the same area in one request — so the caller then
+// keeps its adaptive tile. Returns null in that case and on any cache error
+// (cacheExistsBatch already reports those and returns an empty set).
+async function fineTilesIfCached(layer, bbox) {
+  const fine = bboxToFineTiles(bbox);
+  if (!fine.length) return null;
+  const keys = fine.map(tile => tileCacheKey(layer, tile));
+  const existing = await cacheExistsBatch(keys);
+  return keys.every(key => existing.has(key)) ? fine : null;
 }
 
 // ME-05: a cache failure is not a miss — the export continues either way,
@@ -1129,7 +1197,11 @@ function overpassFailureDetail(error){
 }
 
 async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
-  const tiles = bboxToTiles(bbox);
+  let tiles = bboxToTiles(bbox);
+  if (tiles.length === 1 && tiles[0].adaptive) {
+    const fine = await fineTilesIfCached(layer, bbox);
+    if (fine) tiles = fine;
+  }
   const elementArrays = [];
   const failedTiles = [];
   let fetchCount = 0;
@@ -3878,10 +3950,24 @@ function getAllSelectedLayers() {
 // A preview is a different product from a full export: it may be smaller and
 // may omit expensive derived geometry. Keep its bytes and generation identity
 // separate so no UI update can ever become the download source by accident.
+// Engine v2 is the production engine and is not a user option. v1 stays
+// reachable for side-by-side comparison exports through the URL only:
+// ?engine=1 selects v1, ?engine=2 (or no parameter, or anything else) selects
+// v2. The choice is read once at load; the settings panel shows it in
+// #engine-note (renderEngineNote). Tests set `requestedEngineVersion`
+// directly instead of faking a URL.
+function readEngineVersionFromUrl() {
+  if (typeof location === 'undefined' || !location.search) return null;
+  const value = new URLSearchParams(location.search).get('engine');
+  return value === '1' ? 1 : value === '2' ? 2 : null;
+}
+let requestedEngineVersion = readEngineVersionFromUrl();
+function engineV2Selected() {
+  if (typeof EngineV2 === 'undefined') return false;
+  return requestedEngineVersion !== 1;
+}
 function getCurrentEngine() {
-  return document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined'
-    ? EXPORT_ENGINE.V2
-    : EXPORT_ENGINE.V1;
+  return engineV2Selected() ? EXPORT_ENGINE.V2 : EXPORT_ENGINE.V1;
 }
 
 function copyBbox(value) {
@@ -3936,6 +4022,17 @@ function getCurrentSettingsFingerprint() {
 
 function engineLabel(engine) {
   return engine === EXPORT_ENGINE.V2 ? 'Engine v2' : 'Engine v1';
+}
+
+// Small footer line in the export-options panel naming the engine in use, so
+// a comparison export made with ?engine=1 is recognisable as such.
+function renderEngineNote() {
+  const note = document.getElementById('engine-note');
+  if (!note) return;
+  const engine = getCurrentEngine();
+  note.textContent = engine === EXPORT_ENGINE.V2
+    ? 'Export engine v2'
+    : 'Export engine v1 (comparison mode via ?engine=1)';
 }
 
 function updateDownloadControl() {
@@ -4211,9 +4308,9 @@ async function runExportLifecycle(source, work) {
 
 async function doExport() {
   if (!bbox || exportInProgress) return;
-  // Experimental engine v2 (default off) takes over the whole export when its
-  // toggle is checked. It owns its own orchestration in engine-v2.js.
-  if (document.getElementById('engine-v2-toggle')?.checked && typeof EngineV2 !== 'undefined') return EngineV2.doExport();
+  // Engine v2 (the default, see engineV2Selected) takes over the whole export;
+  // it owns its own orchestration in engine-v2.js.
+  if (engineV2Selected()) return EngineV2.doExport();
   const selected=getAllSelectedLayers();
   if (!selected.length) { setStatus('Select at least one layer','error'); return; }
   // Claim the lock before the first await below (area-name resolution can suspend
@@ -4842,7 +4939,7 @@ const progress = (() => {
 document.addEventListener('DOMContentLoaded',()=>{
   initMap();
   renderLayers();
-  renderLabelToggles();
+  renderEngineNote();
   renderHistory();
 
   // Delete-all history button (with confirmation)
@@ -4905,7 +5002,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
   document.getElementById('format-select')?.addEventListener('change', scheduleLivePreview);
-  document.getElementById('engine-v2-toggle')?.addEventListener('change', scheduleLivePreview);
   updateDownloadControl();
 
   // Help modal

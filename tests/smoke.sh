@@ -38,6 +38,9 @@ node tests/layer-selection.mjs
 echo
 echo "== overpass-fetch (offline, shared timeout/failover/abort fetch contract) =="
 node tests/overpass-fetch.mjs
+echo
+echo "== fine-grid (offline, shareable city-centre cache tiles) =="
+node tests/fine-grid.mjs
 
 echo
 echo "== svg-id-uniqueness (offline, document-wide unique + deterministic ids) =="

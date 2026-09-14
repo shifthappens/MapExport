@@ -23,7 +23,7 @@ type: project
 ## Key files
 - `script.js` — v1 engine + shared UI/fetch/label/render logic (~3900 lines). **This is the source of truth**, loaded directly by `index.html` in dev AND tested directly by `tests/real-export.mjs` — no build step anywhere except deploy.
 - `engine-v2.js` — experimental v2 map-construction engine (~2000 lines) behind a UI toggle; shares v1's fetch/labels/renderers. Binding design contract in `ENGINE-V2.md` — read it before touching this file. v1 stays production until cutover.
-- `index.html` — Loads `script.js`, `style.css`, `engine-v2.js`, Leaflet directly (ClipperLib loads inside the workers via CDN `importScripts`). The deploy workflow rewrites a separate, deployed copy to point at the minified files and strips the `engine-v2:start/end` marker blocks (v2 is dev/test only); the repo's own `index.html` never changes.
+- `index.html` — Loads `script.js`, `style.css`, `engine-v2.js`, Leaflet directly (ClipperLib loads inside the workers via CDN `importScripts`). The deploy workflow rewrites a separate, deployed copy to point at the minified files; the repo's own `index.html` never changes. Engine choice is a URL parameter (`?engine=1` for v1, default v2), not a UI control.
 - `style.css` — UI styles
 - `cache.php` — Server-side Overpass response cache
 

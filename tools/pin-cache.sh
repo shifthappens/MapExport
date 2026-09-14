@@ -15,6 +15,10 @@
 # tools/prefetch-validation-cache.mjs --list-keys, so it follows layer/query
 # changes instead of being a second hardcoded copy.
 #
+# Every command also accepts the prefetcher's --cities=<file> and --grid=fine
+# to work on an ad-hoc corpus (e.g. the fine-grid workshop cities) instead of
+# the seven validation cities; such pins are gitignored (cache/pinned/*_f_*).
+#
 # Written for bash 3.2 (macOS default): no associative arrays.
 set -eu
 cd "$(dirname "$0")/.."
@@ -29,8 +33,22 @@ usage() {
   exit "${1:-0}"
 }
 
+# Corpus selectors (--cities=, --grid=) apply to every command; anything else
+# after the command name is handed to the prefetcher by `refresh` only.
+KEY_ARGS=()
+REST_ARGS=()
+select_args() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --cities=*|--grid=*) KEY_ARGS+=("$arg") ;;
+      *) REST_ARGS+=("$arg") ;;
+    esac
+  done
+}
+
 keys() {
-  node tools/prefetch-validation-cache.mjs --list-keys
+  node tools/prefetch-validation-cache.mjs --list-keys ${KEY_ARGS[@]+"${KEY_ARGS[@]}"}
 }
 
 # A pinned file must be a complete gzip stream holding complete JSON with an
@@ -146,7 +164,7 @@ cmd_refresh() {
   done < <(keys)
   echo "pinned serving disabled, live entries parked in $STASH"
   echo "fetching all keys from Overpass (this is slow)"
-  node tools/prefetch-validation-cache.mjs "$@"
+  node tools/prefetch-validation-cache.mjs ${KEY_ARGS[@]+"${KEY_ARGS[@]}"} "$@"
   restore_stash
   rm -f "$DISABLED"
   trap - EXIT INT TERM
@@ -154,10 +172,13 @@ cmd_refresh() {
   cmd_pin
 }
 
-case "${1:-}" in
-  status)  shift; cmd_status "$@" ;;
-  pin)     shift; cmd_pin "$@" ;;
-  refresh) shift; cmd_refresh "$@" ;;
+command="${1:-}"
+[ $# -gt 0 ] && shift
+select_args "$@"
+case "$command" in
+  status)  cmd_status ;;
+  pin)     cmd_pin ;;
+  refresh) cmd_refresh ${REST_ARGS[@]+"${REST_ARGS[@]}"} ;;
   -h|--help|help) usage 0 ;;
-  *) echo "unknown command: ${1:-（none）}" >&2; usage 2 ;;
+  *) echo "unknown command: ${command:-（none）}" >&2; usage 2 ;;
 esac
