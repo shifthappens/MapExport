@@ -26,9 +26,10 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   the "Cut faces" step. The v2 face worker now trims every void and cover
   polygon to the frame before building its spatial indexes and clipping, and
   the hamlet closing only considers building rings within reach of a
-  countryside face instead of every building in the export. Nijmegen's worker
-  went from about 3 minutes to a few seconds; landcover elements that lie
-  entirely outside the frame are now culled instead of painted off-canvas.
+  countryside face instead of every building in the export. On the locally
+  pinned Nijmegen input the optimized worker completed in 23.6 seconds;
+  landcover elements entirely outside the frame are now culled instead of
+  painted off-canvas.
 - The activity log in the progress panel no longer squashes its lines on top
   of each other once it fills up; it scrolls instead.
 

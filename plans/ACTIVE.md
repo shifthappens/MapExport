@@ -1,42 +1,40 @@
 # Active checkpoint
 
-- **Updated:** 2026-09-13
+- **Updated:** 2026-09-15
 - **Roadmap:** `plans/2026-07-14_codebase-maintenance-priorities.md` (Sprint 3).
-  De cartografische tussen-sprint (`plans/2026-07-17_cartographic-audit-followup.md`)
-  is COMPLETE, AF-08 gesloten op de 2026-08-07-sweep.
-- **Uitvoeringsplan:** `plans/2026-09-13_af08-eindpoort-en-sprint3-start.md`.
-- **Sprint:** maintenance Sprint 3, net gestart.
-- **Unit:** P10 (AF-04 fix: place nodes bereiken `buildSVG` niet), uit
-  `plans/2026-09-13_af08-eindpoort-en-sprint3-start.md`. Daarna P6, P7, P8.
+- **Unit:** PERF-05, begrensde v2-void/covergeometrie en lokale
+  hamletmorfologie; los tussendoorwerk, geen Sprint-3-taak afgevinkt.
+- **Status:** afgerond; broncode, regressietest, changelogcorrectie en dit
+  checkpoint worden samen vastgelegd. Niet gepusht of gedeployd.
 
-## Geverifieerd 2026-09-13 (O)
+## Laatste bewijs
 
-- `OFFLINE_ONLY=1 bash tests/smoke.sh` exit 0; dubbele SVG-id's in alle zeven
-  2026-08-07-exports: 0; corridor-lint faalt op zes van zeven (geaccepteerd,
-  zie matrix).
-- **AF-04 rendert nergens.** `doExportV2` (`engine-v2.js` 4005) en
-  `tests/real-export.mjs` (313) filteren `place_nodes` weg vóór `buildSVG`,
-  dat het op regel 3659 nodig heeft. Geen enkele export sinds 2026-07-18
-  bevat een plaatsnaam. Coens sign-off van AF-04 is daarom ingetrokken;
-  fix is unit P10.
-- P6- en P7-sessies hebben niets in de werkboom achtergelaten; ME-06b en
-  ME-06a staan nog open.
-- Cobbenhagen ligt buiten de Tilburg-validatiebbox; AF-07f is afgetekend op
-  Korvel plus de hele plaat.
+- De gerichte worker-test vergelijkt de geoptimaliseerde en behouden
+  referentieroute exact voor blokgrenzen/gaten en zichtbare landcover. Zij dekt
+  deels zichtbare water/landcover, geheel off-frame landcover en bouwringen net
+  binnen/buiten het conservatieve countryside-bereik.
+- Lokale Nijmegen-bbox: `51.828,5.828,51.872,5.897`; 42 cachehits, 0 misses,
+  0 Overpass. Eén volledige geoptimaliseerde worker-run: 23.624 s; 500/47.392
+  hamletringen behouden; frame-clipping 132.236 -> 46.502 vertices. De
+  referentierun was na ruim tien minuten nog niet klaar en is op verzoek
+  afgebroken; daarom geen referentiemediaan of snelheidsfactor claimen.
+- De volledige export bereikte geometrische en gerenderde coverage zonder
+  significante gaten, maar de custom bbox heeft twee bestaande label-lintfouten.
+- Eindchecks: `git diff --check`, `node --check engine-v2.js`,
+  `node tests/v2-face-runtime-benchmark.mjs` en
+  `OFFLINE_ONLY=1 bash tests/smoke.sh` allemaal exit 0. De review vond eerst
+  een covervrije sub-pixel-parityfout; guard en regressietest zijn hersteld en
+  de reviewer gaf daarna ship-advies zonder resterende bevestigde defecten.
+
+## Gewijzigde bestanden
+
+`engine-v2.js`, `tests/v2-face-runtime-benchmark.mjs`, `tests/README.md`,
+`CHANGELOG.md`, `plans/ACTIVE.md`.
 
 ## Next action
 
-Draai prompt P10 uit `plans/2026-09-13_prompts-per-unit.md` (E1). Daarna P6.
-
-## Besloten
-
-- AF-07f (groenmassa): Coen geeft visuele sign-off akkoord (2026-09-13).
-- AF-04 (place-labels Nièvre): sign-off van 2026-09-13 ingetrokken, de plaat
-  bevatte geen plaatsnamen (zie hierboven).
-- Regressies op de zeven 2026-08-07-platen: geen gevonden; Coen bevestigt de
-  sweep zonder herexport (2026-09-13).
-- **Palet-splitsing: definitief NIET** (Coen, 2026-07-26). Niet opnieuw
-  voorstellen.
+Hervat maintenance Sprint 3 met P10, daarna P6. Laat de ongerelateerde
+`cache/.ratelimit`-wijziging en PowerPoint-lockfile buiten vervolgcommits.
 
 ## Standing rules
 

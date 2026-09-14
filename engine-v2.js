@@ -1447,6 +1447,37 @@ self.onmessage = function(event) {
     return out;
   }
 
+  // Trim a void to the export frame (PERF-05). Every face lies inside the
+  // frame, so void geometry outside it can never change a subtraction or a
+  // share measurement — yet an area relation is fetched whole, and a river
+  // carries its entire bank into every Clipper call it joins. Nijmegen's Waal
+  // was 13,613 vertices with 333 in frame: each of 218 faces paid ~350 ms to
+  // AddPath the far bank, and the void's 32-cell spatial index, stretched over
+  // 30× the frame, degenerated to one useful cell. One rectangle intersection
+  // per void keeps only what the frame can see; a void already inside the
+  // frame is returned untouched. Clipper returns normalized outer/hole
+  // winding. The reference route (runtimeOptimizations:false) keeps the
+  // unclipped voids for benchmark parity.
+  function clipToFrame(paths, scale) {
+    if (!runtimeOptimizations || !paths.length) return paths;
+    const frameW = Math.round(W * scale), frameH = Math.round(H * scale);
+    const extent = pathsBounds(paths);
+    if (!extent || (extent.x0 >= 0 && extent.y0 >= 0 && extent.x1 <= frameW && extent.y1 <= frameH)) return paths;
+    const clipper = new Clipper.Clipper();
+    clipper.AddPaths(paths, ptSubject, true);
+    clipper.AddPath([{ X: 0, Y: 0 }, { X: frameW, Y: 0 }, { X: frameW, Y: frameH }, { X: 0, Y: frameH }], ptClip, true);
+    const out = new Clipper.Paths();
+    clipper.Execute(ctIntersection, out, NZ, NZ);
+    if (benchmark) {
+      benchmarkTimings.frameClipCalls = (benchmarkTimings.frameClipCalls || 0) + 1;
+      benchmarkTimings.frameClipInputVertices = (benchmarkTimings.frameClipInputVertices || 0)
+        + paths.reduce((sum, path) => sum + path.length, 0);
+      benchmarkTimings.frameClipOutputVertices = (benchmarkTimings.frameClipOutputVertices || 0)
+        + out.reduce((sum, path) => sum + path.length, 0);
+    }
+    return out;
+  }
+
   // A small worker-local grid narrows global signal paths before an area
   // intersection. The raw Clipper Paths remain the geometry authority; this
   // only returns their original members, in original order, when their bounds
@@ -1573,8 +1604,8 @@ self.onmessage = function(event) {
   // Blocks lose water, green and waterway strokes (all paint above the block).
   // The coverage fallback additionally loses landcover (farmland/wood paints too),
   // so it only paints land that truly no layer covered.
-  const blockVoid = buildVoid([waterPolys, greenPolys, recreationPolys], waterwayStrokePaths);
-  const fallbackVoid = buildVoid([waterPolys, greenPolys, recreationPolys, landcoverPolys], waterwayStrokePaths);
+  const blockVoid = clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys], waterwayStrokePaths), SCALE);
+  const fallbackVoid = clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys, landcoverPolys], waterwayStrokePaths), SCALE);
 
   // Countryside threshold in scaled area units. A face at/above this is rural
   // (not filled curb-to-curb); below it and containing a building it becomes a
@@ -1590,22 +1621,22 @@ self.onmessage = function(event) {
   // there invent hamlets inside the city. Recreation is deliberately absent
   // here and in landcoverVoid, and openLandGreenPolys is the named-green subset
   // only: green that is merely newly visible changes paint, never the verdict.
-  const openLandVoid = indexVoid(buildVoid([openLandGreenPolys, openLandPolys], null));
-  const waterVoid = indexVoid(buildVoid([waterPolys], waterwayStrokePaths));
+  const openLandVoid = indexVoid(clipToFrame(buildVoid([openLandGreenPolys, openLandPolys], null), SCALE));
+  const waterVoid = indexVoid(clipToFrame(buildVoid([waterPolys], waterwayStrokePaths), SCALE));
   // Urban-landuse signal (the isUrbanSignalElement set: residential/commercial/
   // retail/institutional/education/religious landuse + amenity=parking). A
   // buildingless face this covers ≥ URBAN_LANDUSE_MIN_SHARE of (over its land
   // area) is city, not open land — much of OSM maps a district by its landuse
   // polygon and never its individual buildings. Classification only: never
   // subtracted, never painted.
-  const urbanVoid = indexVoid(buildVoid([urbanPolys], null));
+  const urbanVoid = indexVoid(clipToFrame(buildVoid([urbanPolys], null), SCALE));
   // Hidden-green cover: the landcover paint rows ALONE (grass + landcover,
   // parks/water/waterways excluded). Named green needs no equivalent — it is
   // subtracted from every block and shows through the holes — but landcover
   // paints UNDER blocks, so cream over it erases ground OSM shows green. This
   // void measures exactly that erasure risk (see the green-dominance rule in
   // isUrbanPiece).
-  const landcoverVoid = indexVoid(buildVoid([landcoverPolys], null));
+  const landcoverVoid = indexVoid(clipToFrame(buildVoid([landcoverPolys], null), SCALE));
   // Per-element landcover rings ({ index, rings }): the paint cull and the
   // green-remainder merge both address individual painted elements, not the
   // unioned void.
@@ -1673,22 +1704,33 @@ self.onmessage = function(event) {
   if (benchmark) benchmarkTimings.countrysidePreclassification = Date.now() - countrysideStarted;
 
   // Hamlet clusters: morphological closing of building bounding boxes. It is
-  // relevant only to countryside faces. ClipperOffset's global closing can
-  // shift a retained path by a sub-pixel amount when a disconnected input is
-  // omitted, so keep its full input whenever morphology is needed. The
-  // urban-only fast path still avoids this entire operation. Building centres
-  // remain unfiltered for urban tests.
+  // relevant only to countryside faces, and only near them: the closing is
+  // local. Dilation at a point reads rings within DILATE_M, erosion reads the
+  // dilated set within ERODE_M, so a ring farther than DILATE_M + ERODE_M from
+  // a countryside face cannot change the blob inside that face — and the blob
+  // is intersected with the face before anything else looks at it (grounding
+  // runs per piece of that intersection, so connectivity outside the face
+  // is irrelevant too). The urban-only fast path skips the operation
+  // entirely; with countryside present, ringsNearCountryside keeps just the
+  // rings within reach (local pinned Nijmegen run: 500 of 47,392 — the Waal
+  // floodplain is countryside, but the city's tens of thousands of buildings
+  // were all being closed for it). Building centres remain unfiltered for
+  // urban tests. The reference route keeps every ring.
   let clusterPolys = null;
   let hamletMorphologySkipped = true;
   let retainedClusterRingCount = 0;
   const hamletMorphologyStarted = benchmark ? Date.now() : 0;
   if (clusterRings && clusterRings.length && mPerPx) {
     const DILATE_M = 18, ERODE_M = 10;
+    // Reach in px, with a margin over the exact DILATE_M + ERODE_M for the
+    // round-join arc tolerance (0.5 px) and integer rounding at SCALE.
+    const REACH_MARGIN_PX = 2;
     const relevantRings = [];
-    // The Tilburg fast path is urban-only: no countryside face means neither
-    // a building-bounds scan nor any ClipperOffset work can affect the output.
-    if (!runtimeOptimizations || rawFaces.some(face => face.isCountryside)) {
+    const countrysideFaces = rawFaces.filter(face => face.isCountryside);
+    if (!runtimeOptimizations) {
       relevantRings.push(...clusterRings);
+    } else if (countrysideFaces.length) {
+      relevantRings.push(...ringsNearCountryside(clusterRings, countrysideFaces, (DILATE_M + ERODE_M) / mPerPx + REACH_MARGIN_PX));
     }
     if (relevantRings.length) {
       retainedClusterRingCount = relevantRings.length;
@@ -1714,6 +1756,40 @@ self.onmessage = function(event) {
     benchmarkTimings.hamletMorphology = Date.now() - hamletMorphologyStarted;
     benchmarkTimings.hamletMorphologySkipped = hamletMorphologySkipped;
     benchmarkTimings.hamletRingsRetained = retainedClusterRingCount;
+  }
+
+  // The building rings within reachPx of any countryside face: a ring's bbox
+  // must overlap the face's bbox grown by reachPx, and then its bbox centre must
+  // lie within reachPx + half its bbox diagonal of the face's outer ring
+  // (distance 0 inside). Both tests are conservative supersets of "some point
+  // of the ring is within reachPx of the face", which is what the closing's
+  // locality argument above needs. Holes are ignored on purpose: treating the
+  // face as its outer only keeps more rings, never fewer.
+  function ringsNearCountryside(rings, faces, reachPx) {
+    const targets = faces.map(face => {
+      const outer = face.outer.map(p => [p.X / SCALE, p.Y / SCALE]);
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of outer) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      }
+      return { outer, x0: x0 - reachPx, y0: y0 - reachPx, x1: x1 + reachPx, y1: y1 + reachPx };
+    });
+    const near = [];
+    for (const ring of rings) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of ring) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      }
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      const halfDiagonal = Math.hypot(x1 - x0, y1 - y0) / 2;
+      for (const target of targets) {
+        if (x1 < target.x0 || x0 > target.x1 || y1 < target.y0 || y0 > target.y1) continue;
+        if (pointToPolygonDistancePx(cx, cy, target.outer) <= reachPx + halfDiagonal) { near.push(ring); break; }
+      }
+    }
+    return near;
   }
 
   // Total building footprint (bbox px²) whose centre falls inside this subject
@@ -2306,8 +2382,13 @@ self.onmessage = function(event) {
     const coverClipper = new Clipper.Clipper();
     let hasCover = false;
     for (const r of [blockRegion, greenRegion, waterRegion, recreationRegion, waterwayRegion]) if (r.length) { coverClipper.AddPaths(r, ptSubject, true); hasCover = true; }
-    const covering = new Clipper.Paths();
-    if (hasCover) coverClipper.Execute(ctUnion, covering, NZ, NZ);
+    const coveringFull = new Clipper.Paths();
+    if (hasCover) coverClipper.Execute(ctUnion, coveringFull, NZ, NZ);
+    // Off-frame cover can hide nothing the frame shows, so trim it like the
+    // voids (clipToFrame): it otherwise rides into every element difference
+    // and flattens the index below. Element subjects are likewise judged on
+    // their in-frame ink below.
+    const covering = clipToFrame(coveringFull, CULL_SCALE);
     // Spatial index over the finished covering union (PERF-03). Differencing
     // 733 landcover elements against the full city-wide union was the dominant
     // worker cost (measured on Tilburg). A covering path outside an element's
@@ -2318,7 +2399,12 @@ self.onmessage = function(event) {
     const coveringIndex = covering.length ? indexVoid(covering) : null;
     if (benchmark) benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
     const occlusionElementDifferencesStarted = benchmark ? Date.now() : 0;
-    if (coveringIndex) {
+    // With an in-frame cover, every route runs the ordinary occlusion pass.
+    // PERF-05's optimized route must also inspect elements when clipping made
+    // an entirely off-frame cover empty: invisible off-frame landcover still
+    // needs to be culled, while the retained reference route deliberately
+    // preserves the old unbounded result for visible-output comparison.
+    if (coveringIndex || (runtimeOptimizations && coveringFull.length)) {
       const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
       const cullPathsToRings = paths => clipPathsToRingParts(paths, CULL_SCALE);
       for (const lc of landcoverElements) {
@@ -2326,10 +2412,23 @@ self.onmessage = function(event) {
         // rings ship back through greenGroundMerges, which keeps the seam
         // stroke.
         const isMerged = mergedLandcover.has(lc.index);
-        const subj = [];
+        const sourceSubj = [];
         const sourceRings = ringParts(lc.rings);
-        for (const ring of [...sourceRings.outer, ...sourceRings.inner]) { const sp = scaleRingCull(ring); if (sp) subj.push(sp); }
-        if (!subj.length) continue;
+        for (const ring of [...sourceRings.outer, ...sourceRings.inner]) { const sp = scaleRingCull(ring); if (sp) sourceSubj.push(sp); }
+        if (!sourceSubj.length) continue;
+        // Ink outside the frame is invisible (the viewBox is the frame), so the
+        // element is judged and clipped on its in-frame part alone. The cover was
+        // trimmed to the frame above; without trimming the element too, one whose
+        // off-frame ink sat under off-frame cover would flip from culled to
+        // painted (Nijmegen: 167 polder fields from the neighbouring cache tiles,
+        // all under the Waal). Nothing in frame → nothing to paint. A straddling
+        // element the cover never cuts still keeps its raw geometry below.
+        const subj = clipToFrame(sourceSubj, CULL_SCALE);
+        if (!subj.length) {
+          if (isMerged) mergedClipRings.set(lc.index, []);
+          else culledLandcover.push(lc.index);
+          continue;
+        }
         // rawArea (naive sum of |ring area|, double-counting any self-overlap) is
         // always >= the true normalized area, so it is both a safe cull floor
         // (rawArea < EMPTY ⇒ normalized area is too) and a safe "was anything
@@ -2338,7 +2437,9 @@ self.onmessage = function(event) {
         let rawArea = 0;
         for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
         const subjectBounds = pathsBounds(subj);
-        const candidates = runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
+        const candidates = !coveringIndex
+          ? []
+          : runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
         // Nothing covers this element, so it is never clipped — but it can still
         // be a sub-EMPTY crumb to cull. rawArea over-counts, which settles the
         // easy cases: below EMPTY culls, and a single ring cannot self-overlap
