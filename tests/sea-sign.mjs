@@ -151,17 +151,8 @@ check('split island still renders as a hole', inners(sea).length === 1);
 // Case 8: no coastline → strict no-op.
 check('no coastline → no sea elements', X2.buildSeaElements([], bbox).length === 0);
 
-// Case 9: manual sea-name override. It wins over the coastline-derived name,
-// is trimmed, and a blank override falls back to the ordinary naming.
-sea = X2.buildSeaElements([named(20, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }], 'Waddenzee')], bbox, 'Noordzee');
-check('override wins over the coastline name', sea[0].tags.name === 'Noordzee');
-sea = X2.buildSeaElements([coastWay(21, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }])], bbox, '  Außenweser  ');
-check('override is trimmed', sea[0].tags.name === 'Außenweser');
-sea = X2.buildSeaElements([coastWay(22, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }])], bbox, '');
-check('blank override falls back to Sea', sea[0].tags.name === 'Sea');
-
-// Case 10: the rendered sea label (buildAreaResults). A real name (override or
-// unique coastline name) yields a water-styled label node anchored INSIDE the
+// Case 9: the rendered sea label (buildAreaResults). A real name (a unique
+// open-coastline name) yields a water-styled label node anchored INSIDE the
 // sea water; the nameless 'Sea' yields no map label at all.
 let r = X2.buildAreaResults([named(23, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }], 'Waddenzee')], bbox);
 let seaEls = r.classified.water.filter(e => e.id === 'sea');
@@ -171,12 +162,7 @@ check('sea label anchor is inside the sea water', !!r.seaLabel && inSea(seaEls, 
 r = X2.buildAreaResults([coastWay(24, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }])], bbox);
 check('nameless sea → no map label', r.seaLabel === null);
 
-r = X2.buildAreaResults([coastWay(25, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 5.1 }])], bbox, { seaName: 'Außenweser' });
-seaEls = r.classified.water.filter(e => e.id === 'sea');
-check('override → sea label present', !!r.seaLabel && r.seaLabel.tags.name === 'Außenweser');
-check('override sea label anchor inside the water', !!r.seaLabel && inSea(seaEls, r.seaLabel.lat, r.seaLabel.lon));
-
-// Case 11: seaInteriorPoint returns a robust interior point that avoids island
+// Case 10: seaInteriorPoint returns a robust interior point that avoids island
 // holes (the bounds centre of this frame lands on the island / on land).
 sea = X2.buildSeaElements([
   coastWay(26, [{ lat: 50.5, lon: 3.9 }, { lat: 50.5, lon: 4.5 }, { lat: 50.5, lon: 5.1 }]),

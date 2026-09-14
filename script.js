@@ -3901,7 +3901,6 @@ function getExportSettings(engine, exportBbox, {
   format = document.getElementById('format-select')?.value || 'svg-illustrator',
   labels = LABEL_VISIBILITY,
   selectedLayerIds = null,
-  seaName = null,
 } = {}) {
   const settings = {
     engine,
@@ -3915,9 +3914,6 @@ function getExportSettings(engine, exportBbox, {
     // (buildings/area features/place nodes), but every user-facing layer still
     // comes from this frozen selection.
     selectedLayerIds: Object.freeze(selectedLayerIds ? [...selectedLayerIds] : getAllSelectedLayers().map(layer => layer.id)),
-    seaName: engine === EXPORT_ENGINE.V2
-      ? (seaName === null ? document.getElementById('v2-sea-name')?.value || '' : seaName).trim()
-      : '',
   };
   return Object.freeze(settings);
 }
@@ -3931,7 +3927,6 @@ function settingsFingerprint(settings) {
     format: settings.format,
     labels: settings.labels,
     selectedLayerIds: settings.selectedLayerIds,
-    seaName: settings.seaName,
   });
 }
 
@@ -4014,9 +4009,7 @@ function previewSourceSupportsCurrentSettings(source) {
   if (!source || source.engine !== getCurrentEngine() || !sameBbox(source.bbox, bbox)) return false;
   if (source.settings.preset !== activePreset) return false;
   const available = new Set(source.results.map(result => result.layer.id));
-  if (!getAllSelectedLayers().every(layer => available.has(layer.id))) return false;
-  return source.engine !== EXPORT_ENGINE.V2 ||
-    source.settings.seaName === (document.getElementById('v2-sea-name')?.value || '').trim();
+  return getAllSelectedLayers().every(layer => available.has(layer.id));
 }
 
 function commitLivePreview(requestId, source, svg, fingerprint) {
@@ -4913,7 +4906,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
   document.getElementById('format-select')?.addEventListener('change', scheduleLivePreview);
   document.getElementById('engine-v2-toggle')?.addEventListener('change', scheduleLivePreview);
-  document.getElementById('v2-sea-name')?.addEventListener('input', scheduleLivePreview);
   updateDownloadControl();
 
   // Help modal

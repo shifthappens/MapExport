@@ -950,7 +950,7 @@ const EngineV2 = (() => {
   // inside, per OSM's land-on-the-left convention) and become inner rings, so
   // the renderer's evenodd fill and the worker's oriented union both treat
   // them as holes. Empty (inland frame, no coastline) → a strict no-op.
-  function buildSeaElements(coastlineWays, bbox, overrideName) {
+  function buildSeaElements(coastlineWays, bbox) {
     if (!coastlineWays || !coastlineWays.length) return [];
     const outerRings = [], innerRings = [], boundaryRuns = [], openChainNames = [];
     for (const chain of stitchCoastlineChains(coastlineWays)) {
@@ -978,20 +978,13 @@ const EngineV2 = (() => {
       if (innerRings.length) console.warn('engine-v2: coastline islands without a sea polygon — dropped');
       return [];
     }
-    // Name the sea. A manual override (the "Sea name" field, --sea-name) wins.
-    // Otherwise one name shared by every OPEN named chain, since closed chains
-    // are islands carrying the island's name. Judged on stitched chains, not
-    // raw ways: a split island ring is open way by way. Most open coastline is
-    // unnamed, and the generic 'Sea' only names the layer group — it paints no
-    // map label (§6).
-    const override = typeof overrideName === 'string' ? overrideName.trim() : '';
-    let seaName;
-    if (override) {
-      seaName = override;
-    } else {
-      const coastNames = new Set(openChainNames);
-      seaName = coastNames.size === 1 ? coastNames.values().next().value : 'Sea';
-    }
+    // Name the sea: the one name shared by every OPEN named chain, since
+    // closed chains are islands carrying the island's name. Judged on stitched
+    // chains, not raw ways: a split island ring is open way by way. Most open
+    // coastline is unnamed, and the generic 'Sea' only names the layer group —
+    // it paints no map label (§6).
+    const coastNames = new Set(openChainNames);
+    const seaName = coastNames.size === 1 ? coastNames.values().next().value : 'Sea';
     return [{
       type: 'relation', id: 'sea', tags: { natural: 'water', name: seaName },
       members: [
@@ -1089,16 +1082,16 @@ const EngineV2 = (() => {
   // Build the classified render results (water/waterways/parks/landcover) from
   // one area-features fetch, with the closed sea folded into the water bucket.
   // Each result reuses a v1 registry layer object, so renderLayerSVG paints it
-  // exactly as v1 would. options.seaName is the manual sea-name override.
+  // exactly as v1 would.
   // Returns { renderResults, classified, seaLabel } — classified (with sea
   // merged) also seeds the worker's subtraction geometry; seaLabel is a
   // synthetic water-label node (or null) for the label engine.
-  function buildAreaResults(areaFeatureElements, bbox, options = {}) {
+  function buildAreaResults(areaFeatureElements, bbox) {
     const classified = classifyAreaFeatures(areaFeatureElements);
-    const seaElements = buildSeaElements(classified.coastline, bbox, options.seaName);
+    const seaElements = buildSeaElements(classified.coastline, bbox);
     classified.water = classified.water.concat(seaElements);
-    // The sea gets a RENDERED map label only when it has a real name — a manual
-    // override, or a unique open-coastline name. The generic 'Sea' fallback
+    // The sea gets a RENDERED map label only when it has a real name — a
+    // unique open-coastline name. The generic 'Sea' fallback
     // names the layer group but paints no label (ENGINE-V2.md §6). The anchor
     // is a robust interior point of the sea water, fed to v1's feature-label
     // engine as a natural=water node so it inherits the exact water styling,
@@ -3820,13 +3813,11 @@ self.onmessage = function(event) {
     const physicalWidthMm = getPhysicalSizeMm(bbox).mmW;
     const widthPx = Math.round(physicalWidthMm / 25.4 * PRINT_DPI);
     const illustratorCompatible = document.getElementById('format-select')?.value !== 'svg-standard';
-    const seaNameOverride = (document.getElementById('v2-sea-name')?.value || '').trim();
     const exportSettings = getExportSettings(EXPORT_ENGINE.V2, bbox, {
       widthPx,
       physicalWidthMm,
       format: illustratorCompatible ? 'svg-illustrator' : 'svg-standard',
       selectedLayerIds: selected.map(layer => layer.id),
-      seaName: seaNameOverride,
     });
 
     // YYYY-MM-DD-HHMMSS local time, same as v1, with a `-v2` marker before
@@ -3910,13 +3901,11 @@ self.onmessage = function(event) {
     // worker's subtraction geometry. The sea is closed against the bbox here and
     // folded into the water bucket. area_features itself is fetch-only.
     const areaFeatureElements = results.find(r => r.layer.id === areaFeaturesLayer.id)?.data.elements || [];
-    // Manual sea-name override from the field next to the v2 toggle; blank falls
-    // back to the coastline-derived name (or the nameless 'Sea', no label).
-    const { renderResults: areaRenderResults, classified, seaLabel } = buildAreaResults(areaFeatureElements, bbox, { seaName: seaNameOverride });
+    const { renderResults: areaRenderResults, classified, seaLabel } = buildAreaResults(areaFeatureElements, bbox);
     // Feed the sea's map label through v1's feature-label engine: append it to
     // the water_labels elements so it shares that layer's styling, halo and
-    // collision grid. Null when the sea is nameless (no override, no unique
-    // open-coastline name) — the layer stays 'Sea' with no map label.
+    // collision grid. Null when the sea is nameless (no unique open-coastline
+    // name) — the layer stays 'Sea' with no map label.
     if (seaLabel) {
       const waterLabelsResult = results.find(r => r.layer.id === waterLabelsLayer.id);
       if (waterLabelsResult) waterLabelsResult.data.elements = [...(waterLabelsResult.data.elements || []), seaLabel];

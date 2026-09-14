@@ -471,14 +471,13 @@ Naming: the sea takes a name only when the coastline chains that stay OPEN
 after stitching agree on exactly one; island rings never name the sea — and
 "island" is judged on the stitched chain, not the raw ways, because a split
 island ring is open way-by-way (Oulu's islet "Elba" named the whole sea
-before this was chain-aware); otherwise the layer stays "Sea". A manual
-override — the "Sea name" field next to the v2 toggle, or
-`--sea-name=<name>` in the export test — wins over the coastline-derived name.
+before this was chain-aware); otherwise the layer stays "Sea". There is no
+manual override: the name comes from OSM or the sea stays unlabelled.
 
 Map label: the sea renders its name ON the map through v1's feature-label
 engine (a synthetic `natural=water` node, so it inherits the exact water
 styling, halo and shared collision grid). It renders only when the sea has a
-real name (override or unique open-coastline name); the generic "Sea" fallback
+real name (a unique open-coastline name); the generic "Sea" fallback
 names the layer group but paints no label. The anchor is a robust interior
 point of the sea water — the point farthest from every boundary (outer edge and
 island holes) in the largest sea piece, never the bounds centre, which for a

@@ -73,10 +73,6 @@ const alsoIllustrator = flags.includes('--illustrator');
 // --engine=v2 routes assembly through the experimental engine-v2.js instead
 // of v1's buildSVG. v1 path is byte-for-byte unaffected when the flag is absent.
 const engineV2 = flags.includes('--engine=v2');
-// --sea-name=<name> overrides the coastline-derived sea name (v2 only); it wins
-// over whatever OSM says and makes the sea render a map label.
-const seaNameFlag = flags.find(f => f.startsWith('--sea-name='));
-const seaNameOverride = seaNameFlag ? seaNameFlag.slice('--sea-name='.length) : '';
 // Failures raised during the v2 build stage (before the main `failures` array
 // exists), merged into it at assertion time.
 const failuresEarly = [];
@@ -253,7 +249,7 @@ if (engineV2) {
   // Classify the combined area-features fetch into render layers + subtraction
   // geometry (the sea is closed against the bbox inside buildAreaResults).
   const areaFeatureElements = results.find(r => r.layer.id === X2.areaFeaturesLayer.id)?.data.elements || [];
-  const { renderResults: areaRenderResults, classified, seaLabel } = X2.buildAreaResults(areaFeatureElements, bbox, { seaName: seaNameOverride });
+  const { renderResults: areaRenderResults, classified, seaLabel } = X2.buildAreaResults(areaFeatureElements, bbox);
   // Sea map label: append it to the water_labels elements so it flows through
   // v1's feature-label engine with the exact water styling + shared grid.
   if (seaLabel) {

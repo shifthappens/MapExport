@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-14 — Sea name override removed
+- The "Sea name" override field is gone (and with it the `--sea-name` flag of
+  the export test). The sea is named from OSM alone: a name shared by the open
+  coastline in view gets a label, a nameless sea gets none.
+
 - Restored the red workshop slide style and all exercise and help instructions
   in the merged slide, with a clear participant checklist.
 
