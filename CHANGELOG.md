@@ -12,6 +12,13 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 ## Unreleased
 
 ### 2026-09-15 — Deploy cache-busting, stale help text
+- The v2 export path and the headless test harness now share one function
+  deciding which fetched data reaches the SVG builder, instead of each
+  keeping its own copy of that filter. The two had already drifted: rural
+  place-name labels (villages, hamlets, farms, localities) kept working in
+  real app exports only by coincidence, while the test harness had silently
+  dropped them since AF-04 shipped in July, so its export trail never showed
+  a place name even though the feature itself was fine.
 - Production `index.html` now references `style.min.css`, `script.min.js` and
   `engine-v2.js` with the deployed commit as `?v=` query, so a browser can no
   longer pair a cached older script with a newer page after a deploy (the

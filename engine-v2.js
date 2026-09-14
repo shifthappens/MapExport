@@ -274,6 +274,31 @@ const EngineV2 = (() => {
     });
   }
 
+  // Results ready for buildSVG = the fetch-only inputs dropped, minus one
+  // exception: place_nodes rides along, because buildSVG's AF-04 place-labels
+  // hook (§7) reads its elements the same way it reads the fallback result's
+  // labelElements for squares — it is buildSVG's only source for that layer.
+  // renderLayerSVG already paints '' for any OTHER fetch-only id (the guard
+  // near buildSVG's per-layer loop), so this cannot leak a visible group for
+  // buildings/area_features. Shared by doExportV2 and the headless harness
+  // (tests/real-export.mjs) so the two cannot drift on which fetch-only layer
+  // buildSVG still needs — they already had (AF-08 audit, 2026-09-15):
+  // doExportV2 carried its own manual re-add of place_nodes since AF-04
+  // shipped, so real app exports were fine, but tests/real-export.mjs never
+  // had that exception, so its export trail never carried a place name.
+  function computeRenderableResults(results, layerPlan) {
+    return results.filter(r => {
+      const id = r.layer.id;
+      // place_nodes is never itself a checkbox-selectable id (fetch-only, no
+      // layerOrder entry), so it can never satisfy the plain selectedIds
+      // check below — its "is this wanted" test mirrors
+      // filterResultsForSelection's own rule: Water & park labels is its
+      // user-facing switch, on purpose, even when City blocks is off.
+      if (id === placeNodesLayer.id) return layerPlan.selectedIds.has(waterLabelsLayer.id);
+      return !fetchOnlyIds.has(id) && layerPlan.selectedIds.has(id);
+    });
+  }
+
   // Cream fill for city blocks. v1 renders blocks as #FEF6ED at
   // fill-opacity="0.8" over white — a pure style choice from commit a7ab512.
   // v2 bakes that flattened colour as a solid fill with no opacity attribute,
@@ -4092,19 +4117,15 @@ self.onmessage = function(event) {
     // Renderable results = everything except the fetch-only inputs, plus the
     // classified area layers and the two derived block layers. Both block
     // results carry the full block list; each renderer filters by kind.
-    const renderableResults = results.filter(r => !fetchOnlyIds.has(r.layer.id) && layerPlan.selectedIds.has(r.layer.id));
+    const renderableResults = computeRenderableResults(results, layerPlan);
     renderableResults.push(...areaRenderResults.filter(r => isSelectedRenderLayer(r.layer.id, layerPlan.selectedIds)));
     if (layerPlan.needsBlocks) {
       renderableResults.push({ layer: cityBlocksLayer, data: { blocks } });
       renderableResults.push({ layer: fallbackBlocksLayer, data: { blocks, labelElements: classified.labelOnly } });
     }
-    // place_nodes rides along as a pure data vehicle for the AF-04 place
-    // labels (fetch-only, so renderLayer paints nothing for it): buildSVG
-    // reads its elements the same way it reads the fallback result's
-    // labelElements for squares.
-    if (layerPlan.selectedIds.has(waterLabelsLayer.id)) {
-      renderableResults.push({ layer: placeNodesLayer, data: { elements: placeNodeElements } });
-    }
+    // place_nodes (the AF-04 place-labels data vehicle) already rides along
+    // via computeRenderableResults above, under the same water_labels gate —
+    // no separate re-add needed here.
 
     // Render stage.
     progress.setStage('render', 'active', { detail: 'Assembling SVG…' });
@@ -4146,7 +4167,7 @@ self.onmessage = function(event) {
     FACE_WORKER_SRC, prepareFaceData, computeFacesAsync, fetchOnlyIds, buildingsLayer, cityBlocksLayer, fallbackBlocksLayer,
     landcoverLayer, parksLayer, recreationLayer, applyLandcoverOcclusion,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
-    planLayers, filterResultsForSelection,
+    planLayers, filterResultsForSelection, renderableResults: computeRenderableResults,
     // Building-fetch padding (cause A) — shared with the headless harness.
     padBboxMeters, BUILDING_FETCH_PAD_M,
     // Hamlet grounding (pure; exercised by tests/hamlet-grounding.mjs).

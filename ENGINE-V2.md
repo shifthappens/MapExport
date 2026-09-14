@@ -569,6 +569,24 @@ network (`motorway|trunk|primary|secondary(_link)`) through a local
 corridor grid that no other label family consults. Fixed anchors: a label
 is fully on-canvas or skipped, like feature labels.
 
+`buildSVG` learns about place_nodes only through a `results` entry — there is
+no separate argument for it — so any caller assembling that array has to keep
+place_nodes even while dropping v2's other fetch-only inputs (buildings,
+area_features), or the "Place names" layer silently never renders even though
+the data was fetched. `renderableResults(results, layerPlan)` is the one
+shared helper for this: it applies the ordinary fetch-only exclusion, except
+for place_nodes, whose inclusion follows `filterResultsForSelection`'s own
+rule (Water & park labels selected, independent of City blocks). Both
+`doExportV2` and the headless harness (`tests/real-export.mjs`) call it rather
+than each keeping an inline filter. `doExportV2` already special-cased
+place_nodes with its own manual re-add from AF-04's introduction (2026-07-18)
+onward, so real app exports were never actually affected; `tests/real-export.mjs`
+never had that exception, so its export trail — the evidence the AF-08 audit
+(2026-09-15) inspected — never carried a place name even though the layer,
+its build function and its offline test all worked. The shared helper closes
+that gap and removes `doExportV2`'s now-redundant manual re-add, so the two
+callers cannot drift apart again.
+
 Adjacent-in-paint-order layers may share a parent layer group. **"Water"**
 (water bodies + waterways) is pure panel organization — it moves no paint.
 **"Parks & green"** (`id="parks_green"`, since AF-03b) holds, in paint order,

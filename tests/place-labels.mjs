@@ -212,6 +212,50 @@ check('Illustrator mode: a "_halo" companion text exists for a place label',
 check('Illustrator mode: no inkscape: attributes leak into that pipeline\'s output',
   !svgI.includes('inkscape:'));
 
+// ── AF-08 P10 regression: real callers must forward place_nodes ──────────
+// buildSVG only ever learns about place_nodes via a results entry (there is
+// no separate argument for it — see the AF-04 hook at buildSVG's assembly
+// loop), so a caller's own fetch-only filter has to special-case it the same
+// way EngineV2.renderableResults() does, or the "Place names" layer never
+// renders even though the data was fetched. tests/real-export.mjs used to run
+// a plain fetch-only filter with no such exception, so its export trail never
+// carried a place name (doExportV2 had its own, separate manual re-add since
+// AF-04 shipped, so real app exports were unaffected — this closes the gap
+// and lets doExportV2 drop that now-redundant re-add).
+const p10LayerPlan = X2.planLayers(['roads', 'street_labels', 'water_labels', 'city_blocks']);
+const p10Results = [
+  { layer: X2.buildingsLayer, data: { elements: [] } },
+  { layer: X2.areaFeaturesLayer, data: { elements: [] } },
+  ...buildResults(),
+];
+const p10Ids = new Set(X2.renderableResults(p10Results, p10LayerPlan).map(r => r.layer.id));
+check('renderableResults(): keeps place_nodes when water_labels is selected',
+  p10Ids.has(X2.placeNodesLayer.id));
+check('renderableResults(): drops the other fetch-only inputs (buildings, area_features)',
+  !p10Ids.has(X2.buildingsLayer.id) && !p10Ids.has(X2.areaFeaturesLayer.id));
+
+const p10NoWaterLabelsPlan = X2.planLayers(['roads', 'street_labels', 'city_blocks']);
+const p10NoWaterLabelsIds = new Set(X2.renderableResults(p10Results, p10NoWaterLabelsPlan).map(r => r.layer.id));
+check('renderableResults(): drops place_nodes when water_labels is NOT selected, matching filterResultsForSelection',
+  !p10NoWaterLabelsIds.has(X2.placeNodesLayer.id));
+
+const p10Renderable = X2.renderableResults(p10Results, p10LayerPlan);
+const p10Svg = X2.buildSVG(p10Renderable, bbox, W, null, { illustratorCompatible: false });
+check('renderableResults(): place_labels layer renders through the real caller-facing filter',
+  /<g id="place_labels"/.test(p10Svg));
+check('renderableResults(): the buildings fetch-only input produces no visible group',
+  !/<g id="block_buildings"[ >]/.test(p10Svg));
+check('renderableResults(): the area_features fetch-only input produces no visible group',
+  !/<g id="area_features"[ >]/.test(p10Svg));
+
+// The pre-fix behaviour of tests/real-export.mjs: a naive fetch-only filter
+// with no place_nodes exception. Documents the regression this fix closes —
+// it must NOT produce a place_labels group.
+const naiveFilterResults = p10Results.filter(r => !X2.fetchOnlyIds.has(r.layer.id) && p10LayerPlan.selectedIds.has(r.layer.id));
+const naiveSvg = X2.buildSVG(naiveFilterResults, bbox, W, null, { illustratorCompatible: false });
+check('regression: the old naive fetch-only filter did NOT produce a place_labels group',
+  !/<g id="place_labels"/.test(naiveSvg));
+
 console.log('');
 if (failures) {
   console.log(`place-labels: ${failures} check(s) FAILED`);

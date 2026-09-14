@@ -190,8 +190,9 @@ const allLayers = X.LAYER_REGISTRY.flatMap(g => g.layers);
 // inputs required by the selected City blocks and label layers. It runs the
 // face cutter below but leaves coverage-lint OFF (blockData stays null) —
 // coverage turns on in M3 when water/green subtraction + the fallback pass land.
+const layerPlan = engineV2 ? X2.planLayers(allLayers.filter(l => l.defaultOn).map(l => l.id)) : null;
 const fetchable = engineV2
-  ? X2.planLayers(allLayers.filter(l => l.defaultOn).map(l => l.id)).fetchLayers
+  ? layerPlan.fetchLayers
   : allLayers.filter(l => l.defaultOn && l.overpassQuery);
 const cityBlocks = engineV2 ? null : allLayers.find(l => l.id === 'city_blocks');
 
@@ -304,9 +305,12 @@ if (engineV2) {
   // whole rural faces and are never filled cream, so they don't count here.
   v2MaxShare = v2Blocks.filter(b => b.kind === 'urban' || b.kind === 'hamlet').reduce((m, b) => Math.max(m, b.areaPx || 0), 0) / bboxAreaPx;
   console.log(`city_blocks v2: ${n('urban')} urban, ${n('hamlet')} hamlet, ${n('countryside')} countryside; fallback_blocks: ${v2Fallback} patches; largest block = ${(v2MaxShare * 100).toFixed(1)}% of bbox`);
-  // Rebuild the render set: drop fetch-only inputs, add classified area layers
-  // and both derived block layers (each carries the full block list).
-  const renderResults = results.filter(r => !X2.fetchOnlyIds.has(r.layer.id));
+  // Rebuild the render set: drop fetch-only inputs (place_nodes excepted —
+  // buildSVG's AF-04 place-labels hook reads it directly), add classified
+  // area layers and both derived block layers (each carries the full block
+  // list). Shared helper with engine-v2.js's doExportV2 so this harness
+  // cannot silently drift from what a real export actually renders.
+  const renderResults = X2.renderableResults(results, layerPlan);
   renderResults.push(...areaRenderResults);
   renderResults.push({ layer: X2.cityBlocksLayer, data: { blocks: v2Blocks } });
   renderResults.push({ layer: X2.fallbackBlocksLayer, data: { blocks: v2Blocks, labelElements: classified.labelOnly } });
