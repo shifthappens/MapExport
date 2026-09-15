@@ -12,13 +12,12 @@
 //   - a merged (green-remainder) element is clipped away from a building block
 //     it grew over (the Oulu regression: an unclipped merge hid buildings).
 //
-// Needs ClipperLib (same CDN + os.tmpdir cache as tests/real-export.mjs); SKIPs
-// (exit 0) when neither a warm cache nor the network is available.
-import { readFileSync, existsSync, writeFileSync, statSync } from 'node:fs';
+// Uses the pinned local ClipperLib fixture and never fetches or skips.
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import os from 'node:os';
 import vm from 'node:vm';
+import { runFaceWorker } from './face-worker-helper.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const source = readFileSync(join(repoRoot, 'engine-v2.js'), 'utf8');
@@ -42,27 +41,8 @@ const loadEngine = Worker => {
 };
 const X2 = loadEngine(class { postMessage() {} terminate() {} });
 
-const cache = join(os.tmpdir(), 'mapexport-clipper-6.4.2.min.js');
-let clipperSrc = null;
-if (existsSync(cache) && statSync(cache).size > 50000) clipperSrc = readFileSync(cache, 'utf8');
-else {
-  try {
-    const text = await (await fetch('https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js')).text();
-    if (text.length > 50000) { writeFileSync(cache, text); clipperSrc = text; }
-  } catch { /* offline */ }
-}
-if (!clipperSrc) { console.log('SKIP — ClipperLib unavailable (no cache, offline).'); process.exit(0); }
-
 function run(data) {
-  let result = null;
-  const worker = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
-  worker.self = worker; worker.window = worker; worker.globalThis = worker;
-  worker.postMessage = msg => { if (msg?.type === 'done') result = msg; };
-  worker.importScripts = () => vm.runInContext(clipperSrc, worker);
-  vm.createContext(worker);
-  vm.runInContext(X2.FACE_WORKER_SRC, worker);
-  worker.onmessage({ data });
-  return result;
+  return runFaceWorker(X2.FACE_WORKER_SRC, data);
 }
 
 let failures = 0;

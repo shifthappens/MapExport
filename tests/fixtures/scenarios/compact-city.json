@@ -1,0 +1,25 @@
+{
+  "name": "compact city",
+  "bbox": { "south": 50.000, "west": 4.000, "north": 50.012, "east": 4.018 },
+  "expect": { "feature": "urban", "minUrban": 1 },
+  "layers": {
+    "roads": { "elements": [
+      { "type": "way", "id": 101, "tags": { "highway": "residential", "name": "Marktstraat" }, "geometry": [{"lat":50.001,"lon":4.001},{"lat":50.011,"lon":4.017}] },
+      { "type": "way", "id": 102, "tags": { "highway": "tertiary", "name": "Stationsweg" }, "geometry": [{"lat":50.011,"lon":4.002},{"lat":50.001,"lon":4.016}] },
+      { "type": "way", "id": 103, "tags": { "highway": "residential", "name": "Kade" }, "geometry": [{"lat":50.006,"lon":4.001},{"lat":50.006,"lon":4.017}] }
+      ,{ "type": "way", "id": 104, "tags": { "highway": "residential", "name": "Westsingel" }, "geometry": [{"lat":50.002,"lon":4.003},{"lat":50.010,"lon":4.003}] }
+      ,{ "type": "way", "id": 105, "tags": { "highway": "residential", "name": "Oostsingel" }, "geometry": [{"lat":50.002,"lon":4.015},{"lat":50.010,"lon":4.015}] }
+      ,{ "type": "way", "id": 106, "tags": { "highway": "residential", "name": "Noordsingel" }, "geometry": [{"lat":50.010,"lon":4.003},{"lat":50.010,"lon":4.015}] }
+      ,{ "type": "way", "id": 107, "tags": { "highway": "residential", "name": "Zuidsingel" }, "geometry": [{"lat":50.002,"lon":4.003},{"lat":50.002,"lon":4.015}] }
+    ] },
+    "buildings": { "elements": [
+      { "type": "way", "id": 111, "tags": { "building": "yes" }, "geometry": [{"lat":50.004,"lon":4.006},{"lat":50.004,"lon":4.008},{"lat":50.005,"lon":4.008},{"lat":50.005,"lon":4.006},{"lat":50.004,"lon":4.006}] },
+      { "type": "way", "id": 112, "tags": { "building": "yes" }, "geometry": [{"lat":50.007,"lon":4.010},{"lat":50.007,"lon":4.012},{"lat":50.008,"lon":4.012},{"lat":50.008,"lon":4.010},{"lat":50.007,"lon":4.010}] }
+    ] },
+    "area_features": { "elements": [
+      { "type": "way", "id": 121, "tags": { "leisure": "park", "name": "Stadspark" }, "geometry": [{"lat":50.008,"lon":4.003},{"lat":50.008,"lon":4.006},{"lat":50.010,"lon":4.006},{"lat":50.010,"lon":4.003},{"lat":50.008,"lon":4.003}] }
+      ,{ "type": "way", "id": 122, "tags": { "landuse": "residential", "name": "Centrum" }, "geometry": [{"lat":50.003,"lon":4.004},{"lat":50.003,"lon":4.014},{"lat":50.009,"lon":4.014},{"lat":50.009,"lon":4.004},{"lat":50.003,"lon":4.004}] }
+    ] },
+    "place_nodes": { "elements": [] }
+  }
+}

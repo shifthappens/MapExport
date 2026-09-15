@@ -1,0 +1,21 @@
+{
+  "name": "rural hamlet",
+  "bbox": { "south": 47.000, "west": 2.000, "north": 47.035, "east": 2.055 },
+  "expect": { "feature": "grounded hamlet", "minHamlet": 1 },
+  "layers": {
+    "roads": { "elements": [
+      { "type": "way", "id": 401, "tags": { "highway": "unclassified", "name": "Route des Prés" }, "geometry": [{"lat":47.003,"lon":2.003},{"lat":47.032,"lon":2.051}] }
+    ] },
+    "buildings": { "elements": [
+      { "type": "way", "id": 411, "tags": { "building": "house" }, "geometry": [{"lat":47.018,"lon":2.025},{"lat":47.018,"lon":2.027},{"lat":47.019,"lon":2.027},{"lat":47.019,"lon":2.025},{"lat":47.018,"lon":2.025}] },
+      { "type": "way", "id": 412, "tags": { "building": "house" }, "geometry": [{"lat":47.0195,"lon":2.027},{"lat":47.0195,"lon":2.029},{"lat":47.0205,"lon":2.029},{"lat":47.0205,"lon":2.027},{"lat":47.0195,"lon":2.027}] },
+      { "type": "way", "id": 413, "tags": { "building": "house" }, "geometry": [{"lat":47.017,"lon":2.029},{"lat":47.017,"lon":2.031},{"lat":47.018,"lon":2.031},{"lat":47.018,"lon":2.029},{"lat":47.017,"lon":2.029}] }
+    ] },
+    "area_features": { "elements": [
+      { "type": "way", "id": 421, "tags": { "landuse": "farmland" }, "geometry": [{"lat":47.005,"lon":2.005},{"lat":47.005,"lon":2.050},{"lat":47.030,"lon":2.050},{"lat":47.030,"lon":2.005},{"lat":47.005,"lon":2.005}] }
+    ] },
+    "place_nodes": { "elements": [
+      { "type": "node", "id": 431, "lat": 47.019, "lon": 2.028, "tags": { "place": "hamlet", "name": "Les Trois Maisons" } }
+    ] }
+  }
+}

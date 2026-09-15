@@ -1,0 +1,16 @@
+{
+  "name": "coast",
+  "bbox": { "south": 51.000, "west": 3.000, "north": 51.016, "east": 3.024 },
+  "expect": { "feature": "split coastline", "coastlinePieces": 2, "waterProbe": { "lat": 51.008, "lon": 3.020 } },
+  "layers": {
+    "roads": { "elements": [
+      { "type": "way", "id": 201, "tags": { "highway": "residential", "name": "Zeelaan" }, "geometry": [{"lat":51.002,"lon":3.003},{"lat":51.014,"lon":3.009}] }
+    ] },
+    "buildings": { "elements": [] },
+    "area_features": { "elements": [
+      { "type": "way", "id": 211, "tags": { "natural": "coastline", "name": "Noordzee" }, "geometry": [{"lat":50.998,"lon":3.013},{"lat":51.008,"lon":3.013}] },
+      { "type": "way", "id": 212, "tags": { "natural": "coastline", "name": "Noordzee" }, "geometry": [{"lat":51.008,"lon":3.013},{"lat":51.018,"lon":3.013}] }
+    ] },
+    "place_nodes": { "elements": [] }
+  }
+}

@@ -8,14 +8,13 @@
 // covers essentially the whole bbox — the ME-03 acceptance criteria "één geldig
 // face" + "onbeschilderd land wordt fallback_blocks".
 //
-// Needs ClipperLib (same CDN + os.tmpdir cache as tests/real-export.mjs). With a
-// warm cache it runs offline; with no cache and no network it SKIPs (exit 0)
-// rather than failing, so smoke.sh runs it only in the networked tier.
-import { readFileSync, existsSync, writeFileSync, statSync } from 'node:fs';
+// Uses the pinned local ClipperLib fixture so this is always offline and fails
+// loudly if a required test dependency is absent.
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import os from 'node:os';
 import vm from 'node:vm';
+import { clipperSrc, runFaceWorker } from './face-worker-helper.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const src = readFileSync(join(repoRoot, 'engine-v2.js'), 'utf8');
@@ -47,31 +46,6 @@ const context = vm.createContext({
 vm.runInContext(src + '\n;globalThis.__X2 = EngineV2;', context);
 const X2 = context.__X2;
 
-// ── ClipperLib (cache-first, shared with real-export.mjs) ──
-const CLIPPER_URL = 'https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js';
-const CLIPPER_CACHE = join(os.tmpdir(), 'mapexport-clipper-6.4.2.min.js');
-async function getClipperSrc() {
-  if (existsSync(CLIPPER_CACHE) && statSync(CLIPPER_CACHE).size > 50000) return readFileSync(CLIPPER_CACHE, 'utf8');
-  try {
-    const txt = await (await fetch(CLIPPER_URL)).text();
-    if (txt.length > 50000) { writeFileSync(CLIPPER_CACHE, txt); return txt; }
-  } catch { /* offline */ }
-  return null;
-}
-
-// Run FACE_WORKER_SRC headlessly, exactly as tests/real-export.mjs does:
-// a self-referential global whose importScripts eval's the cached ClipperLib.
-function runFaceWorker(data, clipperSrc, workerSrc) {
-  let out = { blocks: [] };
-  const w = { console, navigator: { userAgent: 'chrome', appName: 'Netscape' } };
-  w.self = w; w.window = w; w.globalThis = w;
-  w.postMessage = (msg) => { if (msg && msg.type === 'done') out = { blocks: msg.blocks || [] }; };
-  w.importScripts = () => vm.runInContext(clipperSrc, w);
-  vm.createContext(w);
-  vm.runInContext(workerSrc, w);
-  w.onmessage({ data });
-  return out;
-}
 
 let failures = 0;
 const check = (name, cond) => {
@@ -85,17 +59,11 @@ const bbox = { south: 50, north: 51, west: 4, east: 5 };
 const W = 1000, H = 1000;
 const FRAME_AREA = W * H;
 
-const clipperSrc = await getClipperSrc();
-if (!clipperSrc) {
-  console.log('SKIP — ClipperLib unavailable (no os.tmpdir cache, no network). Run tests/real-export.mjs once to warm the cache.');
-  process.exit(0);
-}
-
 // Genuinely empty cutterless frame: no cutters, no buildings, no area features.
 const data = X2.prepareFaceData([], [], null, pr, W, H, bbox, []);
 check('empty-cutter payload carries zero cutter lines', data.cutterLines.length === 0);
 
-const { blocks } = runFaceWorker(data, clipperSrc, X2.FACE_WORKER_SRC);
+const { blocks } = runFaceWorker(X2.FACE_WORKER_SRC, data);
 
 check('empty-cutter frame yields at least one real face (not [])', blocks.length >= 1);
 const totalArea = blocks.reduce((s, b) => s + (b.areaPx || 0), 0);

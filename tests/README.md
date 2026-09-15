@@ -1,6 +1,56 @@
 # tests/ — Overpass pipeline regression harness
 
-Plain Node.js (18+) scripts. No framework, no deps.
+Plain Node.js (18+) scripts, with PHP CLI, Bash and Git for local integration
+checks. No test framework. Geometry tests use the pinned, licensed Clipper copy
+in `tests/vendor/`; they do not need a warm temporary cache or a download.
+
+## Primary development check: fully offline
+
+```sh
+bash tests/smoke.sh
+```
+
+This runs the complete standalone offline suite sequentially. Any failed test,
+missing prerequisite or test timeout makes the command exit non-zero. External
+Node network requests are blocked; loopback remains available for tests that
+start a temporary PHP server. The suite does not refresh Overpass data, change
+the pinned city cache or write export snapshots.
+
+Use the individual commands below for focused checks. Live capture, query
+comparison and real-city export remain separate, deliberate checks.
+
+### Failure coverage
+
+| Boundary | Offline evidence |
+| --- | --- |
+| Fetch outage, retry, timeout and abort | `overpass-fetch.mjs`, `export-failures.mjs` |
+| One required tile fails after another succeeds | `export-failures.mjs` |
+| Invalid cache JSON/envelope and fallback | `export-failures.mjs`; server upload validation in `cache-php.mjs` |
+| Partial fine-grid cache | `fine-grid.mjs` |
+| Worker startup, message delivery and runtime failure | `export-failures.mjs`, both engines |
+| Stale preview and new-export races | `preview-state.mjs`, both engines |
+
+The existing Tilburg fixtures in `pipeline-equivalence.mjs` preserve v1
+filter/count parity. Geometry-worker contracts, coastline direction and hamlet
+grounding remain separate focused tests as well as part of the full suite.
+
+### Fixed scenario fixtures
+
+`scenario-invariants.mjs` loads five small Overpass-shaped JSON fixtures and
+runs them through the real v2 area classifier, face worker and SVG builder.
+It checks coverage above the same 3×3 mm significance floor used by the live
+export check, paint order, unique SVG ids, road casings before fills, water
+without cream overlap and byte-identical repeated output. The compact-city and
+transit fixtures also run through v1 for their shared determinism, id and road
+order rules.
+
+| Fixture | Required feature |
+| --- | --- |
+| `compact-city.json` | Dense street-bounded urban block with buildings and a park |
+| `coast.json` | Two joined coastline ways, land on one side and sea on the other |
+| `river-island.json` | Water multipolygon with an inner island ring |
+| `rural-hamlet.json` | Sparse farmland with a building cluster grounded by a named hamlet node |
+| `transit.json` | Rendered rail, tram and metro lines that also participate in face cutting |
 
 Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.590,5.130` (~6.6 km N/S × 6.3 km E/W, multi-tile) — one fixed area so numbers are comparable across runs. `real-export.mjs` uses its own, smaller named areas (see §8/§9).
 
@@ -42,7 +92,8 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
    ```
    Deterministic checks on a finished export: NaN/`undefined` in attributes, empty labels, `textPath` refs to missing ids, mirrored baselines, rotations outside ±90°, label-on-label overlap (errors) and labels outside/clipped by the canvas (warnings — known engine behaviour, see IMPROVEMENTS.md). `real-export.mjs` runs this automatically; `svg-lint-selftest.mjs` guards the linter itself.
 
-7. **Smoke script** wraps all offline suites + the Overpass check (`OFFLINE_ONLY=1` skips the network step):
+7. **Smoke script** runs the full offline suite, including sea-sign,
+   hamlet-grounding and the real geometry workers. No environment flag is needed:
    ```
    bash tests/smoke.sh
    ```

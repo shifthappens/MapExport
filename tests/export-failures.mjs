@@ -14,6 +14,7 @@ const expose = `
 ;globalThis.__exportFailures = {
   EXPORT_STATUS, ExportFailure, isSuccessfulExportStatus,
   fetchLayer, computeBlocksAsync, EngineV2,
+  resetEndpointBackoff() { for (const key of Object.keys(endpointBackoff)) delete endpointBackoff[key]; },
 };`;
 const context = makeAppContext(`${scriptSrc}\n;${engineSrc}\n;${expose}`);
 const X = context.__exportFailures;
@@ -102,6 +103,43 @@ const layer = {
 await expectStructuredRejection('fetchLayer rejects complete tile failure', 'fetch', () =>
   X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 3 }));
 
+// Malformed cache JSON is already a cache miss and must fall through to the
+// network.  The structurally invalid envelope case below documents the same
+// required behaviour and currently catches cacheGet accepting arbitrary JSON.
+let fallbackCalls = 0;
+X.resetEndpointBackoff();
+context.fetch = async url => {
+  if (String(url).startsWith('cache.php?')) return { ok: true, json: async () => { throw new SyntaxError('bad cache JSON'); } };
+  fallbackCalls++;
+  throw new Error('fallback unavailable');
+};
+await expectStructuredRejection('invalid cached JSON falls back and fails closed when fallback fails', 'fetch', () =>
+  X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 1 }));
+try { assert.ok(fallbackCalls > 0); ok('invalid cached JSON actually attempted fallback'); }
+catch (error) { unexpectedFailure('invalid cached JSON actually attempted fallback', error); }
+
+fallbackCalls = 0;
+X.resetEndpointBackoff();
+context.fetch = async url => {
+  if (String(url).startsWith('cache.php?')) return { ok: true, json: async () => ({ elements: 'not-an-array' }) };
+  fallbackCalls++;
+  throw new Error('fallback unavailable');
+};
+await expectStructuredRejection('invalid cached elements envelope falls back and fails closed', 'fetch', () =>
+  X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 1 }));
+try { assert.ok(fallbackCalls > 0, 'invalid cache envelope was accepted instead of falling back'); ok('invalid cache envelope actually attempted fallback'); }
+catch (error) { regressions++; console.error(`REGRESSION invalid cached elements envelope: ${error.message}`); }
+
+// Valid envelopes remain cache hits, including the legal empty Overpass result.
+let networkCalls = 0;
+context.fetch = async url => {
+  if (String(url).startsWith('cache.php?')) return { ok: true, json: async () => ({ elements: [] }) };
+  networkCalls++; throw new Error('cache hit must not fetch');
+};
+const emptyHit = await X.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 1 });
+try { assert.equal(Array.isArray(emptyHit.elements), true); assert.equal(emptyHit.elements.length, 0); assert.equal(networkCalls, 0); ok('valid empty cache envelope stays a cache hit'); }
+catch (error) { unexpectedFailure('valid empty cache envelope stays a cache hit', error); }
+
 class FailingWorker {
   postMessage() {
     queueMicrotask(() => this.onerror?.(new Error('simulated worker crash')));
@@ -114,6 +152,19 @@ const roadElement = {
   type: 'way', id: 1, tags: { highway: 'residential', name: 'Probe Street' },
   geometry: [{ lat: 51.5, lon: 5 }, { lat: 51.51, lon: 5.01 }],
 };
+// A cached first tile is never a licence to return a partial map when another
+// required tile fails. Use a multi-tile box and an accelerated failed fetch.
+let cacheReads = 0;
+X.resetEndpointBackoff();
+context.fetch = async url => {
+  if (String(url).startsWith('cache.php?')) {
+    cacheReads++;
+    return { ok: true, json: async () => cacheReads === 1 ? { elements: [roadElement] } : null };
+  }
+  throw new Error('second required tile is unavailable');
+};
+await expectStructuredRejection('cached tile plus failed required tile rejects without subset success', 'fetch', () =>
+  X.fetchLayer(layer, '51.5,5,51.7,5.2', { south: 51.5, west: 5, north: 51.7, east: 5.2 }, { maxAttempts: 1 }));
 const cutterResults = [{
   layer: { id: 'roads', type: 'roads' },
   data: { elements: [roadElement] },
@@ -131,11 +182,25 @@ await expectStructuredRejection('v2 computeFacesAsync rejects Worker.onerror', '
     bbox, placeNodeElements: [],
   }));
 
+class ConstructorThrowWorker { constructor() { throw new Error('worker constructor throw'); } }
+context.Worker = ConstructorThrowWorker;
+await expectStructuredRejection('v1 computeBlocksAsync rejects Worker constructor throw', 'worker', () =>
+  X.computeBlocksAsync(cutterResults, projector, 1000, 1000, null, { bbox }));
+await expectStructuredRejection('v2 computeFacesAsync rejects Worker constructor throw', 'worker', () =>
+  X.EngineV2.computeFacesAsync(cutterResults, [], classified, projector, 1000, 1000, null, { bbox, placeNodeElements: [] }));
+
+class PostMessageThrowWorker { postMessage() { throw new Error('worker postMessage throw'); } terminate() {} }
+context.Worker = PostMessageThrowWorker;
+await expectStructuredRejection('v1 computeBlocksAsync rejects Worker postMessage throw', 'worker', () =>
+  X.computeBlocksAsync(cutterResults, projector, 1000, 1000, null, { bbox }));
+await expectStructuredRejection('v2 computeFacesAsync rejects Worker postMessage throw', 'worker', () =>
+  X.EngineV2.computeFacesAsync(cutterResults, [], classified, projector, 1000, 1000, null, { bbox, placeNodeElements: [] }));
+
 const lifecycleExpose = `
 ;globalThis.__exportLifecycle = {
   EXPORT_STATUS, ExportFailure, doExport, EngineV2,
-  prime() {
-    bbox = { south: 51.5, west: 5, north: 51.51, east: 5.01 };
+  prime(nextBbox = null) {
+    bbox = nextBbox || { south: 51.5, west: 5, north: 51.51, east: 5.01 };
     currentAreaName = 'Testville';
     areaNameLookup = null;
     const settings = getExportSettings(EXPORT_ENGINE.V1, bbox, { widthPx: 1000, physicalWidthMm: 100 });
@@ -163,7 +228,7 @@ const lifecycleExpose = `
   },
 };`;
 
-function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds }) {
+function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds, multiTilePartial = false }) {
   const dom = makeExportDomHarness({ selectedLayerIds });
   // The engine is a URL setting, not a control: ?engine=1 forces v1.
   const ctx = makeAppContext(`${scriptSrc}\n;${engineSrc}\n;${lifecycleExpose}`, {
@@ -188,20 +253,30 @@ function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds }) {
     tags: { highway: 'residential', name: 'Lifecycle Road' },
     geometry: [{ lat: 51.5, lon: 5 }, { lat: 51.51, lon: 5.01 }],
   }];
+  let cachedTileReads = 0;
+  let overpassCalls = 0;
   ctx.fetch = async (url, options = {}) => {
     const target = String(url);
     if (target.startsWith('cache.php?exists=')) {
-      return { ok: true, status: 200, json: async () => ({}) };
+      const keys = target.slice('cache.php?exists='.length).split(',').map(decodeURIComponent);
+      const hits = multiTilePartial
+        ? Object.fromEntries(keys.slice(0, keys.length / 2).map(key => [key, true]))
+        : {};
+      return { ok: true, status: 200, json: async () => hits };
     }
     if (target.startsWith('cache.php?')) {
+      if (multiTilePartial && options.method !== 'POST') cachedTileReads++;
       return {
         ok: true, status: 200,
-        json: async () => options.method === 'POST' ? {} : null,
+        json: async () => options.method === 'POST'
+          ? {}
+          : multiTilePartial && cachedTileReads <= 5 ? { elements: mockElements } : null,
       };
     }
     // A malformed client request is intentionally non-retryable. This keeps
     // the lifecycle failure test fast while normal transient outages exercise
     // the longer retry window in overpass-fetch.mjs.
+    overpassCalls++;
     if (networkFails) return { ok: false, status: 400, headers: new Headers(), json: async () => ({}) };
     return {
       ok: true, status: 200, body: null,
@@ -210,13 +285,16 @@ function makeLifecycleScenario({ engineV2, networkFails, selectedLayerIds }) {
     };
   };
   if (!networkFails) ctx.Worker = FailingWorker;
-  ctx.__exportLifecycle.prime();
-  return { ctx, dom, activeIntervals };
+  ctx.__exportLifecycle.prime(multiTilePartial
+    ? { south: 51.5, west: 5, north: 51.6, east: 5.2 }
+    : null);
+  return { ctx, dom, activeIntervals, cachedTileReads: () => cachedTileReads, overpassCalls: () => overpassCalls };
 }
 
 async function expectLifecycleFailure(name, options, expectedPhase) {
   try {
-    const { ctx, dom, activeIntervals } = makeLifecycleScenario(options);
+    const scenario = makeLifecycleScenario(options);
+    const { ctx, dom, activeIntervals } = scenario;
     const before = ctx.__exportLifecycle.snapshot();
     const previewBefore = dom.getElementById('preview-svg-wrap').innerHTML;
     const previewClassesBefore = dom.getElementById('preview-pane').classList.snapshot();
@@ -243,6 +321,10 @@ async function expectLifecycleFailure(name, options, expectedPhase) {
     assert.equal(dom.getElementById('preview-svg-wrap').innerHTML, previewBefore);
     assert.deepEqual(dom.getElementById('preview-pane').classList.snapshot(), previewClassesBefore);
     assert.equal(dom.historyWrites.length, 0);
+    if (options.multiTilePartial) {
+      assert.equal(scenario.cachedTileReads(), 5, 'the complete successful tile was not read from cache');
+      assert.equal(scenario.overpassCalls(), 1, 'the missing required tile was not exercised');
+    }
     ok(name);
   } catch (error) {
     unexpectedFailure(name, error);
@@ -251,6 +333,9 @@ async function expectLifecycleFailure(name, options, expectedPhase) {
 
 await expectLifecycleFailure('v1 doExport keeps prior output on network failure', {
   engineV2: false, networkFails: true, selectedLayerIds: ['roads'],
+}, 'fetch');
+await expectLifecycleFailure('v1 grid export rejects a cached tile plus a failed required tile', {
+  engineV2: false, networkFails: true, selectedLayerIds: ['roads'], multiTilePartial: true,
 }, 'fetch');
 await expectLifecycleFailure('v2 doExport keeps prior output on network failure', {
   engineV2: true, networkFails: true,

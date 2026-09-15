@@ -256,6 +256,12 @@ rule is restated at the top of `CHANGELOG.md` itself.
 
 ## Testing
 
+- **Full offline suite:** `bash tests/smoke.sh`. Requires Node.js 18+, PHP CLI,
+  Bash and Git. Runs the standalone regression tests sequentially with external
+  Node network traffic blocked; loopback is allowed for temporary PHP servers.
+  Test-only Clipper is vendored in `tests/vendor/`, so geometry checks never
+  download dependencies or silently skip. Missing prerequisites fail the suite.
+  See `tests/README.md` for the scenario/invariant matrix and live-only tools.
 - Offline (no network): `node tests/road-merge.mjs`, `tests/road-order.mjs`,
   `tests/abbreviate.mjs`,
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
@@ -276,8 +282,7 @@ rule is restated at the top of `CHANGELOG.md` itself.
   stays in sync between engine-v2.js and tools/prefetch-validation-cache.mjs —
   drives the real tool against a synthetic one-city file, no network beyond
   that).
-- Needs ClipperLib (CDN, cached in the OS temp dir like `real-export.mjs`; runs
-  offline once warm, else SKIPs): `tests/v2-cutterless-worker.mjs` runs the real
+- Uses the pinned test-only ClipperLib copy: `tests/v2-cutterless-worker.mjs` runs the real
   face worker on an empty frame and asserts a full-frame `fallback` face — the
   end-to-end half of the ME-03 coverage promise.
 - End-to-end: `node tests/real-export.mjs` runs `script.js` itself (no build

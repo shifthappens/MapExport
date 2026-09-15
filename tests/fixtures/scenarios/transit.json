@@ -1,0 +1,21 @@
+{
+  "name": "rail tram metro",
+  "bbox": { "south": 52.000, "west": 5.000, "north": 52.016, "east": 5.024 },
+  "expect": { "feature": "rail tram metro", "transitGroups": ["rail", "tram", "metro"] },
+  "layers": {
+    "roads": { "elements": [
+      { "type": "way", "id": 501, "tags": { "highway": "primary", "name": "Lijnbaan" }, "geometry": [{"lat":52.002,"lon":5.002},{"lat":52.014,"lon":5.022}] },
+      { "type": "way", "id": 502, "tags": { "highway": "residential", "name": "Perronstraat" }, "geometry": [{"lat":52.014,"lon":5.003},{"lat":52.002,"lon":5.021}] }
+    ] },
+    "rail": { "elements": [
+      { "type": "way", "id": 511, "tags": { "railway": "rail", "name": "Hoofdlijn" }, "geometry": [{"lat":52.004,"lon":5.001},{"lat":52.004,"lon":5.023}] }
+    ] },
+    "tram": { "elements": [
+      { "type": "way", "id": 512, "tags": { "railway": "tram", "ref": "T2" }, "geometry": [{"lat":52.007,"lon":5.001},{"lat":52.007,"lon":5.023}] }
+    ] },
+    "metro": { "elements": [
+      { "type": "way", "id": 513, "tags": { "railway": "subway", "ref": "M1", "colour": "#0088cc" }, "geometry": [{"lat":52.010,"lon":5.001},{"lat":52.010,"lon":5.023}] }
+    ] },
+    "buildings": { "elements": [] }, "area_features": { "elements": [] }, "place_nodes": { "elements": [] }
+  }
+}

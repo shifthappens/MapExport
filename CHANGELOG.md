@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-15 — Reliable offline regression checks
+- The smoke suite runs offline, including geometry checks and five fixed map
+  scenarios, and reports failures instead of silently skipping checks.
+- Invalid cached map responses are retried through the normal data-fetch path
+  instead of being accepted as incomplete map data.
+
 ### Stale acceptance-test floors fixed for roads and tram/metro
 - `tests/expectations.json`'s per-city `roads` floors still reflected the old
   query where footways/cycleways/paths counted as roads; splitting those into

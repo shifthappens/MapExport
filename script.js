@@ -840,7 +840,12 @@ async function cacheGet(key) {
     const res = await fetch(`cache.php?key=${encodeURIComponent(key)}`);
     if (!res.ok) { noteCacheError(`HTTP ${res.status}`); return null; }
     const data = await res.json();
-    return data || null; // cache.php returns null JSON for misses
+    if (data === null) return null; // cache.php returns null JSON for misses
+    if (!data || typeof data !== 'object' || !Array.isArray(data.elements)) {
+      noteCacheError('Invalid cache response: expected an elements array');
+      return null;
+    }
+    return data;
   } catch (e) { noteCacheError(e?.message || 'network error'); return null; }
 }
 

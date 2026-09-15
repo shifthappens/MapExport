@@ -1,7 +1,7 @@
 # Roadmap: maintenance sprints
 
 **Status: IN PROGRESS (2026-09-15) — Sprint 1 en 2 COMPLETE, de cartografische
-tussen-sprint COMPLETE, Sprint 3: ME-06a–d COMPLETE, ME-07 in uitvoering.**
+tussen-sprint COMPLETE en Sprint 3 COMPLETE; Sprint 4 is gepland.**
 Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
@@ -616,7 +616,8 @@ waarom en of een retry veilig is.
 
 ## Sprint 3 — Correctheid aantoonbaar maken
 
-**Status:** IN PROGRESS (2026-09-15) — ME-06a–d COMPLETE, ME-07 in uitvoering.
+**Status:** COMPLETE (2026-09-15) — ME-06a–d en ME-07 zijn afgerond; de
+offline eindpoort is groen.
 
 **Sprint Goal:** bekende kleine dataverlies- en ordeningsfouten zijn opgelost,
 en representatieve offline tests bewijzen de belangrijkste v1- en
@@ -688,7 +689,7 @@ bbox/redraw-validatie bij de kaartselectie.
 **Status:** COMPLETE (2026-09-15) — alle vier subtaken en acceptatiecriteria
 gehaald; zie commits hierboven.
 
-### [ ] ME-07 — Regressiedekking rond foutpaden en representatieve steden
+### [x] ME-07 — Regressiedekking rond foutpaden en representatieve steden
 
 **Complexiteit:** hoog
 
@@ -723,6 +724,11 @@ deze taak af nadat hun uiteindelijke interfaces stabiel zijn.
 - Alle belangrijke foutpaden kunnen zonder netwerk worden gesimuleerd.
 - Minimaal vijf representatieve fixtures dekken de benoemde kaarttypen.
 - De suite controleert zowel v1-pariteit als v2-contracten waar van toepassing.
+
+**Status:** COMPLETE (2026-09-15) — `bash tests/smoke.sh` draait de volledige
+suite offline en fail-closed; vijf vaste scenariofixtures bewijzen de benoemde
+invarianten. Onafhankelijk alleen-lezen gereviewd met Claude Fable 5.1
+(`medium`); beide Medium-bevindingen zijn hersteld en opnieuw geverifieerd.
 
 ## Sprint 4 — v2-beslismoment
 

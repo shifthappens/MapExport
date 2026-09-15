@@ -137,21 +137,23 @@ assert.equal(state.previewEngine, X.EXPORT_ENGINE.V2);
 assert.equal(state.exportSvg, '<svg id="full-export" />', 'v2 preview replaced export bytes');
 assert.equal(state.exportFilename, 'v2.svg');
 
-X.prime(X.EXPORT_ENGINE.V1);
-const staleRequest = X.beginRequest();
-const currentRequest = X.beginRequest();
-assert.equal(X.commitRequest(staleRequest, '<svg id="stale" />'), false);
-assert.equal(X.snapshot().renderedSvg, '<svg id="initial-preview" />');
-assert.equal(X.commitRequest(currentRequest, '<svg id="current" />'), true);
-assert.equal(X.snapshot().renderedSvg, '<svg id="current" />');
+for (const engine of [X.EXPORT_ENGINE.V1, X.EXPORT_ENGINE.V2]) {
+  X.prime(engine);
+  const staleRequest = X.beginRequest();
+  const currentRequest = X.beginRequest();
+  assert.equal(X.commitRequest(staleRequest, '<svg id="stale" />'), false, `stale ${engine} preview committed`);
+  assert.equal(X.snapshot().renderedSvg, '<svg id="initial-preview" />');
+  assert.equal(X.commitRequest(currentRequest, '<svg id="current" />'), true, `current ${engine} preview was rejected`);
+  assert.equal(X.snapshot().renderedSvg, '<svg id="current" />');
 
-const preExportRequest = X.beginRequest();
-X.commitExport('<svg id="new-full-export" />');
-assert.equal(X.commitRequest(preExportRequest, '<svg id="late-preview" />'), false);
-state = X.snapshot();
-assert.equal(state.exportSvg, '<svg id="new-full-export" />');
-assert.equal(state.renderedSvg, '<svg id="new-full-export" />');
-assert.equal(state.exportFilename, 'new-full.svg');
+  const preExportRequest = X.beginRequest();
+  X.commitExport('<svg id="new-full-export" />');
+  assert.equal(X.commitRequest(preExportRequest, '<svg id="late-preview" />'), false, `late ${engine} preview committed after export`);
+  state = X.snapshot();
+  assert.equal(state.exportSvg, '<svg id="new-full-export" />');
+  assert.equal(state.renderedSvg, '<svg id="new-full-export" />');
+  assert.equal(state.exportFilename, 'new-full.svg');
+}
 
 X.prime(X.EXPORT_ENGINE.V1);
 state = X.snapshot();

@@ -1,0 +1,20 @@
+{
+  "name": "river island",
+  "bbox": { "south": 49.000, "west": 8.000, "north": 49.016, "east": 8.024 },
+  "expect": { "feature": "water multipolygon with island", "waterProbe": { "lat": 49.008, "lon": 8.005 }, "landProbe": { "lat": 49.008, "lon": 8.012 } },
+  "layers": {
+    "roads": { "elements": [
+      { "type": "way", "id": 301, "tags": { "highway": "residential", "name": "Eilandweg" }, "geometry": [{"lat":49.004,"lon":8.010},{"lat":49.012,"lon":8.014}] }
+    ] },
+    "buildings": { "elements": [
+      { "type": "way", "id": 302, "tags": { "building": "yes" }, "geometry": [{"lat":49.007,"lon":8.011},{"lat":49.007,"lon":8.012},{"lat":49.008,"lon":8.012},{"lat":49.008,"lon":8.011},{"lat":49.007,"lon":8.011}] }
+    ] },
+    "area_features": { "elements": [
+      { "type": "relation", "id": 311, "tags": { "natural": "water", "name": "Rivier" }, "members": [
+        { "type": "way", "ref": 312, "role": "outer", "geometry": [{"lat":49.002,"lon":8.002},{"lat":49.002,"lon":8.022},{"lat":49.014,"lon":8.022},{"lat":49.014,"lon":8.002},{"lat":49.002,"lon":8.002}] },
+        { "type": "way", "ref": 313, "role": "inner", "geometry": [{"lat":49.005,"lon":8.009},{"lat":49.005,"lon":8.016},{"lat":49.011,"lon":8.016},{"lat":49.011,"lon":8.009},{"lat":49.005,"lon":8.009}] }
+      ] }
+    ] },
+    "place_nodes": { "elements": [] }
+  }
+}
