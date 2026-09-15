@@ -28,34 +28,32 @@
     "labels": 429
   },
   "tilburg-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-tilburg-v2-2026-07-11-213318.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-tilburg-v2-2026-09-15.svg",
     "layers": {
-      "roads": 1118,
+      "roads": 389,
       "rail": 37,
-      "tram": 0,
-      "metro": 0,
-      "water_labels": 10,
+      "water_labels": 8,
       "street_labels": 375,
-      "block_buildings": 8828,
-      "area_features": 2215
+      "block_buildings": 10458,
+      "place_nodes": 1,
+      "area_features": 2311
     },
-    "labels": 164
+    "labels": 173
   },
   "ghent-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-ghent-v2-2026-07-11-213401.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-ghent-v2-2026-09-15.svg",
     "layers": {
-      "roads": 2581,
+      "roads": 1195,
       "rail": 37,
-      "tram": 135,
-      "metro": 0,
-      "water_labels": 68,
-      "street_labels": 1121,
-      "block_buildings": 11334,
-      "area_features": 1198
+      "water_labels": 69,
+      "street_labels": 1125,
+      "block_buildings": 13349,
+      "place_nodes": 2,
+      "area_features": 1334
     },
-    "labels": 303
+    "labels": 311
   },
   "nievre-v2": {
     "recorded_at": "2026-07-11",
@@ -63,8 +61,6 @@
     "layers": {
       "roads": 8,
       "rail": 0,
-      "tram": 0,
-      "metro": 0,
       "water_labels": 0,
       "street_labels": 8,
       "block_buildings": 147,
@@ -73,34 +69,32 @@
     "labels": 19
   },
   "erfurt-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-erfurt-v2-2026-07-11-213438.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-erfurt-v2-2026-09-15.svg",
     "layers": {
-      "roads": 622,
+      "roads": 278,
       "rail": 0,
-      "tram": 43,
-      "metro": 0,
       "water_labels": 11,
       "street_labels": 233,
-      "block_buildings": 1282,
-      "area_features": 187
+      "block_buildings": 1497,
+      "place_nodes": 9,
+      "area_features": 249
     },
-    "labels": 78
+    "labels": 92
   },
   "paris-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-paris-v2-2026-07-11-213506.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-paris-v2-2026-09-15.svg",
     "layers": {
-      "roads": 8897,
+      "roads": 1377,
       "rail": 504,
-      "tram": 17,
-      "metro": 83,
-      "water_labels": 68,
-      "street_labels": 1244,
-      "block_buildings": 6014,
-      "area_features": 1167
+      "water_labels": 80,
+      "street_labels": 1246,
+      "block_buildings": 6706,
+      "place_nodes": 7,
+      "area_features": 1381
     },
-    "labels": 203
+    "labels": 248
   },
   "bremerhaven-v2": {
     "recorded_at": "2026-08-07",
@@ -117,19 +111,18 @@
     "labels": 155
   },
   "oulu-v2": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-oulu-v2-2026-07-11-213552.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-oulu-v2-2026-09-15.svg",
     "layers": {
-      "roads": 3962,
-      "rail": 118,
-      "tram": 0,
-      "metro": 0,
-      "water_labels": 50,
-      "street_labels": 594,
-      "block_buildings": 1771,
-      "area_features": 1821
+      "roads": 908,
+      "rail": 174,
+      "water_labels": 77,
+      "street_labels": 820,
+      "block_buildings": 3148,
+      "place_nodes": 5,
+      "area_features": 2649
     },
-    "labels": 135
+    "labels": 149
   },
   "erfurt": {
     "recorded_at": "2026-07-11",

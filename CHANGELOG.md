@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### Stale acceptance-test floors fixed for roads and tram/metro
+- `tests/expectations.json`'s per-city `roads` floors still reflected the old
+  query where footways/cycleways/paths counted as roads; splitting those into
+  their own `paths` layer legitimately shrank `roads` counts, but the floors
+  were never re-recorded, so five cities (Tilburg, Oulu, Ghent, Paris, Erfurt)
+  failed on every run since. `tram`/`metro` floors were separately stale: those
+  layers were turned off by default months ago and the test now only fetches
+  default-on layers, so they were never fetched at all and always read as 0.
+  Roads floors are re-recorded from the current pinned-cache run; tram/metro
+  floors are removed since the test no longer exercises those layers.
+
 ### 2026-09-15 — A rejected selection no longer keeps the previous area
 - Drawing an area that is too small used to leave the earlier area and its
   export state in place, so the next export could silently use old bounds; the
