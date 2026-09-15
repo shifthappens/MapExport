@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Own the never-expiring Overpass cache for the seven engine-v2 validation
-# cities (cache/pinned/).
+# Own the never-expiring Overpass cache for the seven validation cities
+# (cache/pinned/), covering both v1 and v2's fetchable layers.
 #
 # cache.php expires normal entries after 7 days. Entries in cache/pinned/ are
 # never expired and never swept, and cache.php falls back to them whenever the
@@ -9,7 +9,7 @@
 #
 #   tools/pin-cache.sh status    what is pinned, what is live, what is missing
 #   tools/pin-cache.sh pin       copy the current live entries into pinned/
-#   tools/pin-cache.sh refresh   re-fetch all 77 keys from Overpass, then pin
+#   tools/pin-cache.sh refresh   re-fetch every current key from Overpass, then pin
 #
 # The key list is derived from the app sources by
 # tools/prefetch-validation-cache.mjs --list-keys, so it follows layer/query
@@ -138,7 +138,7 @@ restore_stash() {
     echo "WARNING: $STASH still holds entries that could not be restored" >&2
 }
 
-# Explicit refresh: really go back to Overpass for all 77 keys.
+# Explicit refresh: really go back to Overpass for every current key.
 #
 # The prefetcher only fetches what the cache cannot already answer, so two
 # things must be out of the way: pinned serving (the .disabled marker) and the

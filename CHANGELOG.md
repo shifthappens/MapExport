@@ -27,6 +27,8 @@ All notable changes to MapExport are recorded here, **newest at the top**.
   default-on layers, so they were never fetched at all and always read as 0.
   Roads floors are re-recorded from the current pinned-cache run; tram/metro
   floors are removed since the test no longer exercises those layers.
+- The same fix was missed for the plain (v1) Tilburg and Ghent floors, which
+  predated the `paths` split and still failed on every v1 run; re-recorded now.
 
 ### 2026-09-15 — A rejected selection no longer keeps the previous area
 - Drawing an area that is too small used to leave the earlier area and its

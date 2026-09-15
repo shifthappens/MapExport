@@ -1,31 +1,33 @@
 {
   "tilburg": {
-    "recorded_at": "2026-07-04",
-    "from": "map-useit-tilburg-2026-07-04-215320.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-tilburg-2026-09-15.svg",
     "layers": {
-      "water_bodies": 7,
+      "water_bodies": 6,
       "waterways": 0,
-      "parks": 5,
-      "roads": 1118,
-      "street_labels": 530,
+      "parks": 2152,
+      "landcover": 631,
+      "roads": 389,
       "rail": 37,
-      "water_labels": 10
+      "street_labels": 375,
+      "water_labels": 8
     },
-    "labels": 218
+    "labels": 173
   },
   "ghent": {
-    "recorded_at": "2026-07-04",
-    "from": "map-useit-ghent-2026-07-04-214425.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-ghent-2026-09-15.svg",
     "layers": {
       "water_bodies": 26,
-      "waterways": 36,
-      "parks": 20,
-      "roads": 2579,
-      "street_labels": 1181,
+      "waterways": 35,
+      "parks": 827,
+      "landcover": 73,
+      "roads": 1195,
       "rail": 37,
-      "water_labels": 68
+      "street_labels": 1125,
+      "water_labels": 69
     },
-    "labels": 429
+    "labels": 304
   },
   "tilburg-v2": {
     "recorded_at": "2026-09-15",
@@ -125,49 +127,49 @@
     "labels": 149
   },
   "erfurt": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-erfurt-2026-07-11-141431.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-erfurt-2026-09-15.svg",
     "layers": {
       "water_bodies": 2,
       "waterways": 5,
       "parks": 167,
       "landcover": 34,
-      "roads": 622,
-      "street_labels": 233,
+      "roads": 278,
       "rail": 0,
+      "street_labels": 233,
       "water_labels": 11
     },
-    "labels": 78
+    "labels": 82
   },
   "bremerhaven": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-bremerhaven-2026-07-11-141439.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-bremerhaven-2026-09-15.svg",
     "layers": {
       "water_bodies": 33,
       "waterways": 6,
-      "parks": 122,
-      "landcover": 41,
-      "roads": 1708,
-      "street_labels": 774,
+      "parks": 124,
+      "landcover": 42,
+      "roads": 843,
       "rail": 61,
-      "water_labels": 24
+      "street_labels": 778,
+      "water_labels": 33
     },
-    "labels": 235
+    "labels": 242
   },
   "oulu": {
-    "recorded_at": "2026-07-11",
-    "from": "map-useit-oulu-2026-07-11-141444.svg",
+    "recorded_at": "2026-09-15",
+    "from": "map-useit-oulu-2026-09-15.svg",
     "layers": {
       "water_bodies": 24,
       "waterways": 15,
-      "parks": 1257,
-      "landcover": 301,
-      "roads": 3962,
-      "street_labels": 594,
-      "rail": 118,
-      "water_labels": 50
+      "parks": 1267,
+      "landcover": 305,
+      "roads": 908,
+      "rail": 174,
+      "street_labels": 820,
+      "water_labels": 77
     },
-    "labels": 135,
+    "labels": 146,
     "coverageGaps": 1
   }
 }

@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-// Fill cache.php for every engine-v2 validation city without running an export.
+// Fill cache.php for every validation city without running an export.
 //
 // The app sources remain authoritative: this program evaluates script.js and
 // engine-v2.js to obtain the current layer objects, queries, filters, cache-key
-// functions, building/place_nodes padding and endpoint list. The city list is
+// functions, building/place_nodes padding and endpoint list. It covers both
+// engines' fetchable layers: v2's own list (roads/paths/rail/tram/metro/
+// transit_stops/water_labels/street_labels are shared LAYER_REGISTRY objects
+// with v2, so their keys are already covered) plus v1's water_bodies/
+// waterways/parks/landcover, which v2 folds into one combined area_features
+// query and so are NOT otherwise reachable from v2's list. The city list is
 // read from tests/real-export.mjs. Raw Overpass envelopes are cached; tag filters are
 // used only for the progress counts, just as fetchLayer filters after reading.
 
@@ -23,7 +28,7 @@ const OVERPASS_UA = 'MapExport validation-cache prefetch/1.0 (+https://coen.at; 
 
 const HELP = `Usage: node tools/prefetch-validation-cache.mjs [options]
 
-Sequentially fills cache.php for all engine-v2 fetchable layers and all named
+Sequentially fills cache.php for all v1+v2 fetchable layers and all named
 validation cities from tests/real-export.mjs. Missing keys are retried in
 round-robin order for at most 60 minutes. Each Overpass attempt has a 30-second
 client/server timeout and is followed by a 10-second cooldown.
@@ -142,6 +147,7 @@ function loadAppContract() {
   const engineSource = fs.readFileSync(path.join(REPO, 'engine-v2.js'), 'utf8');
   const expose = `\n;globalThis.__prefetchContract = {
     layers: EngineV2.layers,
+    registryLayers: LAYER_REGISTRY.flatMap(g => g.layers),
     buildingsLayer: EngineV2.buildingsLayer,
     padBboxMeters: EngineV2.padBboxMeters,
     buildingFetchPadM: EngineV2.BUILDING_FETCH_PAD_M,
@@ -186,10 +192,21 @@ function loadAppContract() {
   if (fetchable.length !== 11) {
     throw new Error(`Expected 11 engine-v2 fetchable layers, found ${fetchable.length}`);
   }
+  // v1-only layers: those in LAYER_REGISTRY with their own overpassQuery that
+  // v2's list does not already cover (v2 shares roads/paths/rail/tram/metro/
+  // transit_stops/water_labels/street_labels by object identity, and folds
+  // water_bodies/waterways/parks/landcover into its own combined
+  // area_features query instead of reusing them) — those four are the gap a
+  // v2-only prefetch leaves for a v1 export to hit live.
+  const v2Ids = new Set(fetchable.map(layer => layer.id));
+  const v1Only = contract.registryLayers.filter(layer => typeof layer.overpassQuery === 'function' && !v2Ids.has(layer.id));
+  if (v1Only.length !== 4) {
+    throw new Error(`Expected 4 v1-only fetchable layers (water_bodies/waterways/parks/landcover), found ${v1Only.length}: ${v1Only.map(l => l.id).join(', ')}`);
+  }
   if (contract.endpoints.length !== 3) {
     throw new Error(`Expected the app's 3 Overpass endpoints, found ${contract.endpoints.length}`);
   }
-  return { ...contract, fetchable };
+  return { ...contract, fetchable: [...fetchable, ...v1Only] };
 }
 
 function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_ATTEMPT_TIMEOUT_S) {
@@ -337,7 +354,7 @@ async function main() {
       for (const task of plan) console.log(task.key);
       return;
     }
-    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v2 layers = ${plan.length} cache keys (${options.grid} grid, ${options.maxRuntimeMinutes === 0 ? 'no time limit' : `${options.maxRuntimeMinutes} min limit`})`);
+    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v1+v2 layers = ${plan.length} cache keys (${options.grid} grid, ${options.maxRuntimeMinutes === 0 ? 'no time limit' : `${options.maxRuntimeMinutes} min limit`})`);
     console.log(`Cache: ${options.cacheBase}`);
     console.log(`Endpoints: ${contract.endpoints.map(value => new URL(value).hostname).join(' → ')}`);
 
@@ -419,7 +436,7 @@ async function main() {
       for (const task of queue) console.error(`  - ${task.city}/${task.layer.id}  ${task.key}`);
       process.exitCode = interrupted ? 130 : 1;
     } else {
-      console.log('COMPLETE — every validation-city v2 cache key is confirmed present');
+      console.log('COMPLETE — every validation-city cache key (v1+v2) is confirmed present');
     }
   } catch (error) {
     console.error(`ERROR ${error.message}`);
