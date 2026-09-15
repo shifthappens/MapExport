@@ -67,8 +67,24 @@ const expose = `
     requestedEngineVersion = engine === EXPORT_ENGINE.V2 ? 2 : 1;
     scheduleLivePreview();
   },
+  drawSelection(start, end) {
+    const handlers = new Map();
+    map = {
+      dragging: { disable() {}, enable() {} },
+      getContainer() { return { style: {} }; },
+      on(event, handler) { handlers.set(event, handler); },
+      off(event) { handlers.delete(event); },
+      removeLayer() {},
+    };
+    globalThis.L = { rectangle() { return { addTo() { return {}; } }; } };
+    startDraw();
+    handlers.get('mousedown')({ latlng: start });
+    handlers.get('mouseup')({ latlng: end });
+  },
   snapshot() {
     return {
+      bbox,
+      exportState,
       exportSvg: exportState?.svg,
       exportFilename: exportState?.filename,
       exportRunId: exportState?.runId,
@@ -146,4 +162,25 @@ state = X.snapshot();
 assert.equal(state.exportSvg, '<svg id="full-export" />');
 assert.equal(state.downloadText, '↓ Download last export');
 
-console.log('preview-state: separate export bytes, engine routing and race guards pass');
+X.prime(X.EXPORT_ENGINE.V1);
+X.drawSelection({ lat: 51.5, lng: 5 }, { lat: 51.51, lng: 5.01 });
+assert.deepEqual(
+  { ...X.snapshot().bbox },
+  { south: 51.5, north: 51.51, west: 5, east: 5.01 },
+);
+assert.equal(dom.getElementById('btn-export').disabled, false);
+X.drawSelection({ lat: 51.5, lng: 5 }, { lat: 51.5005, lng: 5.01 });
+state = X.snapshot();
+assert.equal(state.bbox, null, 'a rejected selection kept the previous export bounds');
+assert.equal(state.exportState, null, 'a rejected selection kept the previous export state');
+assert.equal(dom.getElementById('btn-export').disabled, true);
+assert.equal(state.downloadDisabled, true);
+
+X.prime(X.EXPORT_ENGINE.V1);
+X.drawSelection({ lat: 51.5, lng: 5 }, { lat: 51.51, lng: 5.01 });
+X.drawSelection({ lat: 51.5, lng: 5 }, { lat: 51.51, lng: 5.0005 });
+state = X.snapshot();
+assert.equal(state.bbox, null, 'a narrow selection kept the previous export bounds');
+assert.equal(state.exportState, null, 'a narrow selection kept the previous export state');
+
+console.log('preview-state: separate export bytes, selection reset, engine routing and race guards pass');

@@ -11,6 +11,11 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-15 — A rejected selection no longer keeps the previous area
+- Drawing an area that is too small used to leave the earlier area and its
+  export state in place, so the next export could silently use old bounds; the
+  rejection now clears both.
+
 ### Edge hamlets no longer lose their grounding node
 - The place-node fetch (rural hamlet/village/farm/locality nodes) now pads
   its bbox 1000 m past the frame, the same way the buildings fetch already

@@ -600,7 +600,7 @@ function renderLabelToggles(wrap, streetLabelsToggle) {
 //  BBOX DRAWING
 // ════════════════════════════════════════════════════════════════
 function startDraw() {
-  if (isDrawing) return;
+  if (isDrawing || exportInProgress) return;
   isDrawing = true;
   document.getElementById('btn-draw').classList.add('active');
   document.getElementById('btn-draw').textContent = '⊹ Click on map to start';
@@ -624,7 +624,11 @@ function startDraw() {
       hideToast();
       const s=Math.min(drawStart.lat,ev.latlng.lat), n=Math.max(drawStart.lat,ev.latlng.lat);
       const w=Math.min(drawStart.lng,ev.latlng.lng), ea=Math.max(drawStart.lng,ev.latlng.lng);
-      if (Math.abs(n-s)<0.001||Math.abs(ea-w)<0.001) { setStatus('Selection too small — try a larger area','error'); return; }
+      if (Math.abs(n-s)<0.001||Math.abs(ea-w)<0.001) {
+        clearRejectedSelection();
+        setStatus('Selection too small — try a larger area','error');
+        return;
+      }
       bbox = {south:s, north:n, west:w, east:ea};
       updateBboxDisplay();
       document.getElementById('btn-export').disabled = false;
@@ -636,6 +640,21 @@ function startDraw() {
     map.on('mousemove', onMove); map.on('mouseup', onUp);
   }
   map.on('mousedown', onDown);
+}
+
+function clearRejectedSelection() {
+  cancelPendingPreview();
+  bbox = null;
+  if (bboxRect) {
+    map.removeLayer(bboxRect);
+    bboxRect = null;
+  }
+  setAreaName('');
+  exportState = null;
+  previewState = null;
+  updateBboxDisplay();
+  document.getElementById('btn-export').disabled = true;
+  updateDownloadControl();
 }
 
 function updateBboxDisplay() {

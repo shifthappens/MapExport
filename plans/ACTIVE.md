@@ -2,12 +2,11 @@
 
 - **Updated:** 2026-09-15
 - **Roadmap:** `plans/2026-07-14_codebase-maintenance-priorities.md` (Sprint 3).
-- **Unit:** P7 — ME-06a place-node padding.
-- **Status:** **Klaar.** Coen koos de kleinere aanpassing (marge optrekken,
-  adaptive tiling laten staan) i.p.v. het grotere "alles naar fine grid"
-  voorstel. Code gewijzigd, door Codex geverifieerd (geen defect, 3 lage
-  bevindingen verwerkt), cache voor beide corpora bijgewerkt en gepind, offline
-  suite + v2 real-export acceptatie groen. Nog niet gecommit/gedeployed.
+- **Unit:** P8 — ME-06d te kleine selectie.
+- **Status:** **Klaar.** Een afgewezen te kleine selectie wist nu de eerdere
+  kaartgrenzen en de exportstatus. Claude Code beoordeelde de wijziging;
+  relevante punten over preview-opruiming en de ontbrekende breedtecase zijn
+  verwerkt. P7 blijft klaar en nog niet gecommit/deployed.
 
 ## Laatste bewijs (P7, fase 2 — de fix)
 
@@ -69,11 +68,11 @@ gitignored, niet in git status.
 
 ## Next action
 
-Committen (nog niet gedaan — wacht op Coens laatste "ga" in dit gesprek).
-Niet deployen tenzij expliciet gevraagd. Na commit: verder met P8 (ME-06d te
-kleine selectie). Laat de ongerelateerde `cache/.ratelimit`-wijziging en
-PowerPoint-lockfile (`presentations/~$mapexport-workshop-merged.pptx`) buiten
-deze en vervolgcommits.
+P9 (ME-07) eerst als nieuw, concreet plan uitschrijven volgens de roadmap.
+Niet committen of deployen tenzij Coen dat expliciet vraagt. Laat de
+ongerelateerde `cache/.ratelimit`-wijziging en PowerPoint-lockfile
+(`presentations/~$mapexport-workshop-merged.pptx`) buiten deze en
+vervolgcommits.
 
 ## Standing rules
 

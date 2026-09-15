@@ -438,7 +438,7 @@ verversen zonder Coen).
 **Acceptance:** fixture slaagt, smoke exit 0, changelog-entry als het gedrag
 verandert, `ENGINE-V2.md` genoemd.
 
-### [ ] P8 — ME-06d: te kleine selectie (E1)
+### [x] P8 — ME-06d: te kleine selectie (E1)
 
 **Objective:** na een afgewezen te kleine selectie kan de UI niet met de
 vorige bbox doorgaan.
