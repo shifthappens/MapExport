@@ -111,7 +111,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
 | Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
-| Zichtbare place-labels ontbreken in Nièvre | OPEN — plumbing fixed, wacht op menselijke crop | AF-04 offline af (`tests/place-labels.mjs` groen). Gevonden 2026-09-13 bij P4-prep dat `tests/real-export.mjs` `place_nodes` als fetch-only wegfilterde vóór `buildSVG`; onafhankelijke review (Codex) wees uit dat `doExportV2` zelf al een handmatige re-add had sinds AF-04, dus alleen de testtrail miste de laag. Fix = unit P10, gedaan in `73984cc` (2026-09-15): gedeelde `renderableResults()` helper. Bewijs: `exports/map-useit-nievre-v2-2026-09-15.svg` (gemaakt tijdens de `b817298`-sweep) bevat nu een gevulde `id="place_labels"`-groep met 8 leesbare namen incl. Franvache en Villars — de gate hieronder ("cached Nièvre-export") is dus qua data gehaald; de menselijke crop-beoordeling staat nog open |
+| Zichtbare place-labels ontbreken in Nièvre | FIXED | AF-04 offline af (`tests/place-labels.mjs` groen). Gevonden 2026-09-13 bij P4-prep dat `tests/real-export.mjs` `place_nodes` als fetch-only wegfilterde vóór `buildSVG`; onafhankelijke review (Codex) wees uit dat `doExportV2` zelf al een handmatige re-add had sinds AF-04, dus alleen de testtrail miste de laag. Fix = unit P10, gedaan in `73984cc` (2026-09-15): gedeelde `renderableResults()` helper. Bewijs: `exports/map-useit-nievre-v2-2026-09-15.svg` (gemaakt tijdens de `b817298`-sweep) bevat een gevulde `id="place_labels"`-groep met 8 leesbare namen incl. Franvache en Villars. Visuele sign-off Coen 2026-09-15: geen botsingen, compleet, goed geankerd; plaatslabels renderen ~18% kleiner dan straatnamen in dezelfde crop (33.8px hamlet-tier vs ~40px wegnaam, twee losstaande sizingsystemen) — Coen kiest expliciet: laten zoals het is, geen aparte unit |
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; bevestigd 2026-08-07-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | FIXED | AF-05d (2026-07-23): Coen koos "zichtbaar maar subtieler"; geen casing, gestreepte lijn, lagere opacity, lijnkleur behouden; `tests/metro-tunnel.mjs` |
@@ -313,7 +313,7 @@ Vier bevestigde bevindingen op eerder afgeronde units, dezelfde dag verholpen
    (px-schaal, vergelijkbaar), input-orde-onafhankelijkheid behouden;
    regressiecheck in `tests/feature-label-dedup.mjs`.
 
-### [ ] AF-04 — Zichtbare landelijke place-labels
+### [x] AF-04 — Zichtbare landelijke place-labels
 
 **Probleem:** Nièvre haalt place nodes op en gebruikt namen alleen als
 `inkscape:label` op hamletblobs. De kaart toont geen bestemming-/gehuchtnaam.
@@ -359,9 +359,16 @@ gedicht (unit P10, `73984cc`). `exports/map-useit-nievre-v2-2026-09-15.svg`
 (uit de `b817298`-sweep) bevat een gevulde `place_labels`-groep met 8 namen:
 Achez, Franvache, La Neuvelle, Les Beaunés, Les Genêts, Montgaudon,
 Vénitien-le-Bas, Villars — inclusief de twee namen die de acceptatiecriteria
-noemen. De cached-exportkant van de gate is dus gehaald; alleen Coens
-menselijke crop-beoordeling (leesbaarheid, botsingen, representativiteit)
-resteert om AF-04 te sluiten.*
+noemen.*
+
+*Gate gehaald 2026-09-15: Coens menselijke crop op datzelfde bestand — geen
+botsingen, compleet, goed geankerd. Enige opmerking: plaatslabels renderen
+merkbaar kleiner dan straatnamen in dezelfde crop (gemeten 33.8px hamlet-tier
+vs ~40-41px voor "Route d'Onlay"/"Route de Moulins", ~18% verschil), omdat
+`PLACE_LABEL_TIERS` een vaste grootte per tier gebruikt terwijl straatlabels
+via `roadW.fillW*sf*0.75` meegroeien met brede wegen. Voorgelegd aan Coen met
+drie opties (laten staan / tiers optrekken / meeschalend maken); expliciete
+keuze: laten staan, geen aparte unit. AF-04 is hiermee gesloten.*
 
 ### [ ] AF-05 — Rail- en metro-overbelasting reduceren
 
@@ -755,9 +762,10 @@ een reproduceerbaar beleid; CF-03 heeft een vastgelegde keuze of blijft bewust
 *Status 2026-09-13: gesloten op Coens besluit. De 2026-08-07-exports gelden
 als de sweep, hoewel zes van de zeven vóór de eindcode van `3e782e6` zijn
 gemaakt en de corridor-lintregel uit die commit niet halen (matrixregel
-`ACCEPTED_STYLE`). Eén bevinding blijft open en gaat mee naar Sprint 3:
+`ACCEPTED_STYLE`). Eén bevinding bleef open en ging mee naar Sprint 3:
 AF-04 rendert in geen enkele echte export (zie matrix). Afsluitplan:
-`plans/2026-09-13_af08-eindpoort-en-sprint3-start.md`.*
+`plans/2026-09-13_af08-eindpoort-en-sprint3-start.md`. Inmiddels gesloten:
+zie AF-04 hierboven (unit P10, sign-off Coen 2026-09-15).*
 
 **Route:** E0 genereert/inventariseert sequentieel; O beoordeelt; reviewer doet
 onafhankelijke contractcheck. Coen blijft eigenaar van visuele sign-off.
