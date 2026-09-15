@@ -1680,7 +1680,14 @@ function buildRoadsLayer(elements, pr, W, ctx, layerId = 'roads') {
     byType.get(hw).push(el);
   });
   if (!byType.size) return '';
-  const types=[...byType.keys()].sort((a,b)=>(ROAD_DRAW_ORDER.indexOf(a)||50)-(ROAD_DRAW_ORDER.indexOf(b)||50));
+  function roadTypeRank(highwayType) {
+    const index = ROAD_DRAW_ORDER.indexOf(highwayType);
+    return index === -1 ? 50 : index;
+  }
+
+  const types = [...byType.keys()].sort((typeA, typeB) => {
+    return roadTypeRank(typeA) - roadTypeRank(typeB);
+  });
   // Two-pass rendering: ALL casings first, then ALL fills. SVG paint order is
   // document order, so every casing must precede every fill for road borders to
   // sit under crossing roads at an intersection — which is why casing and fill

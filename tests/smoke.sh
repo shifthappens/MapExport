@@ -8,6 +8,10 @@ echo "== road-merge (offline, stitcher unit test) =="
 node tests/road-merge.mjs
 
 echo
+echo "== road-order (offline, draw-order sort unit test) =="
+node tests/road-order.mjs
+
+echo
 echo "== abbreviate (offline, name-abbreviation unit test) =="
 node tests/abbreviate.mjs
 

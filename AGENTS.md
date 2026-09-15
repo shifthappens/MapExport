@@ -256,7 +256,8 @@ rule is restated at the top of `CHANGELOG.md` itself.
 
 ## Testing
 
-- Offline (no network): `node tests/road-merge.mjs`, `tests/abbreviate.mjs`,
+- Offline (no network): `node tests/road-merge.mjs`, `tests/road-order.mjs`,
+  `tests/abbreviate.mjs`,
   `tests/supersession.mjs`, `tests/pipeline-equivalence.mjs`,
   `tests/sea-sign.mjs` (engine v2 coastline→sea geometry),
   `tests/hamlet-grounding.mjs` (engine v2 hamlet place-node grounding),

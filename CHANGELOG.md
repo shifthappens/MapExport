@@ -11,6 +11,10 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### Road classes follow their draw order exactly
+- The first road class in the configured draw order was sorted as unknown
+  because of an index-zero fallback bug; it now sorts first.
+
 ### 2026-09-15 — Deploy cache-busting, stale help text
 - The v2 export path and the headless test harness now share one function
   deciding which fetched data reaches the SVG builder, instead of each
