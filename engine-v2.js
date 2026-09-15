@@ -47,13 +47,24 @@ const EngineV2 = (() => {
   // coexist with these. Fetch-only, never a layer of its own.
   const buildingsLayer = { ...BLOCK_BUILDINGS_LAYER, overpassOut: 'body geom' };
 
-  // The buildings fetch (and ONLY that fetch) is padded past the frame by this
-  // many ground metres. A clipped edge face keeps its buildings even when they
-  // all sit just outside the frame, so it classifies urban instead of falling to
-  // Uncategorized (cause A of the misclassification study). Buildings never paint
-  // or cut, so the geometry is unaffected; the padded bbox just gets its own
-  // cache entry (Overpass cost is not a design input, §8).
+  // The buildings fetch (and, below, the place_nodes fetch) is padded past the
+  // frame by this many ground metres. A clipped edge face keeps its buildings
+  // even when they all sit just outside the frame, so it classifies urban
+  // instead of falling to Uncategorized (cause A of the misclassification
+  // study). Buildings never paint or cut, so the geometry is unaffected; the
+  // padded bbox just gets its own cache entry (Overpass cost is not a design
+  // input, §8).
   const BUILDING_FETCH_PAD_M = 100;
+
+  // place_nodes is padded the same way, past HAMLET_GROUND_SETTLEMENT_M: a
+  // hamlet contour can sit right at the frame edge (faces are clipped to the
+  // frame, no inset), so its grounding node up to that many metres outside the
+  // frame must still be fetched, or an edge hamlet wrongly fails grounding and
+  // falls back to cream (ME-06a, P7 measurement: fetch margin was 0 m against
+  // a 1000 m reader requirement). buildPlaceLabelsLayer, the other reader,
+  // only ever places a candidate after an on-canvas check on its own
+  // projection, so it needs no margin and does not raise this value.
+  const PLACE_NODE_FETCH_PAD_M = 1000;
   function padBboxMeters(b, meters) {
     const dLat = meters / 111320;
     const midLat = (b.north + b.south) / 2;
@@ -3987,9 +3998,13 @@ self.onmessage = function(event) {
         meta: `${fetched}/${fetchableLayers.length}`,
         detail: layer.label,
       });
-      // Only the buildings layer fetches a padded bbox (see BUILDING_FETCH_PAD_M):
-      // edge faces whose buildings sit just off-frame must still classify urban.
-      const fetchBbox = layer.id === buildingsLayer.id ? padBboxMeters(bbox, BUILDING_FETCH_PAD_M) : bbox;
+      // Buildings and place_nodes are the only padded fetches (see
+      // BUILDING_FETCH_PAD_M / PLACE_NODE_FETCH_PAD_M): edge faces whose
+      // buildings sit just off-frame must still classify urban, and a hamlet
+      // contour right at the frame edge must still find its grounding node.
+      const fetchBbox = layer.id === buildingsLayer.id ? padBboxMeters(bbox, BUILDING_FETCH_PAD_M)
+        : layer.id === placeNodesLayer.id ? padBboxMeters(bbox, PLACE_NODE_FETCH_PAD_M)
+        : bbox;
       const fetchBboxStr = `${fetchBbox.south},${fetchBbox.west},${fetchBbox.north},${fetchBbox.east}`;
       const { elements, failedTiles } = await fetchLayer(layer, fetchBboxStr, fetchBbox);
       totalFailedTiles += failedTiles.length;
@@ -4168,8 +4183,9 @@ self.onmessage = function(event) {
     landcoverLayer, parksLayer, recreationLayer, applyLandcoverOcclusion,
     areaFeaturesLayer, placeNodesLayer, AREA_FEATURES, classifyAreaFeatures, buildAreaResults, buildSeaElements, seaInteriorPoint,
     planLayers, filterResultsForSelection, renderableResults: computeRenderableResults,
-    // Building-fetch padding (cause A) — shared with the headless harness.
-    padBboxMeters, BUILDING_FETCH_PAD_M,
+    // Building-fetch and place_nodes-fetch padding — shared with the headless
+    // harness and tools/prefetch-validation-cache.mjs.
+    padBboxMeters, BUILDING_FETCH_PAD_M, PLACE_NODE_FETCH_PAD_M,
     // Hamlet grounding (pure; exercised by tests/hamlet-grounding.mjs).
     pointToPolygonDistancePx, groundHamletContour, HAMLET_GROUND_SETTLEMENT_M, HAMLET_GROUND_LOCALITY_M,
     // Urban-signal predicate (AF-03c; exercised by tests/area-binding.mjs).

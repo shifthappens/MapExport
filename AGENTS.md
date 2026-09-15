@@ -271,7 +271,11 @@ rule is restated at the top of `CHANGELOG.md` itself.
   `php` CLI; spins up its own `php -S` on localhost, no network beyond that),
   `tests/pin-cache.mjs` (tools/pin-cache.sh: pin validation, atomic pinning,
   and refresh/stash recovery — runs the real script against a throwaway repo
-  with a stub prefetcher, no network).
+  with a stub prefetcher, no network),
+  `tests/fetch-padding-sync.mjs` (the buildings/place_nodes fetch-bbox padding
+  stays in sync between engine-v2.js and tools/prefetch-validation-cache.mjs —
+  drives the real tool against a synthetic one-city file, no network beyond
+  that).
 - Needs ClipperLib (CDN, cached in the OS temp dir like `real-export.mjs`; runs
   offline once warm, else SKIPs): `tests/v2-cutterless-worker.mjs` runs the real
   face worker on an empty frame and asserts a full-frame `fallback` face — the

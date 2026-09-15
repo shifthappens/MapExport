@@ -3,8 +3,8 @@
 //
 // The app sources remain authoritative: this program evaluates script.js and
 // engine-v2.js to obtain the current layer objects, queries, filters, cache-key
-// functions, building padding and endpoint list. The city list is read from
-// tests/real-export.mjs. Raw Overpass envelopes are cached; tag filters are
+// functions, building/place_nodes padding and endpoint list. The city list is
+// read from tests/real-export.mjs. Raw Overpass envelopes are cached; tag filters are
 // used only for the progress counts, just as fetchLayer filters after reading.
 
 import fs from 'node:fs';
@@ -145,6 +145,8 @@ function loadAppContract() {
     buildingsLayer: EngineV2.buildingsLayer,
     padBboxMeters: EngineV2.padBboxMeters,
     buildingFetchPadM: EngineV2.BUILDING_FETCH_PAD_M,
+    placeNodesLayer: EngineV2.placeNodesLayer,
+    placeNodeFetchPadM: EngineV2.PLACE_NODE_FETCH_PAD_M,
     bboxToTiles, bboxToFineTiles, tileCacheKey, endpoints: OVERPASS_ENDPOINTS,
   };`;
   const el = new Proxy(function () {}, {
@@ -199,6 +201,8 @@ function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_A
     for (const layer of contract.fetchable) {
       const fetchBbox = layer.id === contract.buildingsLayer.id
         ? contract.padBboxMeters(bbox, contract.buildingFetchPadM)
+        : layer.id === contract.placeNodesLayer.id
+        ? contract.padBboxMeters(bbox, contract.placeNodeFetchPadM)
         : bbox;
       for (const tile of tilesFor(fetchBbox)) {
         const bboxString = `${tile.s},${tile.w},${tile.n},${tile.e}`;

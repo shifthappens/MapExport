@@ -90,7 +90,12 @@ classification + subtraction + paint order.
      OSM attests a nearby rural settlement via a `place` node — a settlement
      node (`hamlet|isolated_dwelling|farm|village`) within
      `HAMLET_GROUND_SETTLEMENT_M` (1000 m), or the tighter `place=locality`
-     within `HAMLET_GROUND_LOCALITY_M` (300 m). Ungrounded blobs are dropped
+     within `HAMLET_GROUND_LOCALITY_M` (300 m). The `place_nodes` fetch itself
+     is padded past the frame by `PLACE_NODE_FETCH_PAD_M` (1000 m, matching
+     the settlement radius) so a grounding node just outside a frame-edge
+     contour is still fetched (ME-06a; contours are clipped to the frame with
+     no inset, so 0 m of margin let edge hamlets wrongly fail grounding).
+     Ungrounded blobs are dropped
      and fall back to cream, because face-level signals cannot tell true
      countryside from urban forest/harbour/park faces (measured: Nievre's real
      hamlets all ≤928 m from a rural node; Bremerhaven/Oulu's false blobs have

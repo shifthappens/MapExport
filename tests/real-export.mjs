@@ -201,9 +201,13 @@ const results = [];
 const layerCounts = {};
 for (const layer of fetchable) {
   const t0 = Date.now();
-  // v2 pads ONLY the buildings fetch past the frame so clipped edge faces keep
-  // their (off-frame) buildings for classification — mirror doExport here.
-  const fb = (engineV2 && layer.id === X2.buildingsLayer.id) ? X2.padBboxMeters(bbox, X2.BUILDING_FETCH_PAD_M) : bbox;
+  // v2 pads the buildings fetch (clipped edge faces keep off-frame buildings
+  // for classification) and the place_nodes fetch (a hamlet contour at the
+  // frame edge still finds its grounding node) — mirror doExport here.
+  const fb = !engineV2 ? bbox
+    : layer.id === X2.buildingsLayer.id ? X2.padBboxMeters(bbox, X2.BUILDING_FETCH_PAD_M)
+    : layer.id === X2.placeNodesLayer.id ? X2.padBboxMeters(bbox, X2.PLACE_NODE_FETCH_PAD_M)
+    : bbox;
   const fbStr = `${fb.south},${fb.west},${fb.north},${fb.east}`;
   const { elements } = await X.fetchLayer(layer, fbStr, fb);
   const kept = layer.tagFilter ? elements.filter(layer.tagFilter) : elements;

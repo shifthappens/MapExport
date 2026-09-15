@@ -11,6 +11,13 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### Edge hamlets no longer lose their grounding node
+- The place-node fetch (rural hamlet/village/farm/locality nodes) now pads
+  its bbox 1000 m past the frame, the same way the buildings fetch already
+  does. A hamlet contour right at the frame edge could previously fail to
+  find its grounding node just outside the fetched area and wrongly render
+  as ungrounded cream instead of a hamlet.
+
 ### Road classes follow their draw order exactly
 - The first road class in the configured draw order was sorted as unknown
   because of an index-zero fallback bug; it now sorts first.
