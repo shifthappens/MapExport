@@ -109,9 +109,24 @@ cmd_pin() {
     # a pin afterwards. The "." prefix keeps the temp file out of the key
     # namespace, exactly as cache.php's own temp files do, and the pid keeps two
     # runs from writing the same staging file and renaming each other's half.
+    # Both cp's and mv's exit status are checked explicitly, not left to
+    # `set -e`: a caller that invokes cmd_pin as part of an && / || list
+    # (cmd_refresh does, to capture its status without aborting) suspends
+    # errexit for this whole function per bash's own rule, so a failed cp OR
+    # mv must not be allowed to silently count as success (independent review
+    # finding, 2026-09-16: the first pass only checked cp, leaving a failed
+    # rename free to still increment `copied` and report success).
     tmp="$PINNED_DIR/.$key.$$.tmp"
-    cp "$live" "$tmp"
-    mv -f "$tmp" "$PINNED_DIR/$key.json.gz"
+    if ! cp "$live" "$tmp"; then
+      rm -f "$tmp"
+      skipped=$((skipped + 1)); echo "ERROR copy to pinned/ failed, existing pin left untouched: $key" >&2
+      continue
+    fi
+    if ! mv -f "$tmp" "$PINNED_DIR/$key.json.gz"; then
+      rm -f "$tmp"
+      skipped=$((skipped + 1)); echo "ERROR rename into pinned/ failed, existing pin left untouched: $key" >&2
+      continue
+    fi
     copied=$((copied + 1))
   done < <(keys)
   echo "pinned $copied fresh, kept $kept existing, skipped $skipped"
@@ -147,7 +162,7 @@ restore_stash() {
 # puts the cache back as it found it. The trap covers Ctrl-C too — a leftover
 # .disabled would silently un-pin the whole validation corpus.
 cmd_refresh() {
-  local key
+  local key prefetch_status=0 pin_status=0 cleanup_done=0 fetch_started=0
   mkdir -p "$PINNED_DIR"
   # A stash left behind by a run that was killed outright (SIGKILL, power cut)
   # holds the only copy of those entries. Put it back before parking anything
@@ -157,19 +172,81 @@ cmd_refresh() {
     restore_stash
   fi
   mkdir -p "$STASH"
-  trap 'restore_stash; rm -f "$DISABLED"' EXIT INT TERM
+  # One idempotent cleanup, covering the whole function (not just the fetch),
+  # so a leftover .disabled marker can never survive an interrupted run — the
+  # original reason this trap exists at all. It guards cmd_pin behind
+  # $fetch_started, though: a signal caught before the fetch actually starts
+  # (still setting up, or partway through parking live entries into $STASH)
+  # must only restore_stash and clear .disabled, not pin anything. Calling
+  # cmd_pin at that point would re-pin whatever is already live — including
+  # entries this run hasn't even parked yet, exactly the
+  # stale-live-overwrites-pin bug this function exists to prevent (independent
+  # review finding, 2026-09-16: an earlier version installed this trap with no
+  # such guard, so any signal during setup silently turned the rest of the run
+  # into a no-op).
+  #
+  # INT/TERM are bound separately from EXIT, and each explicitly `exit`s right
+  # after cleanup (independent review finding, round 4, 2026-09-16): a bash
+  # trap that only runs a handler and returns does not itself terminate the
+  # script — once the handler returns, bash resumes executing right after
+  # wherever the signal landed. A signal caught while a foreground child (the
+  # fetch) is running looked fine even without an explicit exit, because a
+  # real Ctrl-C reaches the whole foreground process group and kills the
+  # child directly — the interrupted `node ...` line then simply exits on its
+  # own, and the script's normal flow happens to pick up correctly from
+  # there. But a signal caught anywhere else in this function (e.g. mid-way
+  # through the parking loop, or in the gap between parking and the fetch
+  # starting) would, without the explicit exit, clean up once and then keep
+  # running the rest of cmd_refresh as if nothing had happened — re-creating
+  # $DISABLED, parking again, and starting a fetch that was supposed to have
+  # been cancelled. The explicit `exit` makes every caught signal actually
+  # terminate the run, not just the ones that happen to kill the fetch.
+  do_cleanup() {
+    # Mask INT/TERM as the very first thing this function does, before even
+    # the latch check (independent review, round 6, 2026-09-16 — a round-5 fix
+    # that set the mask right after `cleanup_done=1` left a one-line window
+    # between the latch and the mask: a signal landing in exactly that gap
+    # still hit an active INT/TERM trap, reentered this now-latched function,
+    # returned immediately, and let the trap's `exit` abandon cleanup partway,
+    # the same failure round 5 already fixed for the rest of cleanup's body).
+    # Masking first closes the window completely — every entry to do_cleanup,
+    # including a reentrant one, masks before anything else can happen.
+    # Ignoring INT/TERM means a signal here is simply dropped, not deferred;
+    # `trap - EXIT INT TERM` right after the normal-path call below restores
+    # default handling once cleanup has actually finished.
+    trap '' INT TERM
+    [ "$cleanup_done" -eq 1 ] && return 0
+    cleanup_done=1
+    if [ "$fetch_started" -eq 1 ]; then
+      echo "pinning what this run fetched"
+      cmd_pin || pin_status=$?
+    fi
+    restore_stash
+    rm -f "$DISABLED"
+  }
+  trap do_cleanup EXIT
+  trap 'do_cleanup; exit 130' INT
+  trap 'do_cleanup; exit 143' TERM
   : > "$DISABLED"
   while read -r key; do
     if [ -f "cache/$key.json.gz" ]; then mv "cache/$key.json.gz" "$STASH/$key.json.gz"; fi
   done < <(keys)
   echo "pinned serving disabled, live entries parked in $STASH"
   echo "fetching all keys from Overpass (this is slow)"
-  node tools/prefetch-validation-cache.mjs ${KEY_ARGS[@]+"${KEY_ARGS[@]}"} "$@"
-  restore_stash
-  rm -f "$DISABLED"
+  fetch_started=1
+  # `|| prefetch_status=$?` keeps set -e from aborting the function here: a
+  # deadline hit or interrupt exits the prefetcher non-zero even though it
+  # left real, valid entries live in cache/ — those must still get pinned
+  # below, or a run that ran out of time silently loses its progress (found
+  # 2026-09-15, fixed by hand with a manual `pin` afterwards both times).
+  node tools/prefetch-validation-cache.mjs ${KEY_ARGS[@]+"${KEY_ARGS[@]}"} "$@" || prefetch_status=$?
+  do_cleanup
   trap - EXIT INT TERM
-  echo "pinned serving re-enabled; pinning the refreshed entries"
-  cmd_pin
+  echo "pinned serving re-enabled"
+  if [ "$prefetch_status" -ne 0 ]; then
+    echo "refresh did not finish (prefetcher exited $prefetch_status) — pinned whatever was fetched; rerun refresh to fill the rest" >&2
+  fi
+  [ "$prefetch_status" -eq 0 ] && [ "$pin_status" -eq 0 ]
 }
 
 command="${1:-}"

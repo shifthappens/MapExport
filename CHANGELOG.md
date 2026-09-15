@@ -11,6 +11,17 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-16 — Pinned-cache refresh survives interruption
+- `tools/pin-cache.sh refresh` used to lose everything a run had already
+  fetched if it hit its deadline or was interrupted (Ctrl-C): `set -e` made
+  the pinning step never run, silently leaving fresh data live but unpinned.
+  It now always pins what it fetched, even on failure, and a stray signal
+  during cleanup itself can no longer abort cleanup partway and leave pinned
+  serving disabled.
+- The validation cache prefetcher now also warms v1's own on-demand building
+  fetch, which uses its own distinct cache key; a plain v1 export of a city
+  with countryside used to always pay for one uncached live Overpass call.
+
 ### 2026-09-15 — Reliable offline regression checks
 - The smoke suite runs offline, including geometry checks and five fixed map
   scenarios, and reports failures instead of silently skipping checks.

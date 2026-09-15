@@ -8,9 +8,13 @@
 // transit_stops/water_labels/street_labels are shared LAYER_REGISTRY objects
 // with v2, so their keys are already covered) plus v1's water_bodies/
 // waterways/parks/landcover, which v2 folds into one combined area_features
-// query and so are NOT otherwise reachable from v2's list. The city list is
-// read from tests/real-export.mjs. Raw Overpass envelopes are cached; tag filters are
-// used only for the progress counts, just as fetchLayer filters after reading.
+// query and so are NOT otherwise reachable from v2's list, plus v1's own
+// on-demand block_buildings fetch (raw bbox, 'tags bb' output — see
+// loadAppContract below), which shares its id with v2's padded/full-geometry
+// buildingsLayer but is a different object with a different cache key. The
+// city list is read from tests/real-export.mjs. Raw Overpass envelopes are
+// cached; tag filters are used only for the progress counts, just as
+// fetchLayer filters after reading.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -149,6 +153,7 @@ function loadAppContract() {
     layers: EngineV2.layers,
     registryLayers: LAYER_REGISTRY.flatMap(g => g.layers),
     buildingsLayer: EngineV2.buildingsLayer,
+    blockBuildingsLayer: BLOCK_BUILDINGS_LAYER,
     padBboxMeters: EngineV2.padBboxMeters,
     buildingFetchPadM: EngineV2.BUILDING_FETCH_PAD_M,
     placeNodesLayer: EngineV2.placeNodesLayer,
@@ -206,7 +211,18 @@ function loadAppContract() {
   if (contract.endpoints.length !== 3) {
     throw new Error(`Expected the app's 3 Overpass endpoints, found ${contract.endpoints.length}`);
   }
-  return { ...contract, fetchable: [...fetchable, ...v1Only] };
+  // v1's own block_buildings fetch (script.js: computeBlocksAsync's
+  // needsBuildings path, ~line 4607) is not a LAYER_REGISTRY entry — no
+  // checkbox, fetched on demand — so registryLayers above never sees it.
+  // It shares its id with v2's buildingsLayer above but is a distinct
+  // object: raw unpadded bbox vs v2's BUILDING_FETCH_PAD_M-padded one, and
+  // 'tags bb' vs 'body geom' output, so layerQHash and the cache key both
+  // differ. makePlan below must key its padding decision off object
+  // identity, not id, or this entry would wrongly inherit v2's padding.
+  if (typeof contract.blockBuildingsLayer?.overpassQuery !== 'function') {
+    throw new Error('Expected script.js to expose BLOCK_BUILDINGS_LAYER as blockBuildingsLayer');
+  }
+  return { ...contract, fetchable: [...fetchable, ...v1Only, contract.blockBuildingsLayer] };
 }
 
 function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_ATTEMPT_TIMEOUT_S) {
@@ -216,9 +232,13 @@ function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_A
     const [south, west, north, east] = bboxText.split(',').map(Number);
     const bbox = { south, west, north, east };
     for (const layer of contract.fetchable) {
-      const fetchBbox = layer.id === contract.buildingsLayer.id
+      // Identity, not id: v1's raw blockBuildingsLayer shares its id with
+      // v2's padded buildingsLayer (same 'block_buildings' string) but must
+      // not inherit its padding — see loadAppContract's blockBuildingsLayer
+      // comment.
+      const fetchBbox = layer === contract.buildingsLayer
         ? contract.padBboxMeters(bbox, contract.buildingFetchPadM)
-        : layer.id === contract.placeNodesLayer.id
+        : layer === contract.placeNodesLayer
         ? contract.padBboxMeters(bbox, contract.placeNodeFetchPadM)
         : bbox;
       for (const tile of tilesFor(fetchBbox)) {

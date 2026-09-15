@@ -76,5 +76,20 @@ check('place_nodes key bbox matches padBboxMeters(bbox, PLACE_NODE_FETCH_PAD_M)'
 check('roads key bbox is the raw (unpadded) bbox',
   roadsKey && roadsKey.includes(`_a_${fmt5(bbox.south)}_${fmt5(bbox.west)}_${fmt5(bbox.north)}_${fmt5(bbox.east)}`));
 
+// v1's own on-demand block_buildings fetch (script.js's BLOCK_BUILDINGS_LAYER,
+// not a LAYER_REGISTRY entry) shares its id with v2's buildingsLayer above —
+// only overpassOut ('tags bb' vs 'body geom') and the bbox padding differ —
+// so this checks the two are never the same cache key, not just that each
+// individually looks right (independent review finding, 2026-09-16: the
+// single `.find()` above only proves *a* buildings key exists with the right
+// shape, not that v1's distinct, unpadded variant is emitted at all).
+const blockBuildingsKeys = keys.filter(k => k.startsWith(`mapexport_v3_${X2.buildingsLayer.id}_`));
+check('prefetch tool emits exactly two distinct block_buildings keys (v1 raw + v2 padded)',
+  blockBuildingsKeys.length === 2 && blockBuildingsKeys[0] !== blockBuildingsKeys[1],
+  blockBuildingsKeys.join(' | '));
+check('one of them is v1\'s raw, unpadded bbox variant',
+  blockBuildingsKeys.some(k => k.includes(`_a_${fmt5(bbox.south)}_${fmt5(bbox.west)}_${fmt5(bbox.north)}_${fmt5(bbox.east)}`)),
+  blockBuildingsKeys.join(' | '));
+
 console.log(failures ? `FAIL — ${failures} check(s) failed` : 'PASS — fetch-padding-sync: engine-v2.js and tools/prefetch-validation-cache.mjs agree on padded layers/amounts');
 process.exit(failures ? 1 : 0);
