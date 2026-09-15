@@ -1,7 +1,8 @@
 # Roadmap: maintenance sprints
 
-**Status: IN PROGRESS (2026-09-13) — Sprint 1 en 2 COMPLETE, de cartografische
-tussen-sprint COMPLETE, Sprint 3 gestart met ME-06b.** Geprioriteerde technische
+**Status: IN PROGRESS (2026-09-15) — Sprint 1 en 2 COMPLETE, de cartografische
+tussen-sprint COMPLETE, Sprint 3: ME-06a–d COMPLETE, ME-07 in uitvoering.**
+Geprioriteerde technische
 maintenance-roadmap op basis van een volledige review van de huidige codebase,
 documentatie, tests en bestaande plannen. Dit plan voegt geen features toe:
 het maakt bestaand gedrag betrouwbaarder, beter testbaar en eenvoudiger te
@@ -615,7 +616,7 @@ waarom en of een retry veilig is.
 
 ## Sprint 3 — Correctheid aantoonbaar maken
 
-**Status:** PLANNED
+**Status:** IN PROGRESS (2026-09-15) — ME-06a–d COMPLETE, ME-07 in uitvoering.
 
 **Sprint Goal:** bekende kleine dataverlies- en ordeningsfouten zijn opgelost,
 en representatieve offline tests bewijzen de belangrijkste v1- en
@@ -635,7 +636,7 @@ live Overpass als primaire testlus en v2-cutover.
 **Eindpoort:** ME-06a–d en ME-07 zijn afgevinkt; één commando draait alle
 offline tests; minimaal vijf scenariofixtures bewijzen de benoemde invarianten.
 
-### [ ] ME-06 — Datadekking en kleine pipeline-correctheid repareren
+### [x] ME-06 — Datadekking en kleine pipeline-correctheid repareren
 
 **Complexiteit:** middel
 
@@ -652,29 +653,40 @@ bbox/redraw-validatie bij de kaartselectie.
 
 #### Subtaken in deze volgorde
 
-- [ ] **ME-06a — v2 place-node padding.** De query haalt place nodes met 1000 m padding
+- [x] **ME-06a — v2 place-node padding.** De query haalt place nodes met 1000 m padding
    op. Controleer dit tegen de labelplaatsing en tilegrenzen en maak de marge
-   consistent met de feitelijke export-/collisionbehoefte.
-- [ ] **ME-06b — Road sort fallback.** Vervang het patroon `indexOf(...) || 50`; index `0`
+   consistent met de feitelijke export-/collisionbehoefte. *Uitgevoerd in
+   `b817298` (2026-09-15): `PLACE_NODE_FETCH_PAD_M` (1000 m) synchroon over
+   `engine-v2.js`, `tests/real-export.mjs` en
+   `tools/prefetch-validation-cache.mjs`, gedekt door
+   `tests/fetch-padding-sync.mjs`; onafhankelijk geverifieerd door Codex
+   (gpt-5.6-sol, read-only).*
+- [x] **ME-06b — Road sort fallback.** Vervang het patroon `indexOf(...) || 50`; index `0`
    wordt nu ten onrechte als fallback behandeld. Gebruik een expliciete
-   `-1`-controle.
+   `-1`-controle. *Uitgevoerd in `41a4eb6` (2026-09-15): `roadTypeRank()`
+   controleert expliciet op `-1`, gedekt door `tests/road-order.mjs`.*
 - [x] **ME-06c — Unieke feature-id's.** Voorkom dubbele SVG-id's bij herhaalde of
    samengevoegde OSM-features; maak generatie deterministisch. *Vervuld door
    AF-01 in de cartografische tussen-sprint (2026-07-17): documentbrede
    allocator + `tests/svg-id-uniqueness.mjs`.* Uitgevoerd als AF-01 in
    `plans/2026-07-17_cartographic-audit-followup.md`; acceptatie (incl.
    onafhankelijke review) gehaald op 2026-07-17.
-- [ ] **ME-06d — Te kleine redraw.** Wis of herbereken de oude bbox/status wanneer een
+- [x] **ME-06d — Te kleine redraw.** Wis of herbereken de oude bbox/status wanneer een
    nieuwe selectie te klein is, zodat de UI niet verdergaat met verouderde
-   grenzen.
+   grenzen. *Uitgevoerd in `52f7302` (2026-09-15): `clearRejectedSelection()`
+   wist bbox/exportState/previewState bij een afgewezen te kleine selectie,
+   gedekt door `tests/preview-state.mjs`.*
 
 #### Acceptatiecriteria
 
-- Rand-place-nodes verdwijnen niet door een willekeurige querymarge.
-- Roadgroepen volgen aantoonbaar `ROAD_DRAW_ORDER`, inclusief het eerste item.
-- Alle uitgegeven SVG-id's zijn uniek en stabiel voor dezelfde input.
-- Een afgewezen kleine selectie kan geen eerdere bbox exporteren.
-- Voor iedere subtaak bestaat een kleine regressietest.
+- Rand-place-nodes verdwijnen niet door een willekeurige querymarge. ✓
+- Roadgroepen volgen aantoonbaar `ROAD_DRAW_ORDER`, inclusief het eerste item. ✓
+- Alle uitgegeven SVG-id's zijn uniek en stabiel voor dezelfde input. ✓
+- Een afgewezen kleine selectie kan geen eerdere bbox exporteren. ✓
+- Voor iedere subtaak bestaat een kleine regressietest. ✓
+
+**Status:** COMPLETE (2026-09-15) — alle vier subtaken en acceptatiecriteria
+gehaald; zie commits hierboven.
 
 ### [ ] ME-07 — Regressiedekking rond foutpaden en representatieve steden
 

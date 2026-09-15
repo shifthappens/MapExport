@@ -111,7 +111,7 @@ Dit beleid begrenst zowel modelgebruik als Overpass-/exportverkeer:
 | Golf/allotments/dog park/sports centre/wetland | FIXED | AF-03b (2026-07-17); wetland → veldtint via grass-route, recreation → eigen `parks_recreation`-laag onder "Parks & green"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
 | Residential/institutional/parking/rail/industrial fallback | FIXED | AF-03c (2026-07-17); institutional/education/religious → urban-signaal (drempels ongewijzigd, industrial blijft uitgesloten), fallback-families "Working land"/"Railway grounds"/"Paved areas"; `tests/area-binding.mjs` uitgebreid; bevestigd 2026-08-07-sweep |
 | Echte Uncategorized/OSM-holes Nièvre | SOURCE_DATA | Niet automatisch invullen; AF-08 controleert alleen stabiliteit |
-| Zichtbare place-labels ontbreken in Nièvre | OPEN | AF-04 offline af (`tests/place-labels.mjs` groen), maar geen enkele echte export bevat de laag: `doExportV2` (`engine-v2.js` 4005) en `tests/real-export.mjs` (313) filteren `place_nodes` als fetch-only weg vóór `buildSVG`, dat het op 3659 juist uit `results` leest. Gevonden 2026-09-13 bij P4-prep; Coens sign-off van die dag gold dus een plaat zonder plaatsnamen en is ingetrokken. Fix = unit P10 in `plans/2026-09-13_af08-eindpoort-en-sprint3-start.md` |
+| Zichtbare place-labels ontbreken in Nièvre | OPEN — plumbing fixed, wacht op menselijke crop | AF-04 offline af (`tests/place-labels.mjs` groen). Gevonden 2026-09-13 bij P4-prep dat `tests/real-export.mjs` `place_nodes` als fetch-only wegfilterde vóór `buildSVG`; onafhankelijke review (Codex) wees uit dat `doExportV2` zelf al een handmatige re-add had sinds AF-04, dus alleen de testtrail miste de laag. Fix = unit P10, gedaan in `73984cc` (2026-09-15): gedeelde `renderableResults()` helper. Bewijs: `exports/map-useit-nievre-v2-2026-09-15.svg` (gemaakt tijdens de `b817298`-sweep) bevat nu een gevulde `id="place_labels"`-groep met 8 leesbare namen incl. Franvache en Villars — de gate hieronder ("cached Nièvre-export") is dus qua data gehaald; de menselijke crop-beoordeling staat nog open |
 | Overdominante rail yards/roundhouse | FIXED | AF-05a/b (2026-07-18): tweeklassenregel op `service=*`, `tests/rail-service.mjs`; bevestigd 2026-08-07-sweep |
 | Metro member/service-duplicatie | FIXED | AF-05c (2026-07-19): `service=*` weg; eenduidige ref-loze naamfragmenten voegen bij bestaande lijngroep; cached Paris-gate nog gebundeld met AF-05b |
 | Ondergrondse metro als zichtbare overlay | FIXED | AF-05d (2026-07-23): Coen koos "zichtbaar maar subtieler"; geen casing, gestreepte lijn, lagere opacity, lijnkleur behouden; `tests/metro-tunnel.mjs` |
@@ -353,6 +353,15 @@ oversuppresseren wanneer twee échte gehuchten dezelfde naam dragen;
 (3) stijl-/afstandsconstanten zijn bewust provisorisch. De cached
 Nièvre-export + menselijke crop schuift net als bij AF-02/AF-03 door naar
 AF-08/netwerksessie; AF-04 blijft open tot die gate.*
+
+*Update 2026-09-15: de plumbingbug die de laag uit echte exports hield is
+gedicht (unit P10, `73984cc`). `exports/map-useit-nievre-v2-2026-09-15.svg`
+(uit de `b817298`-sweep) bevat een gevulde `place_labels`-groep met 8 namen:
+Achez, Franvache, La Neuvelle, Les Beaunés, Les Genêts, Montgaudon,
+Vénitien-le-Bas, Villars — inclusief de twee namen die de acceptatiecriteria
+noemen. De cached-exportkant van de gate is dus gehaald; alleen Coens
+menselijke crop-beoordeling (leesbaarheid, botsingen, representativiteit)
+resteert om AF-04 te sluiten.*
 
 ### [ ] AF-05 — Rail- en metro-overbelasting reduceren
 

@@ -300,7 +300,17 @@ Zonder zijn "ja" blijft alles in de werkboom.
 **Acceptatie:** alle punten van de eindpoort in de audit-roadmap afgevinkt;
 geen deploy, push of cutover gedaan.
 
-### [ ] P10 — AF-04 alsnog laten renderen: place nodes moeten `buildSVG` bereiken (E1, scoped-implementer)
+### [x] P10 — AF-04 alsnog laten renderen: place nodes moeten `buildSVG` bereiken (E1, scoped-implementer)
+
+*Uitgevoerd in `73984cc` (2026-09-15): gedeelde `renderableResults()`/
+`computeRenderableResults()` helper in `engine-v2.js`, gebruikt door zowel
+`doExportV2` als `tests/real-export.mjs`. Onafhankelijke review (Codex,
+gpt-5.6-sol, twee rondes) corrigeerde de aanname hieronder: `doExportV2` had
+al een handmatige re-add van `place_nodes` sinds AF-04 (`72ca037`), dus echte
+app-exports toonden al plaatsnamen — alleen `tests/real-export.mjs` miste die
+uitzondering, dus alleen de testtrail (het AF-08-auditbewijs) liet ze niet
+zien. Changelog/docs zijn met die correctie geland, niet met de oorspronkelijke
+"nooit een plaatsnaam getoond"-claim hieronder.*
 
 Gaat vóór P6. Dit is een echte, gebruikerszichtbare fout met een vastgesteld
 ontwerp, gevonden op 2026-09-13.
@@ -352,11 +362,15 @@ schuift naar de volgende sweep en wordt zo genoteerd in `plans/ACTIVE.md`.
 **Do not change:** `buildPlaceLabelsLayer`, de tiers/afstanden van AF-04,
 `fetchOnlyIds` zelf, `script.js`.
 
-### [ ] P6 — ME-06b: road sort fallback (E1, scoped-implementer)
+### [x] P6 — ME-06b: road sort fallback (E1, scoped-implementer)
 
 *2026-09-13: een P6-sessie is gedraaid maar heeft geen wijziging in de
 werkboom achtergelaten (geen `tests/road-order.mjs`, regel 1612 ongewijzigd).
 Opnieuw draaien.*
+
+*Uitgevoerd in `41a4eb6` (2026-09-15): `roadTypeRank()` helper controleert
+expliciet op `-1`; `tests/road-order.mjs` toegevoegd en opgenomen in
+`tests/smoke.sh`.*
 
 Dit is de tweede Sprint 3-unit omdat hij volledig bepaald is, geen ontwerp
 vraagt en een bestaande, bekende bug repareert. ME-06a vraagt eerst een
@@ -406,11 +420,18 @@ Let op `ENGINE-V2.md` §9: `script.js` wordt niet gewijzigd voor v2-features.
 Dit is een v1-bugfix die v2 meeneemt, dus toegestaan; zeg dat in de
 changelog-entry niet anders.
 
-### [ ] P7 — ME-06a: place-node padding (O meet, dan E1)
+### [x] P7 — ME-06a: place-node padding (O meet, dan E1)
 
 *2026-09-13: een P7-sessie is gedraaid maar heeft geen meting of wijziging
 achtergelaten. Opnieuw draaien; de meting hoort in het antwoord én in
 `plans/ACTIVE.md`.*
+
+*Uitgevoerd in `b817298` (2026-09-15): `PLACE_NODE_FETCH_PAD_M` (1000 m,
+gelijk aan `HAMLET_GROUND_SETTLEMENT_M`) padt de `place_nodes`-fetch zelf,
+synchroon over `engine-v2.js`, `tests/real-export.mjs` en
+`tools/prefetch-validation-cache.mjs`; gedekt door `tests/fetch-padding-sync.mjs`. Beide Overpass-corpora zijn
+door Coen ververst en opnieuw gepind in dezelfde commit; `tools/pin-cache.sh
+status` toont 80/80 gepind, 0 unpinned.*
 
 **Objective:** de marge waarmee `placeNodesLayer` (`engine-v2.js` regel 156)
 place nodes buiten het kader ophaalt, klopt aantoonbaar met wat de
