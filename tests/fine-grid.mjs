@@ -62,6 +62,12 @@ check('a selection inside one fine cell gets that aligned tile',
 const straddle = fg.bboxToFineTiles(centre);
 check('a selection across fine grid lines gets every covering tile', straddle.length === 4, `${straddle.length}`);
 const keys = straddle.map(t => fg.tileCacheKey(layer, t));
+const sameQueryDifferentJs = {
+  id: 'roads',
+  overpassQuery: function (bbox) { return 'way["highway"](' + bbox + ');'; }
+};
+check('cache key follows generated query, not JavaScript formatting',
+  fg.tileCacheKey(layer, straddle[0]) === fg.tileCacheKey(sameQueryDifferentJs, straddle[0]));
 check('fine keys carry the _f_ marker with three decimals',
   keys.every(k => /_f_\d+\.\d{3}_\d+\.\d{3}$/.test(k)) && keys.includes(`mapexport_v3_roads_${keys[0].split('_')[3]}_f_52.375_4.900`),
   keys.join(' '));

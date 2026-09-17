@@ -771,11 +771,12 @@ async function fetchBoundaries(placeName) {
 const TILE_SIZE = 0.1; // degrees per tile (~8×11 km at mid-latitudes)
 const CACHE_PREFIX = 'mapexport_v3_';
 
-// §3.1: short stable hash of a layer's overpassQuery source. Any tweak to
-// the query template (added highway type, tightened regex, etc.) changes
-// the hash, which changes the cache key, which retires stale cache entries
-// silently. FNV-1a 32-bit → base36 (~6 chars). Not cryptographic — just
-// cache-busting.
+// §3.1: short stable hash of a layer's generated Overpass query. Any tweak to
+// the query template (added highway type, tightened regex, etc.) changes the
+// hash, which changes the cache key, which retires stale cache entries
+// silently. Hashing generated query text, rather than Function#toString(),
+// keeps source and minified production builds on the same cache entry.
+// FNV-1a 32-bit → base36 (~6 chars). Not cryptographic — just cache-busting.
 function fnv1a36(s) {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
@@ -789,7 +790,11 @@ function layerQHash(layer) {
   // overpassOut is part of the hash: the same query at a different output
   // verbosity (e.g. block_buildings' bounds-only 'tags bb') returns
   // differently-shaped elements, so it must not share a cache entry.
-  return (layer._qHash = fnv1a36(layer.overpassQuery.toString() + (layer.overpassOut || '')));
+  // This fixed, valid bbox is only a query-template placeholder. It means the
+  // hash is independent of the selected tile and of how a JavaScript minifier
+  // rewrites the function that generates the query.
+  const hashBbox = '12.34567,23.45678,34.56789,45.67891';
+  return (layer._qHash = fnv1a36(`${layer.overpassQuery(hashBbox)}\n${layer.overpassOut || ''}`));
 }
 
 function bboxToTiles(bbox) {

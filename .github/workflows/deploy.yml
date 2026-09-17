@@ -17,6 +17,12 @@ jobs:
       - name: Build minified assets
         run: bash tools/minify.sh
 
+      # Cache keys are a shared contract with cache.php and the pre-warmed
+      # pinned data. Do not let a minifier-only spelling change make production
+      # miss local cache entries and fall back to public Overpass.
+      - name: Verify minified cache keys
+        run: node tests/minified-cache-keys.mjs
+
       - name: Prepare production fonts
         run: |
           mkdir -p fonts

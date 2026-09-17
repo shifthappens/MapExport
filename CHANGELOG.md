@@ -11,6 +11,14 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-17 — Workshop cache works after production minification
+- Cache keys now follow the generated Overpass query instead of the JavaScript
+  function text. Production can therefore reuse the same pre-warmed tiles as
+  local development instead of falling back to a live Overpass request.
+- The deploy workflow now compares every source and minified cache-layer key
+  before publishing, so a future build-tool change cannot silently reintroduce
+  that mismatch.
+
 ### 2026-09-17 — Cached tiles visible on the map
 - Add `?showcached=1` to show cached tile footprints as faint grey rectangles
   over the map, including fine-grid, exact-area and pinned cache entries.
