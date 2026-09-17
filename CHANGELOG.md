@@ -11,6 +11,10 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-17 — Cached tiles visible on the map
+- Add `?showcached=1` to show cached tile footprints as faint grey rectangles
+  over the map, including fine-grid, exact-area and pinned cache entries.
+
 ### 2026-09-16 — Pinned-cache refresh survives interruption
 - `tools/pin-cache.sh refresh` used to lose everything a run had already
   fetched if it hit its deadline or was interrupted (Ctrl-C): `set -e` made

@@ -201,6 +201,43 @@ const docJson = JSON.stringify(doc);
   fs.unlinkSync(path.join(pinnedDir, 't_pin.json'));
 }
 
+// ---- Read-only footprint inventory for ?showcached=1 ----
+{
+  const inventory = await startServer();
+  const live = inventory.cacheDir;
+  const pinned = path.join(live, 'pinned');
+  fs.mkdirSync(pinned, { recursive: true });
+  const write = (dir, key) => fs.writeFileSync(path.join(dir, `${key}.json.gz`), zlib.gzipSync(docJson));
+  write(live, 'mapexport_v3_roads_hash_51.5_5.0');
+  write(live, 'mapexport_v3_parks_hash_51.5_5.0'); // same footprint, another layer
+  write(live, 'mapexport_v3_roads_hash_f_51.525_5.025');
+  write(live, 'mapexport_v3_roads_hash_a_51.55_5.05_51.56_5.07');
+  write(live, 'mapexport_v3_roads_hash_49.0_4.0');
+  write(pinned, 'mapexport_v3_roads_hash_51.5_5.0'); // duplicate live/pinned
+  write(pinned, 'mapexport_v3_roads_hash_52.0_6.0');
+  write(live, 'mapexport_v3_invalid');
+  const expired = path.join(live, 'mapexport_v3_roads_hash_49.0_4.0.json.gz');
+  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(expired, past, past);
+
+  const readTiles = async () => {
+    const r = await fetch(`${inventory.base}?tiles=1`);
+    return { r, tiles: await r.json() };
+  };
+  let { r, tiles } = await readTiles();
+  const contains = bounds => tiles.some(tile => JSON.stringify(tile) === JSON.stringify(bounds));
+  check('tile inventory includes current coarse, fine, adaptive and pinned footprints once',
+    tiles.length === 4 && contains([51.5, 5, 51.6, 5.1])
+      && contains([51.525, 5.025, 51.55, 5.05])
+      && contains([51.55, 5.05, 51.56, 5.07])
+      && contains([52, 6, 52.1, 6.1]), JSON.stringify(tiles));
+  check('tile inventory is not browser-cached', r.headers.get('cache-control') === 'no-store');
+  fs.writeFileSync(path.join(pinned, '.disabled'), '');
+  ({ tiles } = await readTiles());
+  check('disabled pins disappear from tile inventory',
+    tiles.length === 3 && !contains([52, 6, 52.1, 6.1]), JSON.stringify(tiles));
+}
+
 // ---- ME-04a: rejects before storage ----
 {
   let r = await post('r_key/../evil', docJson);

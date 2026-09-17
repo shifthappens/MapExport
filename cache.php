@@ -114,6 +114,42 @@ function looksLikeOverpassJson($prefix, $tail) {
         && substr(rtrim($tail), -1) === '}';
 }
 
+// Read-only map overlay inventory. Return each distinct tile footprint once,
+// even when several layers or both the live and pinned cache hold it.
+function tileBoundsFromKey($key) {
+    $number = '(-?\d+(?:\.\d+)?)';
+    if (preg_match('/^mapexport_v3_[a-z0-9_]+_[a-z0-9]+_a_' . $number . '_' . $number . '_' . $number . '_' . $number . '$/i', $key, $m)) {
+        $bounds = [(float)$m[1], (float)$m[2], (float)$m[3], (float)$m[4]];
+    } elseif (preg_match('/^mapexport_v3_[a-z0-9_]+_[a-z0-9]+_f_' . $number . '_' . $number . '$/i', $key, $m)) {
+        $bounds = [(float)$m[1], (float)$m[2], round((float)$m[1] + 0.025, 3), round((float)$m[2] + 0.025, 3)];
+    } elseif (preg_match('/^mapexport_v3_[a-z0-9_]+_[a-z0-9]+_' . $number . '_' . $number . '$/i', $key, $m)) {
+        $bounds = [(float)$m[1], (float)$m[2], round((float)$m[1] + 0.1, 1), round((float)$m[2] + 0.1, 1)];
+    } else {
+        return null;
+    }
+    [$s, $w, $n, $e] = $bounds;
+    return $s >= -90 && $n <= 90 && $w >= -180 && $e <= 180 && $n > $s && $e > $w ? $bounds : null;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['tiles'])) {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    $tiles = [];
+    $sources = [[$CACHE_DIR, true]];
+    if (!$PINNED_OFF) $sources[] = [$PINNED_DIR, false];
+    foreach ($sources as [$dir, $expires]) {
+        foreach (glob($dir . 'mapexport_v3_*.json*') ?: [] as $path) {
+            if (!is_file($path) || !preg_match('/\.json(?:\.gz)?$/', $path)) continue;
+            if ($expires && time() - filemtime($path) > $CACHE_TTL) continue;
+            $key = preg_replace('/\.json(?:\.gz)?$/', '', basename($path));
+            $bounds = tileBoundsFromKey($key);
+            if ($bounds !== null) $tiles[implode(',', $bounds)] = $bounds;
+        }
+    }
+    echo json_encode(array_values($tiles));
+    exit;
+}
+
 // §2.2: batch existence check. Takes ?exists=k1,k2,… (max 64 keys),
 // returns {k1:true|false, …}. Lets the client skip per-key round-trips
 // during the pre-fetch cache probe. Data retrieval still uses single-key

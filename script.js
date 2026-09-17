@@ -492,6 +492,10 @@ let previewRequestSequence=0;
 let previewDebounce=null;
 let exportInProgress=false;
 let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
+let cachedTileLayerGroup=null; // optional, read-only cache footprint overlay
+let cachedTileBounds=[];
+let cachedTileRefreshTimer=null;
+let cachedTileRequestId=0;
 const endpointBackoff={};      // { endpoint -> { until: timestamp, delay: ms } }
 let adaptiveTileDelay=350;     // ms between tile fetches; increases when 429s occur
 let activeExportAbort=null;    // AbortController for the running export (ME-05); set by runExportLifecycle
@@ -512,10 +516,54 @@ function initMap() {
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom:19, crossOrigin:true
   }).addTo(map);
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('showcached') === '1') {
+    cachedTileLayerGroup = L.layerGroup().addTo(map);
+    map.on('moveend', renderCachedTileOverlays);
+    void refreshCachedTileOverlays();
+  }
   failedTileLayerGroup = L.layerGroup().addTo(map);
   // Keep Leaflet's cached container size in sync with the real element size —
   // fires on initial layout settle, window resize, and header height changes.
   new ResizeObserver(() => map.invalidateSize()).observe(mapEl);
+}
+
+function renderCachedTileOverlays() {
+  if (!cachedTileLayerGroup) return;
+  cachedTileLayerGroup.clearLayers();
+  const view = map.getBounds();
+  for (const [s, w, n, e] of cachedTileBounds) {
+    const bounds = L.latLngBounds([[s, w], [n, e]]);
+    if (!view.intersects(bounds)) continue;
+    L.rectangle(bounds, {
+      color:'#555', weight:1, opacity:0.55,
+      fillColor:'#777', fillOpacity:0.08,
+      interactive:false, className:'cached-tile-rect',
+    }).addTo(cachedTileLayerGroup);
+  }
+}
+
+async function refreshCachedTileOverlays() {
+  if (!cachedTileLayerGroup) return;
+  const requestId = ++cachedTileRequestId;
+  try {
+    const response = await fetch('cache.php?tiles=1', { cache:'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const tiles = await response.json();
+    if (!Array.isArray(tiles) || !tiles.every(tile =>
+      Array.isArray(tile) && tile.length === 4 && tile.every(Number.isFinite)
+    )) throw new Error('invalid tile inventory');
+    if (requestId !== cachedTileRequestId) return;
+    cachedTileBounds = tiles;
+    renderCachedTileOverlays();
+  } catch (error) {
+    console.warn('Cached tile overlay could not be loaded:', error);
+  }
+}
+
+function scheduleCachedTileOverlayRefresh() {
+  if (!cachedTileLayerGroup) return;
+  clearTimeout(cachedTileRefreshTimer);
+  cachedTileRefreshTimer = setTimeout(() => void refreshCachedTileOverlays(), 500);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -873,25 +921,27 @@ async function cacheExistsBatch(keys) {
 async function cacheSet(key, data) {
   try {
     const json = JSON.stringify(data);
+    let response;
     // Gzip-compress to avoid hitting PHP post_max_size (8M) for large layers
     if (typeof CompressionStream !== 'undefined') {
       const blob = new Blob([json]);
       const cs = new CompressionStream('gzip');
       const stream = blob.stream().pipeThrough(cs);
       const compressed = await new Response(stream).blob();
-      await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
+      response = await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
         body: compressed
       });
     } else {
       // Fallback for browsers without CompressionStream
-      await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
+      response = await fetch(`cache.php?key=${encodeURIComponent(key)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: json
       });
     }
+    if (response.ok) scheduleCachedTileOverlayRefresh();
   } catch { /* fail silently — cache write failure doesn't block export */ }
 }
 
