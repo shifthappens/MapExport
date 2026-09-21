@@ -163,6 +163,21 @@
   </div>
 </div>
 
+<div id="attribution-modal" role="dialog" aria-modal="true" aria-labelledby="attribution-modal-header">
+  <div id="attribution-modal-box">
+    <div id="attribution-modal-header">OpenStreetMap attribution</div>
+    <div id="attribution-modal-body">
+      <p>This base map is generated using Openstreetmap data and is the hard work of many volunteers around the world. You can use it free of charge, but you have to include an attribution message on the map. Please type "I promise!" in the box below to show you've read this message and agree to these terms. If you don't, please hit Cancel.</p>
+      <input type="text" id="attribution-modal-input" autocomplete="off" aria-describedby="attribution-modal-error">
+      <div id="attribution-modal-error" role="alert"></div>
+    </div>
+    <div id="attribution-modal-footer">
+      <button id="attribution-modal-cancel" type="button">Cancel</button>
+      <button id="attribution-modal-submit" type="button">Download SVG</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="script.js?v=20260917-showcached"></script>
 <script src="engine-v2.js?v=20260914-face-perf"></script>

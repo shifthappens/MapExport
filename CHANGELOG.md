@@ -11,6 +11,10 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-21 — OpenStreetMap attribution on downloads
+- Require an explicit acknowledgement before an SVG download and include a
+  visible, linked © OpenStreetMap contributors credit in its lower-right corner.
+
 ### 2026-09-17 — Workshop cache works after production minification
 - Cache keys now follow the generated Overpass query instead of the JavaScript
   function text. Production can therefore reuse the same pre-warmed tiles as

@@ -253,6 +253,23 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #name-modal-submit{background:var(--orange);border:2.5px solid var(--orange);color:#fff}
 #name-modal-submit:hover{background:var(--orange-dk);border-color:var(--orange-dk)}
 
+/* ── OpenStreetMap attribution confirmation ───────────── */
+#attribution-modal{display:none;position:fixed;inset:0;background:rgba(24,24,15,.5);z-index:2200;align-items:center;justify-content:center}
+#attribution-modal.show{display:flex}
+#attribution-modal-box{background:var(--white);border:2.5px solid var(--border);border-radius:2px;width:480px;max-width:88vw;display:flex;flex-direction:column;overflow:hidden}
+#attribution-modal-header{padding:14px 16px;border-bottom:2px solid var(--cream2);font-family:var(--display);font-weight:900;font-size:20px;text-transform:uppercase;color:var(--ink)}
+#attribution-modal-body{padding:16px}
+#attribution-modal-body p{font-family:var(--body);font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:12px}
+#attribution-modal-input{width:100%;padding:10px 12px;background:var(--white);border:2.5px solid var(--border);border-radius:2px;font-family:var(--body);font-weight:500;font-size:15px;color:var(--ink);outline:none;transition:border-color .15s}
+#attribution-modal-input:focus{border-color:var(--orange)}
+#attribution-modal-error{min-height:16px;margin-top:6px;font-family:var(--body);font-size:12px;font-weight:700;color:var(--accent)}
+#attribution-modal-footer{display:flex;gap:8px;padding:0 16px 16px}
+#attribution-modal-cancel,#attribution-modal-submit{flex:1;padding:10px 0;border-radius:2px;font-family:var(--display);font-weight:900;font-size:13px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+#attribution-modal-cancel{background:transparent;border:2.5px solid var(--border);color:var(--muted)}
+#attribution-modal-cancel:hover{background:var(--cream2);color:var(--ink)}
+#attribution-modal-submit{background:var(--orange);border:2.5px solid var(--orange);color:#fff}
+#attribution-modal-submit:hover{background:var(--orange-dk);border-color:var(--orange-dk)}
+
 /* ── Mobile notice ──────────────────────────────────── */
 #mobile-notice{display:none;position:fixed;inset:0;background:rgba(24,24,15,.6);z-index:9999;align-items:center;justify-content:center}
 #mobile-notice-box{background:var(--white);border:2.5px solid var(--border);border-radius:2px;width:min(320px,88vw);padding:24px 22px;text-align:center}

@@ -26,7 +26,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 const offlineNames = [
   'road-merge', 'road-order', 'abbreviate', 'label-placement', 'label-fit',
-  'svg-lint-selftest', 'export-failures', 'preview-state', 'layer-selection',
+  'svg-lint-selftest', 'export-failures', 'preview-state', 'download-attribution', 'layer-selection',
   'overpass-fetch', 'fine-grid', 'svg-id-uniqueness', 'feature-label-dedup',
   'square-labels', 'place-labels', 'area-binding', 'unnamed-parks', 'park-paths',
   'rail-service', 'metro-dedup', 'metro-tunnel', 'editor-structure',

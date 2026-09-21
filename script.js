@@ -3941,7 +3941,21 @@ function wrapSVG(layersSVG, ctx, physicalWidthMm) {
   </g>
   <g id="map-content" inkscape:label="Map content" inkscape:groupmode="layer" clip-path="url(#map-clip)">
 ${layersSVG}  </g>
+${osmAttributionSVG(ctx)}
 </svg>`;
+}
+
+// Visible attribution is outside the clipped map content so it remains
+// legible at the lower-right edge in every export profile and engine.
+function osmAttributionSVG({ W, H, preset }, { illustratorCompatible=false } = {}) {
+  const fontSize = Math.max(24, Math.min(42, W / 190));
+  const padding = fontSize * 0.35;
+  const textWidth = fontSize * 15.2; // a conservative width for the fixed credit
+  const x = W - padding;
+  const y = H - padding;
+  const href = illustratorCompatible ? 'xlink:href' : 'href';
+  return `  <rect id="osm-attribution-background" x="${(x - textWidth - padding).toFixed(1)}" y="${(y - fontSize - padding).toFixed(1)}" width="${(textWidth + padding * 2).toFixed(1)}" height="${(fontSize + padding * 2).toFixed(1)}" fill="#fff"/>
+  <a id="osm-attribution" ${href}="https://www.openstreetmap.org/copyright" aria-label="OpenStreetMap copyright and license"><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="end" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(1)}" fill="${preset.labelColor}">© OpenStreetMap contributors</text></a>`;
 }
 
 // ── Illustrator-compatible wrapper ────────────────────────────────
@@ -3949,12 +3963,13 @@ ${layersSVG}  </g>
 // and the illustratorCompatible flag in the layer builders keep the file inside
 // the subset it understands:
 //
-//  1. No <textPath> (see emitCurvedLabelAsGlyphs) — hence no xmlns:xlink.
+//  1. No <textPath> (see emitCurvedLabelAsGlyphs); the xlink namespace remains
+//     solely for the standards-required attribution hyperlink.
 //  2. No paint-order, which is SVG 2 and ignored → halos are two stacked
 //     <text> elements.
-//  3. No inkscape:*/RDF metadata: parser risk, no value. Stripped below, with
-//     attribution moved into an XML comment. Illustrator names layers and
-//     objects from id="", which everything already carries.
+//  3. No inkscape:*/RDF metadata: parser risk, no value. Illustrator names
+//     layers and objects from id="", which everything already carries; the
+//     visible attribution is emitted as ordinary SVG text below.
 //  4. clipPaths only in the root <defs>; inline in a <g> they are unreliable.
 //  5. One font name — older versions read a comma list as a single literal
 //     name — and only real Arial styles, so 500/600 snap to 400/700.
@@ -3981,6 +3996,7 @@ function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
      Map Export — ${date} | © OpenStreetMap contributors (ODbL)
      Bbox: ${b.south.toFixed(5)},${b.west.toFixed(5)},${b.north.toFixed(5)},${b.east.toFixed(5)} | Style: ${activePreset}${physicalWidthMm ? ` | Print size: ${physicalWidthMm}mm × ${(physicalWidthMm*H/W).toFixed(1)}mm @ 300dpi` : ''} -->
 <svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
      width="${W}"
      height="${H}"
      viewBox="0 0 ${W} ${H}">
@@ -3994,6 +4010,7 @@ function wrapSVGIllustrator(layersSVG, ctx, physicalWidthMm) {
   </g>
   <g id="map-content" clip-path="url(#map-clip)">
 ${layersWithoutInkscapeAttributes}  </g>
+${osmAttributionSVG(ctx, { illustratorCompatible:true })}
 </svg>`;
 }
 
@@ -4734,6 +4751,50 @@ function triggerDownload(svg,filename) {
   setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
 
+// A download is gated per click: exports may be saved long after they were
+// generated, and the acknowledgement must apply to the actual download.
+function promptForAttributionAgreement() {
+  return new Promise(resolve => {
+    const modal=document.getElementById('attribution-modal');
+    const input=document.getElementById('attribution-modal-input');
+    const error=document.getElementById('attribution-modal-error');
+    const submitBtn=document.getElementById('attribution-modal-submit');
+    const cancelBtn=document.getElementById('attribution-modal-cancel');
+    input.value='';
+    error.textContent='';
+    modal.classList.add('show');
+    setTimeout(()=>input.focus(),0);
+
+    function cleanup() {
+      modal.classList.remove('show');
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKeydown);
+      modal.removeEventListener('mousedown', onBackdrop);
+    }
+    function onSubmit() {
+      if (input.value !== 'I promise!') {
+        error.textContent='Please type exactly: I promise!';
+        input.focus();
+        return;
+      }
+      cleanup();
+      resolve(true);
+    }
+    function onCancel() { cleanup(); resolve(false); }
+    function onKeydown(e) {
+      if (e.key==='Enter') onSubmit();
+      else if (e.key==='Escape') onCancel();
+    }
+    function onBackdrop(e) { if (e.target===modal) onCancel(); }
+
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKeydown);
+    modal.addEventListener('mousedown', onBackdrop);
+  });
+}
+
 // ════════════════════════════════════════════════════════════════
 //  HISTORY  (localStorage)
 // ════════════════════════════════════════════════════════════════
@@ -5082,8 +5143,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     setStatus('Cancelling export…', 'loading');
     activeExportAbort.abort(new Error('Export cancelled by user'));
   });
-  document.getElementById('btn-dl').addEventListener('click',()=>{
-    if (exportState) triggerDownload(exportState.svg, exportState.filename);
+  document.getElementById('btn-dl').addEventListener('click', async ()=>{
+    if (exportState && await promptForAttributionAgreement()) triggerDownload(exportState.svg, exportState.filename);
   });
   document.getElementById('btn-preview-close').addEventListener('click',()=>document.getElementById('preview-pane').classList.remove('show'));
   document.getElementById('format-select')?.addEventListener('change', scheduleLivePreview);
