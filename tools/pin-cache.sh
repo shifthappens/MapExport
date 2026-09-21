@@ -15,7 +15,8 @@
 # tools/prefetch-validation-cache.mjs --list-keys, so it follows layer/query
 # changes instead of being a second hardcoded copy.
 #
-# Every command also accepts the prefetcher's --cities=<file> and --grid=fine
+# Every command also accepts the prefetcher's --cities=<file>, --grid=fine,
+# and --v2-only
 # to work on an ad-hoc corpus (e.g. the fine-grid workshop cities) instead of
 # the seven validation cities; such pins are gitignored (cache/pinned/*_f_*).
 #
@@ -33,7 +34,7 @@ usage() {
   exit "${1:-0}"
 }
 
-# Corpus selectors (--cities=, --grid=) apply to every command; anything else
+# Corpus selectors (--cities=, --grid=, --v2-only) apply to every command; anything else
 # after the command name is handed to the prefetcher by `refresh` only.
 KEY_ARGS=()
 REST_ARGS=()
@@ -41,7 +42,7 @@ select_args() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      --cities=*|--grid=*) KEY_ARGS+=("$arg") ;;
+      --cities=*|--grid=*|--v2-only) KEY_ARGS+=("$arg") ;;
       *) REST_ARGS+=("$arg") ;;
     esac
   done

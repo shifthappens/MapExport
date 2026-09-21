@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>USE-IT MapExport - Create design-ready base maps</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css"/>
 <link rel="preload" href="references/MapExport%20Design%20System/fonts/Mayonnaise_Black.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="references/MapExport%20Design%20System/fonts/Apfel_Grotezk_Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="references/MapExport%20Design%20System/fonts/Apfel_Grotezk_Fett.woff2" as="font" type="font/woff2" crossorigin>
@@ -118,6 +119,7 @@
         </div>
         <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
         <div id="progress-pct">0%</div>
+        <p id="progress-note">Fetching from cache and Overpass. The export keeps retrying while this window stays open and your computer remains awake.</p>
         <ul id="progress-stages"></ul>
         <div id="progress-log-wrap">
           <div id="progress-log-label">Activity</div>
@@ -179,7 +181,9 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="script.js?v=20260917-showcached"></script>
-<script src="engine-v2.js?v=20260914-face-perf"></script>
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
+<script src="script.js?v=20260921-persistent-fetch"></script>
+<script src="engine-v2.js?v=20260921-persistent-fetch"></script>
 </body>
 </html>

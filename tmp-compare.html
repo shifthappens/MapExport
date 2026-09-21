@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>compare</title>
+<style>
+body{margin:0;font-family:sans-serif;background:#222;}
+section{margin-bottom:40px;}
+h2{color:#fff;padding:10px;margin:0;background:#000;}
+.row{display:flex;}
+.col{flex:1;padding:4px;}
+.col img{width:100%;display:block;background:#fff;}
+.label{color:#fff;text-align:center;font-size:14px;padding:4px;}
+</style></head>
+<body>
+<section id="tilburg"><h2>tilburg</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-tilburg-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-tilburg-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="ghent"><h2>ghent</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-ghent-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-ghent-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="oulu"><h2>oulu</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-oulu-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-oulu-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="erfurt"><h2>erfurt</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-erfurt-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-erfurt-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="bremerhaven"><h2>bremerhaven</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-bremerhaven-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-bremerhaven-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="paris"><h2>paris</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-paris-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-paris-v2-2026-09-15.svg"></div>
+</div></section>
+<section id="nievre"><h2>nievre</h2><div class="row">
+<div class="col"><div class="label">v1</div><img src="exports/map-useit-nievre-2026-09-15.svg"></div>
+<div class="col"><div class="label">v2</div><img src="exports/map-useit-nievre-v2-2026-09-15.svg"></div>
+</div></section>
+<script>
+function apply(){
+  var h = location.hash.replace('#','');
+  document.querySelectorAll('section').forEach(function(s){
+    s.style.display = (!h || s.id===h) ? '' : 'none';
+  });
+}
+window.addEventListener('hashchange', apply);
+apply();
+</script>
+</body></html>

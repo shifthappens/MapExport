@@ -133,6 +133,15 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
    10-second cooldown). `--dry-run` probes and prints the plan without contacting
    Overpass or writing cache entries.
 
+   To make hand-drawn small exports cacheable too, use
+   `bash tools/prefetch-fine-grid.sh area <name> <south,west,north,east> --pin`.
+   It warms the shareable 0.025° grid and pins completed entries locally. Use
+   `bash tools/prefetch-fine-grid.sh validation --pin` for the seven current
+   `real-export.mjs` test bounds. It is deliberately sequential and retries
+   until all keys arrive; leave it running in a terminal rather than tying up
+   an interactive session. Pass `--max-runtime=<minutes>` only for a deliberately
+   bounded run.
+
 9. **Extended multi-city visual check** (GATED — not part of the standard run):
    ```
    bash tests/visual-cities.sh [size]     # ghent, paris, bremerhaven, oulu

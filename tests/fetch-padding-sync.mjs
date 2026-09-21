@@ -52,10 +52,12 @@ const dir = mkdtempSync(join(tmpdir(), 'fetch-padding-sync-'));
 const citiesFile = join(dir, 'city.json');
 writeFileSync(citiesFile, JSON.stringify({ tilburg: `${bbox.south},${bbox.west},${bbox.north},${bbox.east}` }));
 
-let keys;
+let keys, v2Keys;
 try {
   const out = execFileSync('node', [join(repoRoot, 'tools/prefetch-validation-cache.mjs'), '--list-keys', `--cities=${citiesFile}`], { encoding: 'utf8' });
   keys = out.trim().split('\n');
+  const v2Out = execFileSync('node', [join(repoRoot, 'tools/prefetch-validation-cache.mjs'), '--list-keys', `--cities=${citiesFile}`, '--v2-only'], { encoding: 'utf8' });
+  v2Keys = v2Out.trim().split('\n');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
@@ -90,6 +92,12 @@ check('prefetch tool emits exactly two distinct block_buildings keys (v1 raw + v
 check('one of them is v1\'s raw, unpadded bbox variant',
   blockBuildingsKeys.some(k => k.includes(`_a_${fmt5(bbox.south)}_${fmt5(bbox.west)}_${fmt5(bbox.north)}_${fmt5(bbox.east)}`)),
   blockBuildingsKeys.join(' | '));
+
+check('v2-only planning emits exactly the 11 v2 layers for this one-tile city', v2Keys.length === 11);
+check('v2-only keys are all in the full cache plan', v2Keys.every(key => keys.includes(key)));
+check('v2-only planning omits the raw v1 building fetch and four v1 area layers',
+  v2Keys.filter(k => k.startsWith(`mapexport_v3_${X2.buildingsLayer.id}_`)).length === 1 &&
+  !v2Keys.some(k => /mapexport_v3_(water_bodies|waterways|parks|landcover)_/.test(k)));
 
 console.log(failures ? `FAIL — ${failures} check(s) failed` : 'PASS — fetch-padding-sync: engine-v2.js and tools/prefetch-validation-cache.mjs agree on padded layers/amounts');
 process.exit(failures ? 1 : 0);

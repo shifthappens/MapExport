@@ -11,9 +11,44 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-09-21 — Reusable fine-grid cache warming
+- Add a local command for warming and optionally pinning a chosen area or all
+  seven validation-city bounds, so small hand-drawn exports can avoid Overpass.
+- Keep the fine-grid warmer retrying through temporary Overpass failures until
+  every requested tile is cached, with progress printed as it works.
+- Identify cache-warming requests with the established USE-IT MapExport contact
+  and pause longer after an unreachable or timed-out Overpass endpoint.
+
+### 2026-09-21 — Full export activity messages
+- Widen the export window and wrap long activity messages so export progress is
+  readable instead of being shortened with an ellipsis.
+
 ### 2026-09-21 — OpenStreetMap attribution on downloads
 - Require an explicit acknowledgement before an SVG download and include a
   visible, linked © OpenStreetMap contributors credit in its lower-right corner.
+
+### 2026-09-21 — Exports keep fetching until complete
+- Keep an export open and retry missing cache/Overpass tiles until they arrive,
+  with clear progress text explaining that the browser window must stay open
+  and the computer awake.
+- Prefer overpass-api.de, pause politely after overload or server errors, and
+  temporarily remove unresponsive mirrors instead of showing failed tiles.
+- Load the matching current v1 and v2 scripts together, so a browser cache
+  cannot combine the new retry contract with an older engine.
+
+### 2026-09-21 — Interactive map now matches the export
+- Replace the generic interactive basemap with a worldwide USE-IT vector map:
+  it uses the exact export colours for water, green, roads and building
+  outlines, and deliberately leaves out POIs, shops and transit clutter.
+- Keep the reference map's paths, rail and labels in sync with the export
+  choices. Building footprints give a close city-scale block preview, while a
+  completed export still shows its exact derived city-block faces on the map.
+
+### 2026-09-17 — Utrecht workshop v2 cache
+- Add Utrecht's requested bounds to the workshop cities and let the cache
+  tools target v2 layers only for both export and fine-grid cache coverage.
+- Cache warming can stay on a chosen Overpass host when other mirrors are
+  unavailable.
 
 ### 2026-09-17 — Workshop cache works after production minification
 - Cache keys now follow the generated Overpass query instead of the JavaScript

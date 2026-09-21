@@ -3992,7 +3992,6 @@ self.onmessage = function(event) {
     progress.setStage('fetch', 'active', { meta: `0/${fetchableLayers.length}` });
     const results = [];
     let fetched = 0;
-    let totalFailedTiles = 0;
     for (const layer of fetchableLayers) {
       progress.setStage('fetch', 'active', {
         meta: `${fetched}/${fetchableLayers.length}`,
@@ -4006,12 +4005,11 @@ self.onmessage = function(event) {
         : layer.id === placeNodesLayer.id ? padBboxMeters(bbox, PLACE_NODE_FETCH_PAD_M)
         : bbox;
       const fetchBboxStr = `${fetchBbox.south},${fetchBbox.west},${fetchBbox.north},${fetchBbox.east}`;
-      const { elements, failedTiles } = await fetchLayer(layer, fetchBboxStr, fetchBbox);
-      totalFailedTiles += failedTiles.length;
+      const { elements } = await fetchLayer(layer, fetchBboxStr, fetchBbox);
       // fetchLayer returns raw tile elements; the per-layer tagFilter narrows
       // them to this layer's slice (v1 applies it in its combined fetch loop).
       const kept = layer.tagFilter ? elements.filter(layer.tagFilter) : elements;
-      results.push({ layer, data: { elements: kept, failedTiles } });
+      results.push({ layer, data: { elements: kept } });
       fetched++;
       progress.log(`${layer.id}: ${kept.length} element${kept.length === 1 ? '' : 's'}`);
       progress.bar(Math.round((fetched / fetchableLayers.length) * 55));
@@ -4019,19 +4017,9 @@ self.onmessage = function(event) {
     progress.setStage('fetch', 'done', { meta: `${fetched}/${fetchableLayers.length}`, detail: '' });
 
     const totalElements = results.reduce((sum, r) => sum + (r.data?.elements?.length || 0), 0);
-    // Zero elements only means "check your connection" when tiles actually
-    // failed. With City blocks selected, a genuinely empty frame must still
-    // flow to the full-frame coverage fallback below. With it off, an empty
-    // selected layer is valid and deliberately stays empty.
-    if (!totalElements && totalFailedTiles > 0) {
-      progress.log('No elements fetched and tiles failed — aborting export', { warn: true });
-      throw new ExportFailure({
-        source: 'engine-v2',
-        phase: 'fetch',
-        userMessage: 'Nothing to render — check your connection and try again.',
-        details: { reason: 'empty-result' },
-      });
-    }
+    // An empty, fully loaded frame is valid. City blocks still supplies its
+    // full-frame coverage fallback; without it the deliberately selected
+    // layers simply have nothing to paint.
     if (!totalElements) {
       progress.log(layerPlan.needsBlocks
         ? 'No mapped features in this area — painting an empty frame'

@@ -14,12 +14,16 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const scriptSrc = readFileSync(join(repoRoot, 'script.js'), 'utf8');
 const expose = `
 ;globalThis.__ov = {
-  overpassFetch, overpassFetchRace, fetchLayer,
+  overpassFetch, fetchLayer,
   OverpassFetchError, OverpassAttemptError, ExportFailure,
   OVERPASS_ENDPOINTS,
   setExportAbort(c) { activeExportAbort = c; },
+  resetOverloadNotice() { overpassOverloadLogged = false; },
+  overloadNoticeShown() { return overpassOverloadLogged; },
+  setProgressLog(fn) { progress.log = fn; },
   resetBackoff() { for (const k of Object.keys(endpointBackoff)) delete endpointBackoff[k]; },
   backoffSnapshot() { return JSON.parse(JSON.stringify(endpointBackoff)); },
+  recordEndpointResult, getAvailableEndpoint,
 };`;
 
 // Node unrefs AbortSignal.timeout's internal timer; with all network mocked
@@ -77,7 +81,7 @@ function hangingFetch(signalLog) {
 // 2. Typed failure history: one endpoint 500s, one drops the connection, one
 //    returns a non-Overpass body — the aggregate error names all three kinds.
 //    `maxAttempts` is a test-only short budget; normal exports use the retry
-//    window below rather than a fixed count.
+//    limit below rather than a fixed count.
 {
   const { ctx, ov } = freshContext();
   const [epA, epB, epC] = ov.OVERPASS_ENDPOINTS;
@@ -101,68 +105,40 @@ function hangingFetch(signalLog) {
 {
   const { ctx, ov } = freshContext();
   let calls = 0;
+  let overloadLogs = 0;
+  ov.setProgressLog(message => {
+    if (message.startsWith('Overpass is busy')) overloadLogs++;
+  });
   ctx.fetch = async () => {
     calls++;
     return calls <= ov.OVERPASS_ENDPOINTS.length
       ? { ok: false, status: 429, headers: new Headers({ 'Retry-After': '0' }), json: async () => ({}) }
       : okResponse();
   };
-  const { json } = await ov.overpassFetch('data=q', { timeoutMs: 60, retryWindowMs: 2000, rateLimitCooldownMs: 1 });
+  const { json } = await ov.overpassFetch('data=q', { timeoutMs: 60, rateLimitCooldownMs: 1 });
   check('rate-limited fetch continues beyond three attempts', calls === ov.OVERPASS_ENDPOINTS.length + 1 && json.elements.length === 1, `${calls} attempts`);
   check('429 endpoints put on backoff', Object.keys(ov.backoffSnapshot()).length >= 1);
+  check('overload is logged once for the whole fetch', overloadLogs === 1 && ov.overloadNoticeShown(), `${overloadLogs} messages`);
 }
 
-// 4. The single-tile race likewise continues beyond its former two rounds.
+// 4. A genuinely silent endpoint is temporarily left out after repeated
+//    timeouts/network failures, while a successful response reinstates it.
 {
-  const { ctx, ov } = freshContext();
-  let calls = 0;
-  ctx.fetch = async () => {
-    calls++;
-    return calls <= ov.OVERPASS_ENDPOINTS.length * 2
-      ? { ok: false, status: 429, headers: new Headers({ 'Retry-After': '0' }), json: async () => ({}) }
-      : okResponse();
-  };
-  const { json } = await ov.overpassFetchRace('data=q', { timeoutMs: 60, retryWindowMs: 5000, rateLimitCooldownMs: 1 });
-  check('rate-limited race continues past two rounds', calls > ov.OVERPASS_ENDPOINTS.length * 2 && json.elements.length === 1, `${calls} attempts`);
+  const { ov } = freshContext();
+  const [epA, epB] = ov.OVERPASS_ENDPOINTS;
+  for (let i = 0; i < 3; i++) {
+    ov.recordEndpointResult(epA, new ov.OverpassAttemptError('timeout', epA));
+  }
+  const muted = ov.backoffSnapshot()[epA];
+  check('three silent failures temporarily remove an endpoint',
+    muted?.silentFailures === 3 && muted.unavailableUntil > Date.now(), JSON.stringify(muted));
+  check('temporarily removed endpoint is skipped during rotation', ov.getAvailableEndpoint() === epB, ov.getAvailableEndpoint());
+  ov.recordEndpointResult(epA);
+  const restored = ov.backoffSnapshot()[epA];
+  check('successful response restores an endpoint', restored.silentFailures === 0 && restored.unavailableUntil === 0);
 }
 
-// 5. Race: first valid response wins, losing requests are aborted immediately.
-{
-  const { ctx, ov } = freshContext();
-  const [epA] = ov.OVERPASS_ENDPOINTS;
-  const loserSignals = [];
-  const hang = hangingFetch(loserSignals);
-  ctx.fetch = (url, options) =>
-    String(url) === epA ? Promise.resolve(okResponse()) : hang(url, options);
-  const { json, endpoint } = await ov.overpassFetchRace('data=q', { timeoutMs: 5000 });
-  await new Promise(r => setTimeout(r, 10));
-  check('race returns the winner', endpoint === epA && json.elements.length === 1, endpoint);
-  check('losing race requests are aborted',
-    loserSignals.length === ov.OVERPASS_ENDPOINTS.length - 1 && loserSignals.every(s => s?.aborted),
-    `${loserSignals.filter(s => s?.aborted).length}/${loserSignals.length} aborted`);
-}
-
-// 6. Race where every endpoint hangs: the retry-window cap keeps the failure
-//    typed and bounded in this mocked test.
-{
-  const { ctx, ov } = freshContext();
-  const signals = [];
-  const hang = hangingFetch(signals);
-  ctx.fetch = (url, options) => hang(url, options);
-  let error = null;
-  const t0 = Date.now();
-  try { await ov.overpassFetchRace('data=q', { timeoutMs: 50, retryWindowMs: 200 }); } catch (e) { error = e; }
-  check('fully hung race fails bounded with timeouts',
-    error instanceof ov.OverpassFetchError
-      && error.retryWindowExpired === true
-      && Date.now() - t0 < 3000
-      && error.failures.length >= ov.OVERPASS_ENDPOINTS.length
-      && error.failures.every(f => f.kind === 'timeout'),
-    `${Date.now() - t0}ms, ${JSON.stringify(error?.failures)}`);
-  check('every hung race request was aborted', signals.every(s => s?.aborted), `${signals.length} signals`);
-}
-
-// 7. Export-level abort cancels in-flight requests and surfaces as 'aborted'.
+// 5. Export-level abort cancels in-flight requests and surfaces as 'aborted'.
 {
   const { ctx, ov } = freshContext();
   const signals = [];
@@ -180,44 +156,24 @@ function hangingFetch(signalLog) {
   check('export abort cancels the in-flight request', signals.length === 1 && signals[0]?.aborted);
 }
 
-// 8. An HTTP 200 with elements: [] is a VALID empty response — success, no
+// 6. An HTTP 200 with elements: [] is a VALID empty response — success, no
 //    retries, and fetchLayer passes it through as an empty layer.
 {
   const { ctx, ov } = freshContext();
   let overpassCalls = 0;
   ctx.fetch = async (url) => {
     const target = String(url);
+    if (target.startsWith('cache.php?exists=')) return { ok: true, status: 200, json: async () => ({}) };
     if (target.startsWith('cache.php?')) return { ok: true, status: 200, json: async () => null };
     overpassCalls++;
     return okResponse({ elements: [] });
   };
   const bbox = { south: 51.5, west: 5, north: 51.51, east: 5.01 };
   const layer = { id: 'empty_probe', overpassQuery: (b) => `way["highway"](${b});`, };
-  const { elements, failedTiles } = await ov.fetchLayer(layer, '51.5,5,51.51,5.01', bbox);
+  const { elements } = await ov.fetchLayer(layer, '51.5,5,51.51,5.01', bbox);
   check('valid empty response is success, not failure',
-    elements.length === 0 && failedTiles.length === 0 && overpassCalls === 1,
-    `${overpassCalls} overpass calls, ${failedTiles.length} failed tiles`);
-}
-
-// 9. fetchLayer wraps exhausted fetches in the ME-01 contract with the typed
-//    diagnostics attached, and the user message names the failure kind.
-{
-  const { ctx, ov } = freshContext();
-  ctx.fetch = async (url) => {
-    if (String(url).startsWith('cache.php?')) return { ok: true, status: 200, json: async () => null };
-    throw new Error('simulated outage');
-  };
-  const bbox = { south: 51.5, west: 5, north: 51.51, east: 5.01 };
-  const layer = { id: 'outage_probe', label: 'Outage probe', overpassQuery: (b) => `way["highway"](${b});` };
-  let error = null;
-  try { await ov.fetchLayer(layer, '51.5,5,51.51,5.01', bbox, { maxAttempts: 3 }); } catch (e) { error = e; }
-  check('fetchLayer failure is an ExportFailure with typed details',
-    error instanceof ov.ExportFailure
-      && error.phase === 'fetch'
-      && Array.isArray(error.details?.failures)
-      && error.details.failures.every(f => f.kind === 'network'),
-    String(error));
-  check('user message names the kind of outage', /network/.test(error?.userMessage || ''), error?.userMessage);
+    elements.length === 0 && overpassCalls === 1,
+    `${overpassCalls} overpass calls`);
 }
 
 clearInterval(keepAlive);

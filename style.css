@@ -19,6 +19,21 @@
 html,body{height:100%;overflow:hidden;background:var(--cream)}
 body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
 
+/* ── Interactive map ────────────────────────────────── */
+/* The reference map is a deliberately small vector style rather than a
+   recoloured general-purpose basemap: its palette is the export palette and
+   it omits POIs, shops and transit clutter altogether. */
+#map{background:#fef6ed}
+#map .maplibregl-map{font-family:var(--body)}
+#map .leaflet-control-zoom a{background:rgba(254,249,228,.94);border-color:var(--border);color:var(--ink);font-family:var(--body)}
+#map .leaflet-control-zoom a:hover{background:var(--white);color:var(--orange)}
+#map .leaflet-control-attribution{background:rgba(254,249,228,.84);color:var(--muted);font-family:var(--body)}
+#map .leaflet-control-attribution a{color:var(--ink2)}
+.export-area-rect{filter:drop-shadow(0 1px 0 rgba(244,175,167,.45))}
+/* The exported SVG is opaque and therefore visually identical to the file
+   being downloaded; pointer events stay with Leaflet for normal pan/zoom. */
+#map .export-map-overlay{pointer-events:none}
+
 /* ── Header ──────────────────────────────────────────── */
 #hdr{height:var(--hdr);display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:var(--orange);flex-shrink:0;position:relative;z-index:10}
 #hdr-title{display:flex;align-items:center;gap:14px}
@@ -163,7 +178,7 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #progress-overlay{position:absolute;inset:0;background:rgba(254,249,228,.94);display:none;align-items:center;justify-content:center;z-index:999;transition:opacity .4s ease}
 #progress-overlay.show{display:flex}
 #progress-overlay.fading{opacity:0}
-#progress-box{width:min(460px,92%);background:var(--paper2);border:2.5px solid var(--border);border-radius:3px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 24px rgba(24,24,15,.08)}
+#progress-box{width:min(640px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:var(--paper2);border:2.5px solid var(--border);border-radius:3px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 24px rgba(24,24,15,.08)}
 #progress-header{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--display);font-weight:900;text-transform:uppercase;letter-spacing:1px;color:var(--ink)}
 #progress-title{font-size:14px}
 #progress-elapsed{font-family:'Geist Mono',monospace;font-size:11px;color:var(--muted);letter-spacing:.5px;font-weight:500}
@@ -185,9 +200,7 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #progress-stages .stage.done{color:var(--ink)}
 #progress-stages .stage.done .stage-icon{color:var(--green)}
 #progress-stages .stage.done .stage-icon::before{content:'✓'}
-#progress-stages .stage.failed{color:var(--accent)}
-#progress-stages .stage.failed .stage-icon{color:var(--accent)}
-#progress-stages .stage.failed .stage-icon::before{content:'✕'}
+#progress-note{margin:10px 0 8px;padding:8px 10px;border-left:3px solid var(--orange);background:var(--cream2);font-family:var(--body);font-size:11.5px;line-height:1.4;color:var(--ink2)}
 #progress-stages .stage-detail{display:none;margin:2px 0 0 23px;font-family:var(--body);font-size:11.5px;color:var(--mint-dk);font-style:italic}
 #progress-stages .stage.active .stage-detail:not(:empty){display:block}
 #progress-stages .stage-row{display:flex;align-items:baseline;gap:9px;width:100%}
@@ -196,8 +209,8 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 #progress-log-label{font-family:var(--display);font-weight:900;font-size:9px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px}
 #progress-log{font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--muted);line-height:1.55;max-height:100px;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
 /* flex-shrink:0 - a column flex box with max-height shrinks its children once the log overflows, so lines overlapped instead of scrolling */
-#progress-log .log-line{flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#progress-log .log-time{color:var(--cream3);margin-right:7px}
+#progress-log .log-line{flex-shrink:0;white-space:normal;overflow-wrap:anywhere}
+#progress-log .log-time{color:var(--cream3);margin-right:7px;white-space:nowrap}
 #btn-progress-cancel{align-self:flex-end;padding:5px 9px;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:var(--body);font-size:11px;font-weight:700;cursor:pointer}
 #btn-progress-cancel:hover{background:var(--cream2);color:var(--ink)}
 #progress-log .log-line.warn{color:var(--accent)}
@@ -280,14 +293,3 @@ body{font-family:var(--body);color:var(--ink);font-size:14px;-webkit-font-smooth
 @media(min-width:769px){#mobile-notice{display:none!important}}
 @media(max-width:768px){#mobile-notice{display:flex}}
 #mobile-notice.dismissed{display:none!important}
-
-/* ── Failed tile overlays ────────────────────────────── */
-.failed-tile-rect{cursor:pointer;transition:fill-opacity .15s}
-.failed-tile-rect:hover{fill-opacity:.45!important}
-.failed-tile-tooltip-wrap.leaflet-tooltip{background:rgba(24,24,15,.88);border:none;border-radius:2px;padding:5px 9px;box-shadow:none;pointer-events:none}
-.failed-tile-tooltip-wrap.leaflet-tooltip::before{border-top-color:rgba(24,24,15,.88)}
-.failed-tile-tooltip{font-family:var(--body);font-weight:500;font-size:12px;color:var(--cream);white-space:nowrap}
-#failed-tile-banner{display:flex;align-items:center;gap:9px;padding:10px 16px;background:rgba(191,59,30,.10);border-top:2px solid rgba(191,59,30,.30);font-family:var(--body);font-size:13px;font-weight:500;color:var(--accent)}
-#failed-tile-banner span{flex:1;line-height:1.4}
-.failed-tile-retry-btn,.failed-tile-dismiss-btn{background:transparent;border:2px solid var(--accent);border-radius:2px;font-family:var(--display);font-weight:700;font-size:11px;color:var(--accent);cursor:pointer;padding:4px 9px;text-transform:uppercase;letter-spacing:.4px;transition:background .15s,color .15s;flex-shrink:0}
-.failed-tile-retry-btn:hover,.failed-tile-dismiss-btn:hover{background:var(--accent);color:#fff}

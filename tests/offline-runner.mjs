@@ -31,7 +31,7 @@ const offlineNames = [
   'square-labels', 'place-labels', 'area-binding', 'unnamed-parks', 'park-paths',
   'rail-service', 'metro-dedup', 'metro-tunnel', 'editor-structure',
   'technical-names', 'pipeline-equivalence', 'supersession', 'sea-sign',
-  'hamlet-grounding', 'fetch-padding-sync', 'v2-cutterless-coverage',
+  'hamlet-grounding', 'fetch-padding-sync', 'prefetch-cache-policy', 'v2-cutterless-coverage',
   'scenario-invariants',
   'v2-cutterless-worker', 'landcover-clip', 'v2-face-runtime-benchmark',
   'cache-php', 'pin-cache',
@@ -43,7 +43,7 @@ export const MANIFEST = {
   ],
   helpers: ['lib.mjs', 'face-worker-helper.mjs', 'offline-network-guard.cjs', 'svg-lint.mjs', 'coverage-lint.mjs', 'render-coverage.mjs'],
   runners: ['offline-runner.mjs', 'smoke.sh'],
-  liveUtilities: ['capture-fixtures.mjs', 'capture-one.mjs', 'query-equivalence.mjs', 'real-export.mjs', 'time-queries.mjs', 'visual-cities.sh'],
+  liveUtilities: ['capture-fixtures.mjs', 'capture-one.mjs', 'minified-cache-keys.mjs', 'query-equivalence.mjs', 'real-export.mjs', 'time-queries.mjs', 'visual-cities.sh'],
 };
 
 function commandExists(command) {

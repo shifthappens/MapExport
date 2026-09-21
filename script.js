@@ -66,7 +66,7 @@ const HELP = {
     content: `
       <p>The export uses a <strong>USE-IT</strong> city guide colour scheme — warm cream background, white roads, clear blue water, and green parks.</p>
       <p>This style is optimised for print city guides with high readability and a warm, inviting feel.</p>
-      <div class="tip">Style only affects colours in the SVG — you can always re-colour individual layers in Illustrator or Inkscape after export.</div>
+      <div class="tip">Before export, the map is a reference for choosing an area. After export, that area is replaced by the exact generated SVG — including its colours, selected layers and derived building blocks. You can still re-colour individual SVG layers in Illustrator or Inkscape.</div>
     `
   },
   step3: {
@@ -481,6 +481,7 @@ const METRO_PALETTE=['#e63030','#2979e6','#29b860','#f0a500','#9b30e6','#00aacc'
 //  APP STATE
 // ════════════════════════════════════════════════════════════════
 let map, bboxRect=null, bbox=null, isDrawing=false, drawStart=null;
+let referenceMapLayer=null;  // MapLibre vector map, styled to match the USE-IT export
 let searchTimeout=null;
 let currentAreaName='';       // best-known place name for the current bbox (silent, no UI field)
 let areaNameLookup=null;      // in-flight reverse-geocode promise, if any
@@ -491,15 +492,87 @@ let exportRunSequence=0;
 let previewRequestSequence=0;
 let previewDebounce=null;
 let exportInProgress=false;
-let failedTileLayerGroup=null; // Leaflet LayerGroup for failed-tile overlay rectangles
 let cachedTileLayerGroup=null; // optional, read-only cache footprint overlay
 let cachedTileBounds=[];
 let cachedTileRefreshTimer=null;
 let cachedTileRequestId=0;
-const endpointBackoff={};      // { endpoint -> { until: timestamp, delay: ms } }
+let exportMapOverlay=null;    // the exact, post-render SVG placed back on the interactive map
+const endpointBackoff={};      // { endpoint -> { until, delay, silentFailures, unavailableUntil } }
 let adaptiveTileDelay=350;     // ms between tile fetches; increases when 429s occur
 let activeExportAbort=null;    // AbortController for the running export (ME-05); set by runExportLifecycle
 let cacheErrorLogged=false;    // one cache-read diagnostic per export, reset by runExportLifecycle
+let overpassOverloadLogged=false; // one overload notice per export, not one per retry
+
+// The selection is part of the map UI rather than the SVG, but it deliberately
+// borrows the export's road-casing colour. This makes the area being selected
+// feel like it belongs to the finished USE-IT map instead of Leaflet's default
+// blue selection treatment.
+function exportAreaRectangle(bounds) {
+  return L.rectangle(bounds, {
+    color: PRESETS[activePreset].roads.primary.casing,
+    weight: 2,
+    fillColor: PRESETS[activePreset].building,
+    fillOpacity: 0.18,
+    dashArray: '6 4',
+    className: 'export-area-rect',
+  }).addTo(map);
+}
+
+// The selection map is useful for finding an area, but raster tiles can never
+// reproduce the export's derived blocks or its precise layer/paint order.
+// Once an SVG has been rendered, put those exact bytes back on the Leaflet map
+// at their geographic bounds. L.svgOverlay keeps it correctly positioned while
+// the user pans or zooms, so this is a real map view rather than a screenshot.
+function clearExportMapOverlay() {
+  if (!exportMapOverlay || !map) return;
+  map.removeLayer(exportMapOverlay);
+  exportMapOverlay = null;
+}
+
+function showExportOnMap(svg, exportBbox) {
+  if (!map || !svg || !exportBbox || typeof DOMParser === 'undefined' || typeof L === 'undefined' || !L.svgOverlay) return;
+  clearExportMapOverlay();
+  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  const vectorMap = doc.documentElement;
+  // A malformed SVG must never replace the map reference layer.
+  if (vectorMap.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) return;
+  vectorMap.classList.add('export-map-overlay');
+  vectorMap.setAttribute('aria-label', 'Exact vector preview of the export');
+  exportMapOverlay = L.svgOverlay(vectorMap, [
+    [exportBbox.south, exportBbox.west],
+    [exportBbox.north, exportBbox.east],
+  ], { interactive:false, opacity:1 }).addTo(map);
+}
+
+// The reference style has the same broad categories as the export controls.
+// It remains a global vector map (rather than triggering an Overpass export on
+// every pan), so it can only approximate v2's road-bounded city-block faces
+// with real building footprints. The exact faces appear after export above.
+function syncReferenceMapLayers() {
+  const glMap = referenceMapLayer?.getMaplibreMap?.();
+  if (!glMap?.isStyleLoaded?.()) return;
+  const enabled = id => !!document.getElementById(`lyr-${id}`)?.checked;
+  const setVisibility = (ids, visible) => ids.forEach(id => {
+    if (glMap.getLayer(id)) glMap.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  });
+  setVisibility(['roads-casing-paths', 'roads-fill-paths'], enabled('paths'));
+  setVisibility(['rail'], enabled('rail'));
+  setVisibility(['metro'], enabled('metro'));
+  setVisibility(['tram'], enabled('tram'));
+  setVisibility(['transit-stops'], enabled('transit_stops'));
+  setVisibility(['water-labels'], enabled('water_labels'));
+  setVisibility(['street-labels'], enabled('street_labels'));
+  if (enabled('street_labels') && glMap.getLayer('street-labels')) {
+    const visibleClasses = [
+      LABEL_VISIBILITY.motorway && 'motorway',
+      LABEL_VISIBILITY.primary && 'primary',
+      LABEL_VISIBILITY.secondary && 'secondary',
+      LABEL_VISIBILITY.tertiary && 'tertiary',
+      LABEL_VISIBILITY.residential && 'minor',
+    ].filter(Boolean);
+    glMap.setFilter('street-labels', ['in', ['get', 'class'], ['literal', visibleClasses]]);
+  }
+}
 
 // ════════════════════════════════════════════════════════════════
 //  INIT MAP
@@ -512,16 +585,26 @@ function initMap() {
   setMapHeight();
   window.addEventListener('resize', setMapHeight);
   map = L.map('map', { zoomControl:true }).setView([51.5555, 5.0913], 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom:19, crossOrigin:true
-  }).addTo(map);
+  if (typeof L.maplibreGL === 'function') {
+    referenceMapLayer = L.maplibreGL({
+      style: 'useit-map-style.json',
+      interactive: false,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    referenceMapLayer.getMaplibreMap().on('load', syncReferenceMapLayers);
+  } else {
+    // A CDN failure should leave the area picker usable, even though it loses
+    // the curated reference styling for that session.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom:19, crossOrigin:true
+    }).addTo(map);
+  }
   if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('showcached') === '1') {
     cachedTileLayerGroup = L.layerGroup().addTo(map);
     map.on('moveend', renderCachedTileOverlays);
     void refreshCachedTileOverlays();
   }
-  failedTileLayerGroup = L.layerGroup().addTo(map);
   // Keep Leaflet's cached container size in sync with the real element size —
   // fires on initial layout settle, window resize, and header height changes.
   new ResizeObserver(() => map.invalidateSize()).observe(mapEl);
@@ -598,7 +681,10 @@ function renderLayers() {
         row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" checked disabled><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
       } else {
         row.innerHTML = `<input type="checkbox" id="lyr-${layer.id}" ${layer.defaultOn?'checked':''}><span class="layer-swatch" style="background:${layer.color}"></span><label for="lyr-${layer.id}">${layer.label}<br><span class="layer-hint">${layer.hint}</span></label>`;
-        row.querySelector('input').addEventListener('change', scheduleLivePreview);
+        row.querySelector('input').addEventListener('change', () => {
+          syncReferenceMapLayers();
+          scheduleLivePreview();
+        });
       }
       list.appendChild(row);
       if (layer.id === 'street_labels') {
@@ -631,7 +717,11 @@ function renderLabelToggles(wrap, streetLabelsToggle) {
     row.className = 'label-toggle-row';
     row.innerHTML = `<input type="checkbox" id="${id}" ${LABEL_VISIBILITY[cat]?'checked':''}><span>${fullNames[cat]}</span>`;
     const input = row.querySelector('input');
-    input.addEventListener('change', e => { LABEL_VISIBILITY[cat] = e.target.checked; scheduleLivePreview(); });
+    input.addEventListener('change', e => {
+      LABEL_VISIBILITY[cat] = e.target.checked;
+      syncReferenceMapLayers();
+      scheduleLivePreview();
+    });
     wrap.appendChild(row);
     return input;
   });
@@ -659,9 +749,10 @@ function startDraw() {
   function onDown(e) {
     drawStart = e.latlng;
     if (bboxRect) { map.removeLayer(bboxRect); bboxRect = null; }
+    clearExportMapOverlay();
     function onMove(ev) {
       if (bboxRect) map.removeLayer(bboxRect);
-      bboxRect = L.rectangle([drawStart, ev.latlng], { color:'#bf3b1e', weight:1.5, fillColor:'#bf3b1e', fillOpacity:0.07, dashArray:'5 3' }).addTo(map);
+      bboxRect = exportAreaRectangle([drawStart, ev.latlng]);
     }
     function onUp(ev) {
       map.off('mousemove', onMove); map.off('mouseup', onUp); map.off('mousedown', onDown);
@@ -697,6 +788,7 @@ function clearRejectedSelection() {
     map.removeLayer(bboxRect);
     bboxRect = null;
   }
+  clearExportMapOverlay();
   setAreaName('');
   exportState = null;
   previewState = null;
@@ -750,7 +842,8 @@ async function fetchBoundaries(placeName) {
         bbox = {south:s, north:n, west:w, east:e};
         map.fitBounds([[s,w],[n,e]], {padding:[20,20]});
         if (bboxRect) map.removeLayer(bboxRect);
-        bboxRect = L.rectangle([[s,w],[n,e]], {color:'#bf3b1e',weight:1.5,fillColor:'#bf3b1e',fillOpacity:0.07,dashArray:'5 3'}).addTo(map);
+        clearExportMapOverlay();
+        bboxRect = exportAreaRectangle([[s,w],[n,e]]);
         updateBboxDisplay();
         document.getElementById('btn-export').disabled = false;
         setStatus('Boundary loaded — choose style and export','');
@@ -966,10 +1059,9 @@ function mergeElements(arrays) {
 //  OVERPASS FETCH
 // ════════════════════════════════════════════════════════════════
 const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-// A temporary Overpass outage must not discard an otherwise valid export.
-// Keep retrying across the endpoint pool for a bounded, cancellable window;
-// user cancellation still stops immediately.
-const OVERPASS_RETRY_WINDOW_MS=60*60*1000;
+// An export is deliberately persistent: it keeps trying until every missing
+// tile is present, or the user cancels it.  overpass-api.de stays first in
+// this ordered list; mirrors are fallbacks, not parallel primary sources.
 const RATE_LIMIT_COOLDOWN_MS=10000;
 // Hard per-attempt timeouts (ME-05). Single-layer queries carry [timeout:60],
 // combined queries [timeout:120] server-side; the client-side cap sits just
@@ -980,6 +1072,8 @@ const OVERPASS_COMBINED_TIMEOUT_MS=125000;
 // Ceiling on any single rate-limit/backoff wait: an endpoint advertising a
 // huge Retry-After gets skipped in favour of rotation, not obeyed literally.
 const MAX_BACKOFF_WAIT_MS=15000;
+const ENDPOINT_UNRESPONSIVE_FAILURES=3;
+const ENDPOINT_UNRESPONSIVE_COOLDOWN_MS=15*60*1000;
 
 // Sleep that ends early when the signal aborts — the caller re-checks the
 // signal after waking, so an aborted export stops waiting out a backoff.
@@ -994,7 +1088,10 @@ function sleep(ms, signal){
 
 function getAvailableEndpoint(){
   const now=Date.now();
-  return OVERPASS_ENDPOINTS.find(ep=>{ const b=endpointBackoff[ep]; return !b||now>=b.until; })||null;
+  return OVERPASS_ENDPOINTS.find(ep=>{
+    const b=endpointBackoff[ep];
+    return (!b || now>=b.until) && (!b?.unavailableUntil || now>=b.unavailableUntil);
+  })||null;
 }
 
 // Bounded exponential backoff per endpoint (500ms → 15s). Applied on 429 and
@@ -1003,12 +1100,39 @@ function getAvailableEndpoint(){
 function recordEndpointBackoff(ep, minimumDelay=0){
   const prev=endpointBackoff[ep];
   const nextDelay=Math.min(prev ? Math.max(prev.delay*2, minimumDelay) : Math.max(500, minimumDelay), MAX_BACKOFF_WAIT_MS);
-  endpointBackoff[ep]={ until:Date.now()+nextDelay, delay:nextDelay };
+  endpointBackoff[ep]={ ...prev, until:Date.now()+nextDelay, delay:nextDelay };
+}
+
+function recordEndpointResult(ep, error=null){
+  const previous=endpointBackoff[ep] || {};
+  if (!error) {
+    // A real Overpass response proves this server is alive again.
+    endpointBackoff[ep]={ ...previous, until:0, delay:0, silentFailures:0, unavailableUntil:0 };
+    return;
+  }
+  if (error.kind!=='timeout' && error.kind!=='network') return;
+  const silentFailures=(previous.silentFailures||0)+1;
+  if (silentFailures < ENDPOINT_UNRESPONSIVE_FAILURES) {
+    endpointBackoff[ep]={ ...previous, silentFailures };
+    return;
+  }
+  endpointBackoff[ep]={
+    ...previous,
+    silentFailures,
+    unavailableUntil:Date.now()+ENDPOINT_UNRESPONSIVE_COOLDOWN_MS,
+  };
+  progress.log(`${new URL(ep).hostname} gives no response — leaving this server out for 15 minutes`, { warn:true });
+}
+
+function noteOverpassOverload(){
+  if (overpassOverloadLogged) return;
+  overpassOverloadLogged=true;
+  progress.log('Overpass is busy — trying other servers and will keep retrying until the data arrives.', { warn:true });
 }
 
 // ── ME-05: one shared Overpass fetch contract ─────────────────────
-// Every Overpass request in either engine goes through overpassFetch (or its
-// race variant), so timeout, abort, rotation, backoff and error semantics
+// Every Overpass request in either engine goes through overpassFetch, so
+// timeout, abort, rotation, backoff and error semantics
 // exist exactly once. Failures are typed, not stringly:
 //   'timeout'      — the per-attempt deadline fired
 //   'rate-limited' — HTTP 429 (endpoint put on backoff)
@@ -1027,12 +1151,12 @@ class OverpassAttemptError extends Error {
 }
 
 class OverpassFetchError extends Error {
-  constructor(failures, { aborted=false, retryWindowExpired=false } = {}) {
-    super(aborted ? 'Overpass fetch aborted' : retryWindowExpired ? 'Overpass retry window expired' : 'All Overpass attempts failed');
+  constructor(failures, { aborted=false, attemptsExhausted=false } = {}) {
+    super(aborted ? 'Overpass fetch aborted' : attemptsExhausted ? 'Overpass test attempt limit reached' : 'Overpass attempts stopped');
     this.name='OverpassFetchError';
     this.failures=failures;   // [{ kind, endpoint, status }] in attempt order
     this.aborted=aborted;
-    this.retryWindowExpired=retryWindowExpired;
+    this.attemptsExhausted=attemptsExhausted;
   }
   // Compact per-kind diagnostic, e.g. "2× timeout (overpass-api.de), 1× HTTP 504 (kumi.systems)"
   summary(){
@@ -1049,17 +1173,15 @@ class OverpassFetchError extends Error {
 }
 
 // One POST attempt against one endpoint: hard timeout, export-abort wiring,
-// optional streaming progress, typed failure. `raceSignal` lets the race
-// driver cancel losing attempts.
-async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, raceSignal=null, rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS } = {}) {
+// optional streaming progress and typed failure.
+async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS } = {}) {
   const exportSignal=activeExportAbort?.signal || null;
   const timeoutSignal=AbortSignal.timeout(timeoutMs);
   const signals=[timeoutSignal];
   if (exportSignal) signals.push(exportSignal);
-  if (raceSignal) signals.push(raceSignal);
   const signal=signals.length>1 ? AbortSignal.any(signals) : timeoutSignal;
   const classifyAbort=(cause)=>{
-    if (exportSignal?.aborted || raceSignal?.aborted) return new OverpassAttemptError('aborted', endpoint, { cause });
+    if (exportSignal?.aborted) return new OverpassAttemptError('aborted', endpoint, { cause });
     return new OverpassAttemptError('timeout', endpoint, { cause });
   };
 
@@ -1123,74 +1245,71 @@ async function overpassAttempt(endpoint, body, { timeoutMs, onProgress=null, rac
   }
 }
 
-function isRetryableOverpassFailure(error){
-  return error.kind==='rate-limited' || error.kind==='timeout' || error.kind==='network'
-    || error.kind==='parse' || (error.kind==='http' && (error.status===408 || error.status>=500));
-}
-
 function endpointWaitMs(){
-  const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>endpointBackoff[e]?.until||0));
+  const soonest=Math.min(...OVERPASS_ENDPOINTS.map(e=>Math.max(
+    endpointBackoff[e]?.until||0,
+    endpointBackoff[e]?.unavailableUntil||0,
+  )));
   return Math.min(Math.max(0, soonest-Date.now())+200, MAX_BACKOFF_WAIT_MS);
 }
 
-async function waitForOverpassCapacity(waitMs, deadline, exportSignal){
-  await sleep(Math.min(waitMs, Math.max(0, deadline-Date.now())), exportSignal);
+async function waitForOverpassCapacity(waitMs, exportSignal){
+  await sleep(waitMs, exportSignal);
 }
 
-// Rotation/backoff driver: keep trying available endpoints (preferring
-// `preferredEndpoint` when supplied) for the retry window. This makes export
-// recovery resilient to temporary 429s, server errors and network outages,
-// while malformed/client-error requests still fail promptly.
+// Rotation/backoff driver. In normal use this has no deadline: an export waits
+// for its data while the page remains open and the computer stays awake. The
+// optional maxAttempts is only for deterministic offline tests.
 async function overpassFetch(body, {
   preferredEndpoint=null,
   timeoutMs=OVERPASS_ATTEMPT_TIMEOUT_MS,
   onProgress=null,
-  retryWindowMs=OVERPASS_RETRY_WINDOW_MS,
   maxAttempts=Infinity,
   rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS,
 } = {}) {
   const exportSignal=activeExportAbort?.signal || null;
   const failures=[];
-  const deadline=Date.now()+retryWindowMs;
   let attempt=0;
-  while (attempt<maxAttempts && Date.now()<deadline) {
+  while (attempt<maxAttempts) {
     if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
     let ep=null;
     if (preferredEndpoint) {
       const b=endpointBackoff[preferredEndpoint];
-      if (!b || Date.now()>=b.until) ep=preferredEndpoint;
+      if ((!b || Date.now()>=b.until) && (!b?.unavailableUntil || Date.now()>=b.unavailableUntil)) ep=preferredEndpoint;
     }
     if (!ep) ep=getAvailableEndpoint();
     if (!ep) {
       const waitMs=endpointWaitMs();
-      setStatus(`Overpass busy — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-      progress.log(`All Overpass endpoints cooling down — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
-      await waitForOverpassCapacity(waitMs, deadline, exportSignal);
+      setStatus(`Fetching data — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+      noteOverpassOverload();
+      await waitForOverpassCapacity(waitMs, exportSignal);
       continue;
     }
     try {
       attempt++;
       const json=await overpassAttempt(ep, body, {
-        timeoutMs:Math.min(timeoutMs, Math.max(1, deadline-Date.now())),
+        timeoutMs,
         onProgress, rateLimitCooldownMs,
       });
+      recordEndpointResult(ep);
       return { json, endpoint:ep };
     } catch(e) {
       if (!(e instanceof OverpassAttemptError)) throw e;
       failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
+      if (failures.length>50) failures.shift();
       if (e.kind==='aborted' || exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
-      if (!isRetryableOverpassFailure(e)) throw new OverpassFetchError(failures);
+      recordEndpointResult(ep, e);
       if (e.kind==='rate-limited') {
         adaptiveTileDelay=Math.min(adaptiveTileDelay+150, 1500);
         const alternate=getAvailableEndpoint();
         if (alternate) {
-          setStatus(`Rate limited on ${new URL(ep).hostname} — trying another server…`, 'loading');
-          progress.log(`${new URL(ep).hostname} rate-limited — rotating to another server`, { warn:true });
+          setStatus(`Fetching data — ${new URL(ep).hostname} is busy; trying another server…`, 'loading');
+          noteOverpassOverload();
         } else {
           const waitMs=Math.max(e.retryAfterMs||0, endpointBackoff[ep]?.delay||500);
-          setStatus(`Rate limited — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-          progress.log(`All Overpass endpoints rate-limited — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
-          await waitForOverpassCapacity(waitMs, deadline, exportSignal);
+          setStatus(`Fetching data — server is busy; retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
+          noteOverpassOverload();
+          await waitForOverpassCapacity(waitMs, exportSignal);
         }
       } else {
         recordEndpointBackoff(ep);
@@ -1198,80 +1317,7 @@ async function overpassFetch(body, {
       }
     }
   }
-  throw new OverpassFetchError(failures, {
-    aborted:!!exportSignal?.aborted,
-    retryWindowExpired:Date.now()>=deadline,
-  });
-}
-
-// Race variant: fire the same query at every available endpoint, first valid
-// response wins, losers are aborted immediately. Retry rounds continue for
-// the same bounded, cancellable window as the sequential driver.
-async function overpassFetchRace(body, {
-  timeoutMs=OVERPASS_COMBINED_TIMEOUT_MS,
-  onProgress=null,
-  retryWindowMs=OVERPASS_RETRY_WINDOW_MS,
-  maxRounds=Infinity,
-  rateLimitCooldownMs=RATE_LIMIT_COOLDOWN_MS,
-} = {}) {
-  const exportSignal=activeExportAbort?.signal || null;
-  const failures=[];
-  const deadline=Date.now()+retryWindowMs;
-  let round=0;
-  while (round<maxRounds && Date.now()<deadline) {
-    if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
-    const eps=OVERPASS_ENDPOINTS.filter(ep=>{ const bk=endpointBackoff[ep]; return !bk || Date.now()>=bk.until; });
-    if (!eps.length) {
-      const waitMs=endpointWaitMs();
-      setStatus(`Overpass busy — retrying in ${(waitMs/1000).toFixed(1)}s…`, 'loading');
-      progress.log(`All Overpass endpoints cooling down — retrying in ${(waitMs/1000).toFixed(1)}s`, { warn:true });
-      await waitForOverpassCapacity(waitMs, deadline, exportSignal);
-      continue;
-    }
-    round++;
-    const reqStart=Date.now();
-    let ttfb=null;
-    const label=`racing ${eps.length} server${eps.length>1?'s':''}`;
-    if (onProgress) {
-      onProgress({ phase:'waiting', elapsed:0, endpoint:label });
-      ttfb=setInterval(()=>onProgress({ phase:'waiting', elapsed: Math.round((Date.now()-reqStart)/1000), endpoint:label }), 500);
-    }
-    const controllers=eps.map(()=>new AbortController());
-    const attempts=eps.map((ep, i)=>
-      overpassAttempt(ep, body, {
-        timeoutMs:Math.min(timeoutMs, Math.max(1, deadline-Date.now())),
-        raceSignal:controllers[i].signal, rateLimitCooldownMs,
-      })
-        .then(json=>({ json, ep, i })));
-    try {
-      const winner=await Promise.any(attempts);
-      controllers.forEach((c, i)=>{ if (i!==winner.i) c.abort(); });
-      if (ttfb) clearInterval(ttfb);
-      if (onProgress) onProgress({ phase:'downloading', received:0, total:0, endpoint:winner.ep });
-      return { json:winner.json, endpoint:winner.ep };
-    } catch(aggregate) {
-      if (ttfb) clearInterval(ttfb);
-      const roundFailures=[];
-      for (const e of aggregate.errors||[]) {
-        if (e instanceof OverpassAttemptError && e.kind!=='aborted') {
-          failures.push({ kind:e.kind, endpoint:e.endpoint, status:e.status });
-          roundFailures.push(e);
-          if (e.kind!=='rate-limited' && isRetryableOverpassFailure(e)) recordEndpointBackoff(e.endpoint);
-        }
-      }
-      if (exportSignal?.aborted) throw new OverpassFetchError(failures, { aborted:true });
-      if (roundFailures.some(e=>!isRetryableOverpassFailure(e))) throw new OverpassFetchError(failures);
-    }
-  }
-  throw new OverpassFetchError(failures, {
-    aborted:!!exportSignal?.aborted,
-    retryWindowExpired:Date.now()>=deadline,
-  });
-}
-
-function overpassFailureDetail(error){
-  const elapsed=error.retryWindowExpired ? ' after retrying for up to 60 minutes' : '';
-  return `${error.summary()}${elapsed}`;
+  throw new OverpassFetchError(failures, { aborted:!!exportSignal?.aborted, attemptsExhausted:true });
 }
 
 async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
@@ -1281,7 +1327,6 @@ async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
     if (fine) tiles = fine;
   }
   const elementArrays = [];
-  const failedTiles = [];
   let fetchCount = 0;
 
   for (const tile of tiles) {
@@ -1302,14 +1347,12 @@ async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
       fetched = (await overpassFetch(body, { ...fetchOptions, timeoutMs: OVERPASS_ATTEMPT_TIMEOUT_MS })).json;
     } catch(e) {
       if (!(e instanceof OverpassFetchError)) throw e;
-      console.warn(`Tile ${tileBboxStr} failed for layer ${layer.id}: ${e.summary()}`);
-      failedTiles.push(tile);
       throw new ExportFailure({
         source: layer.id,
         phase: 'fetch',
         userMessage: e.aborted
           ? 'Export cancelled while map data was loading.'
-          : `Map data for ${layer.label || layer.id} could not be loaded (${overpassFailureDetail(e)}). Check your connection and try again.`,
+          : `Map data for ${layer.label || layer.id} could not be loaded.`,
         cause: e,
         details: { tile: tileBboxStr, failures: e.failures },
       });
@@ -1323,7 +1366,7 @@ async function fetchLayer(layer, bboxStr, bbox, fetchOptions={}) {
     }
   }
 
-  return { elements: mergeElements(elementArrays), failedTiles };
+  return { elements: mergeElements(elementArrays) };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1347,28 +1390,13 @@ async function fetchTileCombined(layers, tile, preferredEndpoint=null, onProgres
   const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
   const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
   const body = 'data=' + encodeURIComponent(q);
-  // §2.1: preferredEndpoint lets two concurrent workers pin to different
-  // hosts so we don't hammer the same one; rotation is the fallback.
+  // The optional preferred endpoint is retained for callers that need it;
+  // normal exports pass null so every tile starts at the primary .de host.
   return (await overpassFetch(body, {
     preferredEndpoint, timeoutMs: OVERPASS_COMBINED_TIMEOUT_MS, onProgress,
   })).json;
 }
 
-// Race the combined query across ALL currently-available endpoints and return
-// the first successful response, aborting the losers. Used for single-tile
-// exports (small areas): the old worker-pool handed the one tile to whichever
-// endpoint grabbed it first, so a single slow/overloaded server could stall the
-// whole export while the others sat idle. Racing makes the fastest server win.
-async function fetchTileCombinedRace(layers, tile, onProgress=null) {
-  const tileBboxStr = `${tile.s},${tile.w},${tile.n},${tile.e}`;
-  const inFetchSet = new Set(layers.map(l => l.id));
-  const combinedQueries = layers.map(l => supersededQuery(l, tileBboxStr, inFetchSet)).join('').replaceAll(`(${tileBboxStr})`, '');
-  const q = `[out:json][bbox:${tileBboxStr}][timeout:120];(${combinedQueries});out body geom qt;`;
-  const body = 'data=' + encodeURIComponent(q);
-  return (await overpassFetchRace(body, {
-    timeoutMs: OVERPASS_COMBINED_TIMEOUT_MS, onProgress,
-  })).json;
-}
 
 // ════════════════════════════════════════════════════════════════
 //  PROJECTION — Web Mercator
@@ -4193,6 +4221,7 @@ function commitSuccessfulExport({ svg, filename, engine, results, exportBbox, wi
   });
   exportState = state;
   cancelPendingPreview();
+  showExportOnMap(state.svg, state.bbox);
   presentPreview({
     svg: state.svg,
     engine: state.engine,
@@ -4213,6 +4242,10 @@ function previewSourceSupportsCurrentSettings(source) {
 
 function commitLivePreview(requestId, source, svg, fingerprint) {
   if (requestId !== previewRequestSequence || exportInProgress || exportState !== source) return false;
+  // V2 uses the same derived face geometry as its export. Keep that exact
+  // vector representation on the map when the user changes layers after a
+  // compatible export, rather than falling back to the raster reference map.
+  if (source.engine === EXPORT_ENGINE.V2) showExportOnMap(svg, source.bbox);
   presentPreview({
     svg,
     engine: source.engine,
@@ -4388,6 +4421,7 @@ async function runExportLifecycle(source, work) {
   const exportAbort = new AbortController();
   activeExportAbort = exportAbort;
   cacheErrorLogged = false;
+  overpassOverloadLogged = false;
 
   try {
     const value = await work(runId);
@@ -4457,7 +4491,6 @@ async function doExport() {
     // can move mid-run and desync the fetched data from the projection. Shadows
     // the module global for the whole work body.
     const bbox = exportSettings.bbox;
-    clearFailedTileOverlays();
     adaptiveTileDelay=350;
 
   const needsBlocks = selected.some(l => l.id === 'city_blocks');
@@ -4503,7 +4536,7 @@ async function doExport() {
   // reduces 40 API calls down to at most 4.
   const layerElements={}; // layerId -> [...elements across tiles]
   selected.forEach(l=>{ layerElements[l.id]=[]; });
-  let totalFailedTiles=0, fetchedTiles=0;
+  let fetchedTiles=0;
 
   // Stage 2 — cache probe
   progress.setStage('check_cache', 'active');
@@ -4517,11 +4550,10 @@ async function doExport() {
   // Stage 3 — fetch tiles (or skip if nothing to fetch)
   const queue = tiles.map((tile, idx) => ({ tile, idx }));
   let tilesDone = 0, tilesFullyCached = 0;
-  const fetchedMeta = () => `${fetchedTiles} fetched · ${tilesFullyCached} cached · ${totalFailedTiles} failed`;
-  progress.setStage('fetch_tiles', 'active', { meta: `0/${tiles.length}`, detail: uncachedCount ? 'Waiting for endpoints…' : 'Nothing to fetch — all tiles cached' });
+  const fetchedMeta = () => `${fetchedTiles} fetched · ${tilesFullyCached} cached`;
+  progress.setStage('fetch_tiles', 'active', { meta: `0/${tiles.length}`, detail: uncachedCount ? 'Fetching map data…' : 'Everything is already cached' });
 
-  async function worker(endpoint) {
-    const host = new URL(endpoint).hostname;
+  async function worker() {
     while (queue.length) {
       const { tile, idx } = queue.shift();
       const uncachedLayers = [];
@@ -4548,14 +4580,16 @@ async function doExport() {
 
       progress.setStage('fetch_tiles', 'active', {
         meta: `${tilesDone}/${tiles.length} · ${fetchedMeta()}`,
-        detail: `Tile ${idx+1}/${tiles.length}: ${uncachedLayers.map(l=>l.label).join(', ')} on ${host}`,
+        detail: `Tile ${idx+1}/${tiles.length}: ${uncachedLayers.map(l=>l.label).join(', ')}`,
       });
 
       // Per-tile fetch progress: shows TTFB elapsed, then bytes received.
       // Log a one-time warning if the server-side compute stalls past 15s.
       let warnedSlow = false;
       const onFetchProgress = (info) => {
-        let line = `Tile ${idx+1}/${tiles.length} on ${host}: `;
+        const host = typeof info.endpoint === 'string' && info.endpoint.startsWith('http')
+          ? new URL(info.endpoint).hostname : info.endpoint;
+        let line = `Tile ${idx+1}/${tiles.length} via ${host}: `;
         if (info.phase === 'waiting') {
           line += info.elapsed === 0
             ? 'sent query, awaiting response…'
@@ -4576,26 +4610,17 @@ async function doExport() {
         });
       };
 
-      // Single-tile exports: race all endpoints (the fastest wins) instead of
-      // pinning to this worker's one endpoint. Multi-tile already parallelizes
-      // across endpoints via the worker pool, so keep the pinned path there.
       let combined;
       try {
-        combined = tiles.length === 1
-          ? await fetchTileCombinedRace(uncachedLayers, tile, onFetchProgress)
-          : await fetchTileCombined(uncachedLayers, tile, endpoint, onFetchProgress);
+        combined = await fetchTileCombined(uncachedLayers, tile, null, onFetchProgress);
       } catch (e) {
         if (!(e instanceof OverpassFetchError)) throw e;
-        totalFailedTiles++;
-        console.warn(`Tile ${idx+1}/${tiles.length} failed: ${e.summary()}`);
-        showFailedTileOverlays([tile], `tile ${idx+1}`);
-        progress.log(`Tile ${idx+1}/${tiles.length} failed: ${e.summary()}`, { warn: true });
         throw new ExportFailure({
           source: uncachedLayers.map(layer => layer.id).join(','),
           phase: 'fetch',
           userMessage: e.aborted
             ? 'Export cancelled while map data was loading.'
-            : `Map data could not be loaded — ${overpassFailureDetail(e)} on tile ${idx+1} of ${tiles.length}. Check your connection and try again.`,
+            : `Map data for tile ${idx+1} could not be loaded.`,
           cause: e,
           details: {
             tile: `${tile.s},${tile.w},${tile.n},${tile.e}`,
@@ -4615,47 +4640,25 @@ async function doExport() {
 
       fetchedTiles++;
       tilesDone++;
-      progress.log(`Tile ${idx+1}/${tiles.length} fetched (${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''}) from ${host}`);
+      progress.log(`Tile ${idx+1}/${tiles.length} fetched (${uncachedLayers.length} layer${uncachedLayers.length>1?'s':''})`);
       progress.bar(Math.round((tilesDone/tiles.length)*70));
-      // Per-endpoint throttle: only sleep if there's more work for this
-      // worker to pick up. Keeps parallel workers from being artificially
-      // serialized through a shared timer.
+      // Briefly throttle between tiles so a healthy server is not hammered.
       if (queue.length) await sleep(adaptiveTileDelay);
     }
   }
 
-  let firstFetchFailure = null;
-  const workers = OVERPASS_ENDPOINTS.map(async endpoint => {
-    try {
-      await worker(endpoint);
-    } catch (error) {
-      if (!firstFetchFailure) firstFetchFailure = error;
-      // Stop handing out queued tiles, then let every already-running request
-      // settle before export cleanup can hide the progress UI.
-      queue.length = 0;
-    }
-  });
-  await Promise.allSettled(workers);
-  if (firstFetchFailure) throw firstFetchFailure;
-
-  const fetchStageState = totalFailedTiles && totalFailedTiles === tiles.length ? 'failed' : 'done';
-  progress.setStage('fetch_tiles', fetchStageState, { meta: fetchedMeta(), detail: '' });
+  // One queue keeps overpass-api.de as the primary source and avoids turning
+  // a large export into simultaneous pressure on every public mirror.
+  await worker();
+  progress.setStage('fetch_tiles', 'done', { meta: fetchedMeta(), detail: '' });
 
   // Build results in the format buildSVG expects
   const results=selected.map(layer=>({
     layer,
-    data:{ elements: mergeElements([layerElements[layer.id]]), failedTiles:[] }
+    data:{ elements: mergeElements([layerElements[layer.id]]) }
   }));
   const totalElements=results.reduce((s,r)=>s+(r.data?.elements?.length||0),0);
-  if (!totalElements) {
-    progress.log('All fetches failed — aborting export', { warn: true });
-    throw new ExportFailure({
-      source: 'engine-v1',
-      phase: 'fetch',
-      userMessage: 'Nothing to render — check your connection and try again.',
-      details: { reason: 'empty-result' },
-    });
-  }
+  if (!totalElements) progress.log('No mapped features in the selected area', { warn: true });
 
   // Estimate output size for the later warning/summary.
   const estMB=(totalElements*0.0003).toFixed(1);
@@ -4737,7 +4740,6 @@ async function doExport() {
     settings: exportSettings,
   });
   setStatus(`✓ ${selected.length} layers · ${W}px wide · ${actualMB} MB · ${totalElements.toLocaleString()} elements`,'success');
-  showFailedTileSummary(totalFailedTiles);
   saveHistory(bbox, activePreset, W, filename, actualMB, totalElements, areaName);
   return { filename, totalElements };
   });
@@ -4846,7 +4848,8 @@ function renderHistory() {
         bbox=entry.bbox;
         map.fitBounds([[entry.bbox.south,entry.bbox.west],[entry.bbox.north,entry.bbox.east]],{padding:[20,20]});
         if (bboxRect) map.removeLayer(bboxRect);
-        bboxRect=L.rectangle([[entry.bbox.south,entry.bbox.west],[entry.bbox.north,entry.bbox.east]],{color:'#bf3b1e',weight:1.5,fillColor:'#bf3b1e',fillOpacity:0.07,dashArray:'5 3'}).addTo(map);
+        clearExportMapOverlay();
+        bboxRect=exportAreaRectangle([[entry.bbox.south,entry.bbox.west],[entry.bbox.north,entry.bbox.east]]);
         updateBboxDisplay();
         document.getElementById('btn-export').disabled=false;
         setAreaName(entry.areaName||'');
@@ -4919,48 +4922,6 @@ function locateMe() {
       : err.code===err.TIMEOUT ? 'Location request timed out'
       : 'Could not determine your location';
   }, {enableHighAccuracy:false, timeout:10000, maximumAge:60000});
-}
-
-// ════════════════════════════════════════════════════════════════
-//  FAILED TILE OVERLAYS
-// ════════════════════════════════════════════════════════════════
-function showFailedTileOverlays(tiles, layerLabel) {
-  if (!failedTileLayerGroup) return;
-  tiles.forEach(tile => {
-    const rect = L.rectangle(
-      [[tile.s, tile.w], [tile.n, tile.e]],
-      { color:'#bf3b1e', weight:1, fillColor:'#e03020', fillOpacity:0.25,
-        dashArray:'4 3', className:'failed-tile-rect' }
-    );
-    rect.bindTooltip(
-      `<span class="failed-tile-tooltip">Failed: ${layerLabel}</span>`,
-      { permanent:false, direction:'top', className:'failed-tile-tooltip-wrap' }
-    );
-    failedTileLayerGroup.addLayer(rect);
-  });
-}
-
-function clearFailedTileOverlays() {
-  if (failedTileLayerGroup) failedTileLayerGroup.clearLayers();
-}
-
-function showFailedTileSummary(count) {
-  const existing = document.getElementById('failed-tile-banner');
-  if (existing) existing.remove();
-  if (count === 0) return;
-  const banner = document.createElement('div');
-  banner.id = 'failed-tile-banner';
-  banner.innerHTML =
-    `<span>${count} tile${count>1?'s':''} failed — highlighted in red on map</span>` +
-    `<button id="btn-retry-failed" class="failed-tile-retry-btn">Retry</button>` +
-    `<button id="btn-dismiss-failed" class="failed-tile-dismiss-btn">✕</button>`;
-  document.getElementById('status-bar').after(banner);
-  document.getElementById('btn-dismiss-failed').addEventListener('click', () => {
-    banner.remove(); clearFailedTileOverlays();
-  });
-  document.getElementById('btn-retry-failed').addEventListener('click', () => {
-    banner.remove(); clearFailedTileOverlays(); doExport();
-  });
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -27,8 +27,12 @@ const DEFAULT_CACHE_BASE = 'http://localhost:8080/mapexport/';
 const DEFAULT_ATTEMPT_TIMEOUT_S = 30;
 const CACHE_TIMEOUT_MS = 30_000;
 const COOLDOWN_MS = 10_000;
+const UNRESPONSIVE_COOLDOWN_MS = 60_000;
 const DEFAULT_MAX_RUNTIME_MINUTES = 60;
-const OVERPASS_UA = 'MapExport validation-cache prefetch/1.0 (+https://coen.at; hello@coen.at)';
+// This is the established server-side identity from tests/lib.mjs. Browser
+// requests cannot set User-Agent, but this Node cache warmer can and must be
+// contactable by the public Overpass operators.
+export const OVERPASS_UA = 'USE-IT-MapExport/1.0 (https://coen.at/mapexport; hello@coen.at)';
 
 const HELP = `Usage: node tools/prefetch-validation-cache.mjs [options]
 
@@ -49,6 +53,9 @@ Options:
   --grid=fine            Tile every bbox on the app's shareable fine grid
                          (bboxToFineTiles) instead of the export tiling, so any
                          hand-drawn selection inside the area hits the cache
+  --v2-only              Include only engine-v2's fetchable layers
+  --endpoint=<host>       Use only the named app Overpass host (for example,
+                         overpass-api.de) instead of rotating across mirrors
   --max-runtime=<min>    Give up after this many minutes (default 60);
                          0 means run until every key is cached or interrupted
   --attempt-timeout=<s>  Client and Overpass [timeout:] per attempt (default 30);
@@ -59,7 +66,8 @@ Options:
 function parseArgs(argv) {
   const options = {
     dryRun: false, listKeys: false, cacheBase: DEFAULT_CACHE_BASE,
-    citiesFile: null, grid: 'export', maxRuntimeMinutes: DEFAULT_MAX_RUNTIME_MINUTES,
+    citiesFile: null, grid: 'export', v2Only: false, endpointHost: null,
+    maxRuntimeMinutes: DEFAULT_MAX_RUNTIME_MINUTES,
     attemptTimeoutS: DEFAULT_ATTEMPT_TIMEOUT_S,
   };
   for (const arg of argv) {
@@ -69,6 +77,8 @@ function parseArgs(argv) {
     else if (arg.startsWith('--cache-base=')) options.cacheBase = arg.slice('--cache-base='.length);
     else if (arg.startsWith('--cities=')) options.citiesFile = arg.slice('--cities='.length);
     else if (arg.startsWith('--grid=')) options.grid = arg.slice('--grid='.length);
+    else if (arg === '--v2-only') options.v2Only = true;
+    else if (arg.startsWith('--endpoint=')) options.endpointHost = arg.slice('--endpoint='.length);
     else if (arg.startsWith('--max-runtime=')) options.maxRuntimeMinutes = Number(arg.slice('--max-runtime='.length));
     else if (arg.startsWith('--attempt-timeout=')) options.attemptTimeoutS = Number(arg.slice('--attempt-timeout='.length));
     else throw new Error(`Unknown option: ${arg}`);
@@ -222,7 +232,7 @@ function loadAppContract() {
   if (typeof contract.blockBuildingsLayer?.overpassQuery !== 'function') {
     throw new Error('Expected script.js to expose BLOCK_BUILDINGS_LAYER as blockBuildingsLayer');
   }
-  return { ...contract, fetchable: [...fetchable, ...v1Only, contract.blockBuildingsLayer] };
+  return { ...contract, v2Fetchable: fetchable, fetchable: [...fetchable, ...v1Only, contract.blockBuildingsLayer] };
 }
 
 function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_ATTEMPT_TIMEOUT_S) {
@@ -258,6 +268,31 @@ function makePlan(cities, contract, grid = 'export', attemptTimeoutS = DEFAULT_A
 
 function validEnvelope(value) {
   return !!value && typeof value === 'object' && Array.isArray(value.elements);
+}
+
+export class PrefetchAttemptError extends Error {
+  constructor(kind, message, { cause = null } = {}) {
+    super(message, cause ? { cause } : undefined);
+    this.name = 'PrefetchAttemptError';
+    this.kind = kind;
+  }
+}
+
+// A timeout (whether reported as TimeoutError or AbortError by this Node
+// version) means the host failed to respond within our own deadline. A fetch
+// rejection before that is an unreachable host (DNS, reset, refused socket).
+function failedRequestKind(error, controller) {
+  if (controller.signal.aborted) return 'aborted';
+  return error?.name === 'TimeoutError' || error?.name === 'AbortError'
+    ? 'timeout'
+    : 'unreachable';
+}
+
+export function cooldownForFailure(error) {
+  return error instanceof PrefetchAttemptError
+    && (error.kind === 'timeout' || error.kind === 'unreachable')
+    ? UNRESPONSIVE_COOLDOWN_MS
+    : COOLDOWN_MS;
 }
 
 function signalFor(controller, timeoutMs) {
@@ -308,20 +343,27 @@ async function writeCache(task, data, options, controller, remainingMs) {
 }
 
 async function fetchOverpass(task, endpoint, controller, remainingMs, attemptTimeoutMs) {
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      'User-Agent': OVERPASS_UA,
-    },
-    body: `data=${encodeURIComponent(task.query)}`,
-    signal: signalFor(controller, Math.min(attemptTimeoutMs, remainingMs)),
-  });
-  if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': OVERPASS_UA,
+      },
+      body: `data=${encodeURIComponent(task.query)}`,
+      signal: signalFor(controller, Math.min(attemptTimeoutMs, remainingMs)),
+    });
+  } catch (error) {
+    const kind = failedRequestKind(error, controller);
+    if (kind === 'aborted') throw error;
+    throw new PrefetchAttemptError(kind, `${kind}: ${error.message}`, { cause: error });
+  }
+  if (response.status !== 200) throw new PrefetchAttemptError('http', `HTTP ${response.status}`);
   let data;
   try { data = await response.json(); }
-  catch (error) { throw new Error(`invalid JSON: ${error.message}`); }
-  if (!validEnvelope(data)) throw new Error('response has no elements array');
+  catch (error) { throw new PrefetchAttemptError('parse', `invalid JSON: ${error.message}`, { cause: error }); }
+  if (!validEnvelope(data)) throw new PrefetchAttemptError('parse', 'response has no elements array');
   return data;
 }
 
@@ -329,8 +371,8 @@ function retainedCount(task, data) {
   return task.layer.tagFilter ? data.elements.filter(task.layer.tagFilter).length : data.elements.length;
 }
 
-async function waitCooldown(controller, deadlineAt) {
-  const ms = Math.min(COOLDOWN_MS, Math.max(0, Math.floor(deadlineAt - performance.now())));
+async function waitCooldown(controller, deadlineAt, cooldownMs = COOLDOWN_MS) {
+  const ms = Math.min(cooldownMs, Math.max(0, Math.floor(deadlineAt - performance.now())));
   if (ms <= 0 || controller.signal.aborted) return;
   await new Promise(resolve => {
     const timer = setTimeout(done, ms);
@@ -369,12 +411,17 @@ async function main() {
   try {
     const cities = options.citiesFile ? loadCitiesFile(options.citiesFile) : loadCities();
     const contract = loadAppContract();
+    if (options.v2Only) contract.fetchable = contract.v2Fetchable;
+    if (options.endpointHost) {
+      contract.endpoints = contract.endpoints.filter(endpoint => new URL(endpoint).hostname === options.endpointHost);
+      if (!contract.endpoints.length) throw new Error(`Unknown app Overpass host: ${options.endpointHost}`);
+    }
     const plan = makePlan(cities, contract, options.grid, options.attemptTimeoutS);
     if (options.listKeys) {
       for (const task of plan) console.log(task.key);
       return;
     }
-    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} v1+v2 layers = ${plan.length} cache keys (${options.grid} grid, ${options.maxRuntimeMinutes === 0 ? 'no time limit' : `${options.maxRuntimeMinutes} min limit`})`);
+    console.log(`Plan: ${Object.keys(cities).length} cities × ${contract.fetchable.length} ${options.v2Only ? 'v2' : 'v1+v2'} layers = ${plan.length} cache keys (${options.grid} grid, ${options.maxRuntimeMinutes === 0 ? 'no time limit' : `${options.maxRuntimeMinutes} min limit`})`);
     console.log(`Cache: ${options.cacheBase}`);
     console.log(`Endpoints: ${contract.endpoints.map(value => new URL(value).hostname).join(' → ')}`);
 
@@ -425,6 +472,7 @@ async function main() {
       task.attempts++;
       liveAttempts++;
       let succeeded = false;
+      let failure = null;
       try {
         console.log(`TRY  ${task.city}/${task.layer.id} attempt ${task.attempts} via ${host}`);
         const data = await fetchOverpass(task, endpoint, controller, deadlineAt - performance.now(), options.attemptTimeoutS * 1000);
@@ -435,17 +483,22 @@ async function main() {
         succeeded = true;
         console.log(`OK   ${task.city}/${task.layer.id}: ${data.elements.length} raw, ${retainedCount(task, data)} after filter (${queue.length} gaps remain)`);
       } catch (error) {
+        failure = error;
         failures++;
         endpointCursor++;
-        console.warn(`FAIL ${task.city}/${task.layer.id} via ${host}: ${error.message}`);
+        const cooldownMs = cooldownForFailure(error);
+        const kind = error instanceof PrefetchAttemptError ? ` (${error.kind})` : '';
+        console.warn(`FAIL ${task.city}/${task.layer.id} via ${host}${kind}: ${error.message}; pausing ${cooldownMs / 1000}s`);
         // Keep the in-flight key in the remainder count on SIGINT/deadline;
         // only ordinary attempt failures rotate it to the tail.
         if (controller.signal.aborted) queue.unshift(task);
         else queue.push(task);
       }
 
-      // A fixed cooldown follows every live attempt, successful or not.
-      await waitCooldown(controller, deadlineAt);
+      // A host that timed out or could not be reached gets six times the
+      // normal pause before the queue tries another endpoint. HTTP/parse and
+      // local cache errors retain the polite 10-second pacing.
+      await waitCooldown(controller, deadlineAt, succeeded ? COOLDOWN_MS : cooldownForFailure(failure));
       if (!succeeded && queue.length) console.log(`     rotated failed key to queue tail (${queue.length} gaps pending)`);
     }
 
@@ -456,7 +509,7 @@ async function main() {
       for (const task of queue) console.error(`  - ${task.city}/${task.layer.id}  ${task.key}`);
       process.exitCode = interrupted ? 130 : 1;
     } else {
-      console.log('COMPLETE — every validation-city cache key (v1+v2) is confirmed present');
+      console.log(`COMPLETE — every selected cache key (${options.v2Only ? 'v2' : 'v1+v2'}) is confirmed present`);
     }
   } catch (error) {
     console.error(`ERROR ${error.message}`);
@@ -467,4 +520,4 @@ async function main() {
   }
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

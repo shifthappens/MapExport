@@ -61,6 +61,36 @@ const expose = `
       runId: ++exportRunSequence,
     });
   },
+  enableMapOverlayTest() {
+    const events = [];
+    map = {
+      removeLayer(layer) { events.push({ type: 'remove', layer }); },
+    };
+    globalThis.DOMParser = class {
+      parseFromString() {
+        const element = {
+          nodeName: 'svg',
+          classes: [],
+          attributes: {},
+          classList: { add(value) { element.classes.push(value); } },
+          setAttribute(name, value) { element.attributes[name] = value; },
+        };
+        return { documentElement: element, querySelector() { return null; } };
+      }
+    };
+    globalThis.L = {
+      svgOverlay(element, bounds, options) {
+        events.push({ type: 'create', element, bounds, options });
+        return {
+          addTo(target) {
+            events.push({ type: 'add', target });
+            return this;
+          },
+        };
+      },
+    };
+    return events;
+  },
   switchEngine(engine) {
     // In the browser this is a page reload with ?engine=1|2; the preview
     // contract only needs the selection to change under a live preview.
@@ -163,6 +193,16 @@ X.switchEngine(X.EXPORT_ENGINE.V2);
 state = X.snapshot();
 assert.equal(state.exportSvg, '<svg id="full-export" />');
 assert.equal(state.downloadText, '↓ Download last export');
+
+X.prime(X.EXPORT_ENGINE.V1);
+const overlayEvents = X.enableMapOverlayTest();
+X.commitExport('<svg id="map-overlay" />');
+const overlayCreate = overlayEvents.find(event => event.type === 'create');
+assert.equal(JSON.stringify(overlayCreate.bounds), '[[51.5,5],[51.51,5.01]]');
+assert.equal(JSON.stringify(overlayCreate.options), '{"interactive":false,"opacity":1}');
+assert.equal(JSON.stringify(overlayCreate.element.classes), '["export-map-overlay"]');
+assert.equal(overlayCreate.element.attributes['aria-label'], 'Exact vector preview of the export');
+assert.ok(overlayEvents.some(event => event.type === 'add'), 'export SVG was not added to the map');
 
 X.prime(X.EXPORT_ENGINE.V1);
 X.drawSelection({ lat: 51.5, lng: 5 }, { lat: 51.51, lng: 5.01 });

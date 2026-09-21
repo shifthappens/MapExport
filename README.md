@@ -23,6 +23,7 @@ The output SVG has individually named and grouped layers (`inkscape:groupmode="l
 ├── engine-v2.js           # v2 map-construction engine (production; ?engine=1 selects v1 for comparison)
 ├── ENGINE-V2.md           # v2 design contract — binding invariants, read before changing engine-v2.js
 ├── style.css              # UI styles
+├── useit-map-style.json   # Worldwide, export-colour vector reference-map style
 ├── cache.php              # Server-side Overpass response cache (PHP)
 ├── presentations/         # Workshop deck, browser preview, source and demo assets
 ├── tests/                 # Node.js regression harness (no deps) — see tests/README.md
@@ -68,7 +69,7 @@ the deployment workflow recreates it only in its production build.
 | Component | Technology |
 |-----------|-----------|
 | Frontend | Vanilla JavaScript — no framework, no bundler |
-| Map UI | [Leaflet.js](https://leafletjs.com/) with OpenStreetMap tiles |
+| Map UI | [Leaflet.js](https://leafletjs.com/) with a stripped-down [MapLibre](https://maplibre.org/) vector style from [OpenFreeMap](https://openfreemap.org/) |
 | Geometry | [ClipperLib](https://sourceforge.net/projects/jsclipper/) (polygon boolean ops via CDN) |
 | Async compute | Web Workers (city block computation) |
 | Data source | [Overpass API](https://overpass-api.de/) (OpenStreetMap query engine) |
@@ -198,12 +199,11 @@ Name-centric label placement with cartographic quality:
 
 - **Layer supersession**: when both a layer and its superseder are selected (e.g. `street_labels` + `roads`), the subordinate reuses the superseder's response via `tagFilter`, halving API calls
 - **Global bbox hoisting**: per-statement `(bbox)` filters are hoisted to the Overpass global header
-- **Endpoint-parallel workers**: multi-tile exports use one worker per Overpass endpoint
-- **Single-tile endpoint racing**: `Promise.any` across all endpoints; fastest wins, losers are aborted
+- **Primary-first endpoint rotation**: every missing tile starts with `overpass-api.de`; mirrors are only fallbacks
 - **Batch cache probe**: one round-trip checks up to 64 cache keys
 - **Query hash in cache key**: FNV-1a hash of the query string auto-retires stale cache entries
 - **Adaptive tile delay**: starts at 350ms, increases on 429 responses, caps at 1500ms
-- **Resilient retry window**: temporary rate limits, timeouts and server outages keep retrying with endpoint backoff for up to one hour; the progress panel always offers Cancel export
+- **Persistent retrying**: temporary rate limits, timeouts and server outages keep retrying with endpoint backoff until every tile arrives; the progress panel explains that the browser must remain open and the computer awake, and always offers Cancel export
 
 ## USE-IT color preset
 
@@ -318,7 +318,7 @@ meant to linger in a local checkout. Any personal root-level `minify.sh` /
 ## Known limitations
 
 - **Large area exports**: ClipperLib boolean operations can be slow for areas >10km x 10km. May need internal tiling for full-city exports.
-- **Overpass rate limits**: public endpoints may return 429 during heavy OSM community usage. The app keeps retrying for up to one hour with endpoint backoff; use Cancel export if you do not want to wait.
+- **Overpass rate limits**: public endpoints may return 429 during heavy OSM community usage. The app keeps retrying with endpoint backoff until every tile is available; use Cancel export if you do not want to wait. `overpass-api.de` is tried first, while mirrors are fallbacks and are temporarily taken out of rotation after repeated silent failures.
 - **OSM data completeness**: output quality depends on how well the target city is mapped in OpenStreetMap. Well-mapped European cities produce excellent results; less-mapped areas may have gaps.
 
 ## License
