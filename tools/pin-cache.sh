@@ -2,7 +2,7 @@
 # Own the never-expiring Overpass cache for the seven validation cities
 # (cache/pinned/), covering both v1 and v2's fetchable layers.
 #
-# cache.php expires normal entries after 7 days. Entries in cache/pinned/ are
+# cache.php expires normal entries after 30 days. Entries in cache/pinned/ are
 # never expired and never swept, and cache.php falls back to them whenever the
 # live copy is missing or stale — so the validation exports keep working
 # offline forever and only touch Overpass when someone runs `refresh` here.

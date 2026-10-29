@@ -34,7 +34,7 @@ retired).
 
 - `cache/pinned/` is a tracked, never-expiring snapshot of the Overpass keys
   currently used by the seven `tests/real-export.mjs` cities. `cache.php` serves
-  it whenever the live `cache/` copy is missing or past its 7-day TTL, so pinned
+  it whenever the live `cache/` copy is missing or past its 30-day TTL, so pinned
   validation exports run offline. A full seven-city sweep takes minutes; query
   changes can temporarily leave new keys unpinned until Coen refreshes them.
 - Check it with `tools/pin-cache.sh status`. If every key is pinned, a slow or

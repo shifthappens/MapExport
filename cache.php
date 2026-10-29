@@ -1,6 +1,15 @@
 <?php
 $CACHE_DIR = __DIR__ . '/cache/';
-$CACHE_TTL = 7 * 24 * 3600; // 7 days
+$CACHE_TTL = 30 * 24 * 3600; // 30 days
+
+// Live tiles whose footprint overlaps one of these [south, west, north, east]
+// boxes skip the TTL: they are served and kept however old they get, until a
+// new upload replaces them. Unlike pinned/, this covers whatever the browser
+// caches there, not a hand-picked snapshot. They stay prunable for space, but
+// only after every other entry, so the size cap still bounds the disk.
+$NO_EXPIRE_BOXES = [
+    [51.50, 4.95, 51.62, 5.17], // Tilburg incl. Berkel-Enschot/Udenhout (Coen, 2026-10-30)
+];
 
 // Pinned entries (cache/pinned/) never expire and are never swept: the seven
 // engine-v2 validation areas must stay exportable offline forever and refresh
@@ -71,8 +80,9 @@ function writeRateLimited($cacheDir, $max, $window) {
 // Opportunistic cleanup, at most once per $interval and behind a non-blocking
 // lock so concurrent uploads don't stampede: proactively drop TTL-expired
 // entries (lazy expiry only fires when a key is read), then, if the cache
-// still exceeds $maxBytes, prune oldest-mtime entries down to 90% of the cap.
-function sweepCache($cacheDir, $maxBytes, $ttl, $interval, $rlWindow) {
+// still exceeds $maxBytes, prune oldest-mtime entries down to 90% of the cap,
+// $NO_EXPIRE_BOXES tiles last.
+function sweepCache($cacheDir, $maxBytes, $ttl, $noExpireBoxes, $interval, $rlWindow) {
     $marker = $cacheDir . '.lastsweep';
     if (file_exists($marker) && time() - filemtime($marker) < $interval) return;
     $fh = @fopen($marker, 'c');
@@ -84,13 +94,16 @@ function sweepCache($cacheDir, $maxBytes, $ttl, $interval, $rlWindow) {
     foreach (array_merge(glob($cacheDir . '*.json.gz') ?: [], glob($cacheDir . '*.json') ?: []) as $p) {
         $mtime = @filemtime($p); $size = @filesize($p);
         if ($mtime === false || $size === false) continue;
-        if ($now - $mtime > $ttl) { @unlink($p); continue; }
-        $entries[] = [$mtime, $size, $p];
+        $keep = inNoExpireBox($p, $noExpireBoxes);
+        if (!$keep && $now - $mtime > $ttl) { @unlink($p); continue; }
+        // Oldest-first alone would pick exactly the tiles the TTL exemption
+        // keeps old, so they queue behind everything else instead.
+        $entries[] = [$keep, $mtime, $size, $p];
         $total += $size;
     }
     if ($total > $maxBytes) {
-        usort($entries, fn($a, $b) => $a[0] <=> $b[0]);
-        foreach ($entries as [, $size, $p]) {
+        usort($entries, fn($a, $b) => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+        foreach ($entries as [, , $size, $p]) {
             if ($total <= (int)($maxBytes * 0.9)) break;
             if (@unlink($p)) $total -= $size;
         }
@@ -131,6 +144,24 @@ function tileBoundsFromKey($key) {
     return $s >= -90 && $n <= 90 && $w >= -180 && $e <= 180 && $n > $s && $e > $w ? $bounds : null;
 }
 
+// Whether a live cache file's tile overlaps a $NO_EXPIRE_BOXES box. $path's
+// basename minus .json(.gz) is its key. Keys are client-chosen, so a footprint
+// wider than 0.25° never qualifies: a world-sized _a_ key must not ride along.
+function inNoExpireBox($path, $noExpireBoxes) {
+    $bounds = tileBoundsFromKey(preg_replace('/\.json(?:\.gz)?$/', '', basename($path)));
+    if ($bounds === null) return false;
+    [$s, $w, $n, $e] = $bounds;
+    if ($n - $s > 0.25 || $e - $w > 0.25) return false;
+    foreach ($noExpireBoxes as [$bs, $bw, $bn, $be]) {
+        if ($s < $bn && $n > $bs && $w < $be && $e > $bw) return true;
+    }
+    return false;
+}
+
+function cacheExpired($path, $ttl, $noExpireBoxes) {
+    return time() - filemtime($path) > $ttl && !inNoExpireBox($path, $noExpireBoxes);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['tiles'])) {
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
@@ -140,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['tiles'])) {
     foreach ($sources as [$dir, $expires]) {
         foreach (glob($dir . 'mapexport_v3_*.json*') ?: [] as $path) {
             if (!is_file($path) || !preg_match('/\.json(?:\.gz)?$/', $path)) continue;
-            if ($expires && time() - filemtime($path) > $CACHE_TTL) continue;
+            if ($expires && cacheExpired($path, $CACHE_TTL, $NO_EXPIRE_BOXES)) continue;
             $key = preg_replace('/\.json(?:\.gz)?$/', '', basename($path));
             $bounds = tileBoundsFromKey($key);
             if ($bounds !== null) $tiles[implode(',', $bounds)] = $bounds;
@@ -165,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['exists'])) {
         $hit = false;
         foreach ([$f, $fl] as $p) {
             if (file_exists($p)) {
-                if (time() - filemtime($p) > $CACHE_TTL) { @unlink($p); continue; }
+                if (cacheExpired($p, $CACHE_TTL, $NO_EXPIRE_BOXES)) { @unlink($p); continue; }
                 $hit = true; break;
             }
         }
@@ -195,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // entry is dropped but does not end the request: a pinned copy may still
     // answer it.
     if (file_exists($file)) {
-        if (time() - filemtime($file) > $CACHE_TTL) { unlink($file); }
+        if (cacheExpired($file, $CACHE_TTL, $NO_EXPIRE_BOXES)) { unlink($file); }
         else {
             header('X-Cache: HIT');
             header('Content-Encoding: gzip');
@@ -205,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
     }
     if (file_exists($fileLegacy)) {
-        if (time() - filemtime($fileLegacy) > $CACHE_TTL) { unlink($fileLegacy); }
+        if (cacheExpired($fileLegacy, $CACHE_TTL, $NO_EXPIRE_BOXES)) { unlink($fileLegacy); }
         else {
             header('X-Cache: HIT');
             readfile($fileLegacy);
@@ -326,7 +357,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (file_exists($fileLegacy)) @unlink($fileLegacy);
 
     // ME-04c: bound total cache size now that this write landed.
-    sweepCache($CACHE_DIR, $MAX_CACHE_BYTES, $CACHE_TTL, $SWEEP_INTERVAL, $RL_WINDOW);
+    sweepCache($CACHE_DIR, $MAX_CACHE_BYTES, $CACHE_TTL, $NO_EXPIRE_BOXES, $SWEEP_INTERVAL, $RL_WINDOW);
     http_response_code(204);
 
 } else {

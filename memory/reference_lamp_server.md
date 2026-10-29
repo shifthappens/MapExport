@@ -34,7 +34,7 @@ Details: `~/Sites/scripts/lamp-stack.md`.
 `coen:staff` 0755, so PHP can create new files — no permission changes needed.
 Full cycle confirmed: `GET cache.php?key=K` returns the gzipped tile with
 `X-Cache: HIT` (or body `null` on miss); `POST cache.php?key=K` writes it (204) —
-a gzip body is passed through, plain JSON gets gzencoded server-side. 7-day TTL.
+a gzip body is passed through, plain JSON gets gzencoded server-side. 30-day TTL.
 Cache key for an adaptive (each axis < 0.095°) bbox:
 `mapexport_v3_<layerId>_<qHash>_a_<s>_<w>_<n>_<e>`; grid tiles drop `_a_` and use
 `_<s>_<w>`. `qHash` is an FNV-1a36 of the layer's overpassQuery, so editing a query

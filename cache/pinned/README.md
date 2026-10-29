@@ -7,7 +7,7 @@ total, including the padded `block_buildings` variants.
 
 `cache.php` reads this directory directly. Entries here never expire and are
 never swept, and a pinned entry answers any GET (and `?exists=` probe) whose
-live `cache/` copy is missing or past the 7-day TTL. So the validation exports
+live `cache/` copy is missing or past the 30-day TTL. So the validation exports
 run offline indefinitely and only reach Overpass when someone asks them to.
 
 Manage it with `tools/pin-cache.sh`:

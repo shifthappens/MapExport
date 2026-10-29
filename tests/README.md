@@ -121,7 +121,7 @@ Reference area for the fixture-based tests: **Tilburg** bbox `51.530,5.040,51.59
    complete.** The current source derives 77 Overpass keys for them, while
    `cache/pinned/` is the tracked snapshot and may temporarily lag after query
    changes. `cache.php` serves a pinned entry whenever the live `cache/` entry is
-   missing or past its 7-day TTL. Check with `tools/pin-cache.sh status`; only
+   missing or past its 30-day TTL. Check with `tools/pin-cache.sh status`; only
    `tools/pin-cache.sh refresh` fetches new data, and that is a deliberate,
    human-initiated act.
 

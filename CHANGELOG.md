@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-10-30 — Longer server cache, Tilburg never expires
+- The server cache now keeps Overpass tiles for 30 days instead of 7.
+- Cached Overpass tiles around Tilburg (incl. Berkel-Enschot and Udenhout) are
+  now kept and served past the 30-day expiry, and are pruned for space only
+  after everything else, so Tilburg exports keep reusing the server cache.
+
 ### 2026-09-21 — Reusable fine-grid cache warming
 - Add a local command for warming and optionally pinning a chosen area or all
   seven validation-city bounds, so small hand-drawn exports can avoid Overpass.

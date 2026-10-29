@@ -73,7 +73,7 @@ the deployment workflow recreates it only in its production build.
 | Geometry | [ClipperLib](https://sourceforge.net/projects/jsclipper/) (polygon boolean ops via CDN) |
 | Async compute | Web Workers (city block computation) |
 | Data source | [Overpass API](https://overpass-api.de/) (OpenStreetMap query engine) |
-| Cache backend | PHP 7.2+ (`cache.php`) — stateless, gzip-compressed, 7-day TTL |
+| Cache backend | PHP 7.2+ (`cache.php`) — stateless, gzip-compressed, 30-day TTL |
 | Tests | Plain Node.js 18+ scripts, zero external dependencies |
 
 ## Local development
@@ -118,7 +118,7 @@ changes can leave the snapshot temporarily incomplete, so check
 serves a pinned entry whenever the live one is missing or expired (a fresh live
 entry still wins). Only `tools/pin-cache.sh refresh` deliberately refetches
 missing or stale validation data. The directory is never swept, and it is not
-deployed, so production keeps the plain 7-day cache.
+deployed, so production keeps the plain 30-day cache.
 
 Endpoints:
 
@@ -132,7 +132,7 @@ single server IP): uploads must be JSON shaped like an Overpass response
 (an `elements` array), at most 8 MiB compressed / 80 MiB decompressed, are
 staged to a temp file and renamed into place atomically, and each IP gets at
 most 300 writes per 10 minutes (429 beyond that — the app just treats it as a
-cache miss). A sweep during writes proactively drops entries past the 7-day
+cache miss). A sweep during writes proactively drops entries past the 30-day
 TTL and prunes oldest-first whenever `cache/` exceeds 2 GiB. All knobs have
 `MAPEXPORT_CACHE_*` env overrides (see the top of `cache.php`), used by
 `tests/cache-php.mjs`.
@@ -311,7 +311,7 @@ meant to linger in a local checkout. Any personal root-level `minify.sh` /
 
 - **No framework**: the entire app is vanilla JS (~3900 lines in `script.js` plus ~2000 in `engine-v2.js`). This keeps the dependency footprint at zero and avoids build complexity.
 - **City blocks over building footprints**: earlier versions fetched individual building polygons from OSM. This was rejected — too realistic/cluttered for the USE-IT style. The current approach computes road-bounded faces as solid blocks, matching the hand-drawn look of existing USE-IT maps.
-- **Server-side cache**: Overpass API has rate limits and can be slow. The PHP cache with 7-day TTL and query-hash invalidation makes re-exports near-instant and avoids hammering public endpoints.
+- **Server-side cache**: Overpass API has rate limits and can be slow. The PHP cache with 30-day TTL and query-hash invalidation makes re-exports near-instant and avoids hammering public endpoints.
 - **Web Worker for blocks**: ClipperLib boolean operations on large areas can take seconds. Running in a Web Worker keeps the UI responsive.
 - **Endpoint diversity**: three Overpass endpoints with failover, racing (single-tile), and parallel workers (multi-tile) provide resilience against any single endpoint being slow or down.
 

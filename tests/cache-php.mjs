@@ -113,10 +113,37 @@ const docJson = JSON.stringify(doc);
 
   // TTL expiry still evicts
   const old = path.join(cacheDir, 't_plain.json.gz');
-  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  const past = new Date(Date.now() - 31 * 24 * 3600 * 1000);
   fs.utimesSync(old, past, past);
   r = await get('t_plain');
   check('expired entry evicted to null', (await r.text()) === 'null' && !fs.existsSync(old));
+
+  // ...except inside a $NO_EXPIRE_BOXES box (Tilburg): coarse, fine and exact-bbox
+  // tiles overlapping it are served and kept past the TTL; one beside it is not.
+  const longPast = new Date(Date.now() - 60 * 24 * 3600 * 1000);
+  const tilburgKeys = ['mapexport_v3_roads_h_51.5_5', 'mapexport_v3_roads_h_f_51.55_5.075',
+    'mapexport_v3_roads_h_a_51.545_5.07_51.562_5.1', 'mapexport_v3_roads_h_51.6_4.9'];
+  for (const k of tilburgKeys) {
+    await post(k, docJson);
+    fs.utimesSync(path.join(cacheDir, `${k}.json.gz`), longPast, longPast);
+    r = await get(k);
+    check(`Tilburg tile served past TTL (${k})`, r.headers.get('x-cache') === 'HIT'
+      && JSON.stringify(await r.json()) === docJson);
+  }
+  r = await fetch(`${BASE}?exists=${tilburgKeys.join(',')}`);
+  check('Tilburg tiles still exist past TTL', Object.values(await r.json()).every(v => v === true));
+  r = await fetch(`${BASE}?tiles=1`);
+  check('Tilburg tiles still listed past TTL', (await r.json()).length >= tilburgKeys.length);
+  const huge = 'mapexport_v3_roads_h_a_-89_-179_89_179'; // overlaps Tilburg, but is the world
+  await post(huge, docJson);
+  fs.utimesSync(path.join(cacheDir, `${huge}.json.gz`), longPast, longPast);
+  r = await get(huge);
+  check('oversized footprint over the box still expires', (await r.text()) === 'null');
+  const beside = 'mapexport_v3_roads_h_51.7_5.2';
+  await post(beside, docJson);
+  fs.utimesSync(path.join(cacheDir, `${beside}.json.gz`), longPast, longPast);
+  r = await get(beside);
+  check('tile outside the box still expires', (await r.text()) === 'null');
 }
 
 // ---- pinned entries never expire (cache/pinned/, tools/pin-cache.sh) ----
@@ -143,7 +170,7 @@ const docJson = JSON.stringify(doc);
   // The whole point: past the TTL the live copy goes, the pin answers anyway,
   // so a validation export never falls back to Overpass.
   const live = path.join(cacheDir, 't_pin.json.gz');
-  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  const past = new Date(Date.now() - 31 * 24 * 3600 * 1000);
   fs.utimesSync(live, past, past);
   r = await get('t_pin');
   check('expired live copy falls back to the pin instead of null',
@@ -217,7 +244,7 @@ const docJson = JSON.stringify(doc);
   write(pinned, 'mapexport_v3_roads_hash_52.0_6.0');
   write(live, 'mapexport_v3_invalid');
   const expired = path.join(live, 'mapexport_v3_roads_hash_49.0_4.0.json.gz');
-  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  const past = new Date(Date.now() - 31 * 24 * 3600 * 1000);
   fs.utimesSync(expired, past, past);
 
   const readTiles = async () => {
@@ -360,10 +387,27 @@ const docJson = JSON.stringify(doc);
   // proactive TTL deletion: an expired entry disappears on sweep, without a read
   const stale = path.join(sz.cacheDir, 'sz_stale.json.gz');
   fs.writeFileSync(stale, zlib.gzipSync(docJson));
-  const past = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  const past = new Date(Date.now() - 31 * 24 * 3600 * 1000);
   fs.utimesSync(stale, past, past);
   await fetch(`${sz.base}?key=sz_8`, { method: 'POST', headers: JSON_HDR, body: fat() });
   check('sweep proactively deletes TTL-expired entries', !fs.existsSync(stale));
+  const tilburg = path.join(sz.cacheDir, 'mapexport_v3_roads_h_51.5_5.json.gz');
+  fs.writeFileSync(tilburg, zlib.gzipSync(docJson));
+  fs.utimesSync(tilburg, past, past);
+  await fetch(`${sz.base}?key=sz_9`, { method: 'POST', headers: JSON_HDR, body: fat() });
+  check('sweep keeps TTL-expired Tilburg tiles', fs.existsSync(tilburg));
+  // Under size pressure Tilburg tiles go last, not never: the cap must hold.
+  const tilburgFat = path.join(sz.cacheDir, 'mapexport_v3_roads_h_51.6_5.json.gz');
+  fs.writeFileSync(tilburgFat, zlib.gzipSync(fat()));
+  fs.utimesSync(tilburgFat, longPast, longPast);
+  for (let i = 10; i <= 13; i++) {
+    await fetch(`${sz.base}?key=sz_${i}`, { method: 'POST', headers: JSON_HDR, body: fat() });
+  }
+  const after = fs.readdirSync(sz.cacheDir).filter(f => f.endsWith('.json.gz'));
+  const afterTotal = after.reduce((n, f) => n + fs.statSync(path.join(sz.cacheDir, f)).size, 0);
+  check('size cap still holds with Tilburg tiles present', afterTotal <= 15000, `${afterTotal} bytes`);
+  check('Tilburg tiles outlive newer ordinary entries under size pressure',
+    fs.existsSync(tilburgFat) && !after.includes('sz_10.json.gz'), after.join(','));
   check('sweep never touches pinned/, however old or fat', fs.existsSync(pin));
 }
 

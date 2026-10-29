@@ -859,7 +859,7 @@ async function fetchBoundaries(placeName) {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  TILE CACHE  (server-side via cache.php, 7-day TTL)
+//  TILE CACHE  (server-side via cache.php, 30-day TTL)
 // ════════════════════════════════════════════════════════════════
 const TILE_SIZE = 0.1; // degrees per tile (~8×11 km at mid-latitudes)
 const CACHE_PREFIX = 'mapexport_v3_';
