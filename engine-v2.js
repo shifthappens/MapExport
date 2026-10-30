@@ -1324,6 +1324,24 @@ self.onmessage = function(event) {
   // Clipper works on integer coordinates; buffer at SCALE× so the cut keeps
   // sub-pixel fidelity to the rendered strokes, unscale when emitting paths.
   const SCALE = 10;
+  const ptSubject = Clipper.PolyType.ptSubject, ptClip = Clipper.PolyType.ptClip;
+  const ctUnion = Clipper.ClipType.ctUnion, ctDifference = Clipper.ClipType.ctDifference, ctIntersection = Clipper.ClipType.ctIntersection;
+  const NZ = Clipper.PolyFillType.pftNonZero;
+  // The landcover occlusion pass works on a finer grid than the cutter (see
+  // computeOcclusion). EMPTY is ~1px² of remaining ink: below it reads covered.
+  const CULL_SCALE = 100;
+  const EMPTY = CULL_SCALE * CULL_SCALE;
+
+  // Occlusion sub-worker (PERF-07). The face worker hands each sub-worker an
+  // interleaved share of the landcover elements plus the finished cover; it runs
+  // the same occludeLandcoverElement the inline loop does and returns one result
+  // per element, in the order received. Nothing else of the pipeline runs here.
+  if (data.occlusionChunk === true) {
+    const chunkCoveringIndex = data.covering.length ? indexVoid(data.covering) : null;
+    const results = data.elements.map(item => occludeLandcoverElement(item.lc, item.isMerged, chunkCoveringIndex));
+    self.postMessage({ type: 'occlusionChunkDone', results });
+    return;
+  }
 
   self.postMessage({ type: 'progress', msg: 'Buffering cutters…', pct: 10 });
 
@@ -1437,10 +1455,6 @@ self.onmessage = function(event) {
   }
 
   // ── Mechanical water/green/landcover subtraction (NO heuristics) ──────
-  const ptSubject = Clipper.PolyType.ptSubject, ptClip = Clipper.PolyType.ptClip;
-  const ctUnion = Clipper.ClipType.ctUnion, ctDifference = Clipper.ClipType.ctDifference, ctIntersection = Clipper.ClipType.ctIntersection;
-  const NZ = Clipper.PolyFillType.pftNonZero;
-
   function scaleRing(ring) {
     return ring.map(p => ({ X: Math.round(p[0] * SCALE), Y: Math.round(p[1] * SCALE) }));
   }
@@ -1580,11 +1594,20 @@ self.onmessage = function(event) {
   }
 
   // subject (an array of scaled rings: a face's outer + holes, or a Paths list)
-  // minus a void, as a PolyTree ready for emitTree.
+  // minus a void, as a PolyTree ready for emitTree. An indexed void hands
+  // Clipper only the paths whose bounds can touch the subject (PERF-06): a
+  // closed path has winding zero outside its own bounds, and a hole's bounds
+  // lie inside its outer's, so the skipped paths change nothing inside the
+  // subject. Before this, every face re-added the whole frame's water/green
+  // void, so the cost grew with faces × void size, i.e. with the square of
+  // the area (Oulu: ~20 of 36 s). The reference route passes everything.
   function subtractVoid(subjectPaths, voidPaths) {
+    const clipPaths = voidPaths && voidPaths.indexedVoid
+      ? (runtimeOptimizations ? indexedCandidates(voidPaths, pathsBounds(subjectPaths)) : voidPaths.paths)
+      : voidPaths;
     const clipper = new Clipper.Clipper();
     for (const p of subjectPaths) if (p && p.length >= 3) clipper.AddPath(p, ptSubject, true);
-    for (const v of voidPaths) if (v && v.length >= 3) clipper.AddPath(v, ptClip, true);
+    for (const v of clipPaths) if (v && v.length >= 3) clipper.AddPath(v, ptClip, true);
     const tree = new Clipper.PolyTree();
     clipper.Execute(ctDifference, tree, NZ, NZ);
     return tree;
@@ -1640,8 +1663,9 @@ self.onmessage = function(event) {
   // Blocks lose water, green and waterway strokes (all paint above the block).
   // The coverage fallback additionally loses landcover (farmland/wood paints too),
   // so it only paints land that truly no layer covered.
-  const blockVoid = clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys], waterwayStrokePaths), SCALE);
-  const fallbackVoid = clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys, landcoverPolys], waterwayStrokePaths), SCALE);
+  // Both are indexed so each subtraction reads only the void near its subject.
+  const blockVoid = indexVoid(clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys], waterwayStrokePaths), SCALE));
+  const fallbackVoid = indexVoid(clipToFrame(buildVoid([waterPolys, greenPolys, recreationPolys, landcoverPolys], waterwayStrokePaths), SCALE));
 
   // Countryside threshold in scaled area units. A face at/above this is rural
   // (not filled curb-to-curb); below it and containing a building it becomes a
@@ -1730,8 +1754,9 @@ self.onmessage = function(event) {
   // empty blocks and no merges, so Countryside does not overpaint water/waterways
   // in the Parks & green band.
   if (clipOnly) {
-    const occ = computeOcclusion([], new Set());
-    self.postMessage({ type: 'done', blocks: [], culledLandcover: occ.culledLandcover, clippedLandcover: occ.clippedLandcover, greenGroundMerges: occ.greenGroundMerges });
+    computeOcclusion([], new Set(), occ => {
+      self.postMessage({ type: 'done', blocks: [], culledLandcover: occ.culledLandcover, clippedLandcover: occ.clippedLandcover, greenGroundMerges: occ.greenGroundMerges });
+    });
     return;
   }
 
@@ -2263,7 +2288,8 @@ self.onmessage = function(event) {
       let remainderClip = blockVoid;
       if (hamletPaintedPaths && hamletPaintedPaths.length) {
         const clipUnion = new Clipper.Clipper();
-        clipUnion.AddPaths(blockVoid, ptSubject, true);
+        // Only the block void near this face can reach the subtraction below.
+        clipUnion.AddPaths(runtimeOptimizations ? indexedCandidates(blockVoid, faceBounds) : blockVoid.paths, ptSubject, true);
         clipUnion.AddPaths(hamletPaintedPaths, ptSubject, true);
         remainderClip = new Clipper.Paths();
         clipUnion.Execute(ctUnion, remainderClip, NZ, NZ);
@@ -2345,8 +2371,7 @@ self.onmessage = function(event) {
   // punches its own holes before the union, so a hole one layer leaves and
   // another fills stays covered. No subtraction void is touched, so §1 coverage
   // is unaffected.
-  function computeOcclusion(blocks, mergedLandcover) {
-  const CULL_SCALE = 100;
+  function computeOcclusion(blocks, mergedLandcover, done) {
   const culledLandcover = [];
   const clippedLandcover = [];
   // Merged (green-remainder) elements paint through greenGroundMerges, not
@@ -2354,12 +2379,11 @@ self.onmessage = function(event) {
   // px rings; [] means fully covered → paints nothing). Keeps the merge seam.
   const mergedClipRings = new Map();
   const occlusionCoverBuildStarted = benchmark ? Date.now() : 0;
+  const finish = () => {
+    const greenGroundMerges = [...mergedLandcover].map(index => ({ index, rings: mergedClipRings.has(index) ? mergedClipRings.get(index) : landcoverElements[index].rings }));
+    done({ culledLandcover, clippedLandcover, greenGroundMerges });
+  };
   if (landcoverElements.length) {
-    const scaleRingCull = ring => {
-      const sp = [];
-      for (const p of ring) sp.push({ X: Math.round(p[0] * CULL_SCALE), Y: Math.round(p[1] * CULL_SCALE) });
-      return sp.length >= 3 ? sp : null;
-    };
     // NonZero union of a set of pre-oriented ring groups (outer +, hole −), so
     // each group's own holes self-punch — the same discipline as buildVoid.
     const unionOrientedRings = groups => {
@@ -2441,107 +2465,174 @@ self.onmessage = function(event) {
     // needs to be culled, while the retained reference route deliberately
     // preserves the old unbounded result for visible-output comparison.
     if (coveringIndex || (runtimeOptimizations && coveringFull.length)) {
-      const EMPTY = CULL_SCALE * CULL_SCALE; // ~1px² of remaining ink = "covered"
-      const cullPathsToRings = paths => clipPathsToRingParts(paths, CULL_SCALE);
-      for (const lc of landcoverElements) {
-        // A merged element is clipped like any other but never culled: its grown
-        // rings ship back through greenGroundMerges, which keeps the seam
-        // stroke.
-        const isMerged = mergedLandcover.has(lc.index);
-        const sourceSubj = [];
-        const sourceRings = ringParts(lc.rings);
-        for (const ring of [...sourceRings.outer, ...sourceRings.inner]) { const sp = scaleRingCull(ring); if (sp) sourceSubj.push(sp); }
-        if (!sourceSubj.length) continue;
-        // Ink outside the frame is invisible (the viewBox is the frame), so the
-        // element is judged and clipped on its in-frame part alone. The cover was
-        // trimmed to the frame above; without trimming the element too, one whose
-        // off-frame ink sat under off-frame cover would flip from culled to
-        // painted (Nijmegen: 167 polder fields from the neighbouring cache tiles,
-        // all under the Waal). Nothing in frame → nothing to paint. A straddling
-        // element the cover never cuts still keeps its raw geometry below.
-        const subj = clipToFrame(sourceSubj, CULL_SCALE);
-        if (!subj.length) {
-          if (isMerged) mergedClipRings.set(lc.index, []);
-          else culledLandcover.push(lc.index);
-          continue;
+      // A merged element is clipped like any other but never culled: its grown
+      // rings ship back through greenGroundMerges, which keeps the seam stroke.
+      const work = landcoverElements.map(lc => ({ lc, isMerged: mergedLandcover.has(lc.index) }));
+      runOcclusionElements(work, coveringIndex, covering, results => {
+        // Results arrive per element in landcoverElements order, whichever
+        // thread computed them, so the output lists keep their original order.
+        for (let i = 0; i < work.length; i++) {
+          const result = results[i], index = work[i].lc.index;
+          if (!result) continue;
+          if (result.culled) culledLandcover.push(index);
+          else if (result.mergedRings) mergedClipRings.set(index, result.mergedRings);
+          else if (result.clippedRings) clippedLandcover.push({ index, rings: result.clippedRings });
         }
-        // rawArea (naive sum of |ring area|, double-counting any self-overlap) is
-        // always >= the true normalized area, so it is both a safe cull floor
-        // (rawArea < EMPTY ⇒ normalized area is too) and a safe "was anything
-        // cut?" ceiling (remArea < rawArea - EMPTY ⇒ the cover genuinely removed
-        // ink; when it did not, keep the raw geometry rather than re-quantize).
-        let rawArea = 0;
-        for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
-        const subjectBounds = pathsBounds(subj);
-        const candidates = !coveringIndex
-          ? []
-          : runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
-        // Nothing covers this element, so it is never clipped — but it can still
-        // be a sub-EMPTY crumb to cull. rawArea over-counts, which settles the
-        // easy cases: below EMPTY culls, and a single ring cannot self-overlap
-        // so its rawArea is exact and it stays. A multi-ring element at or above
-        // EMPTY is ambiguous, so normalize it first and cull only if genuinely
-        // empty.
-        if (!candidates.length) {
-          if (isMerged) continue;
-          if (rawArea < EMPTY) { culledLandcover.push(lc.index); continue; }
-          if (subj.length <= 1) continue;
-          const nc = new Clipper.Clipper();
-          for (const s of subj) nc.AddPath(s, ptSubject, true);
-          const norm = new Clipper.Paths();
-          nc.Execute(ctUnion, norm, NZ, NZ);
-          let normArea = 0;
-          for (const p of norm) normArea += Math.abs(Clipper.Clipper.Area(p));
-          if (normArea < EMPTY) culledLandcover.push(lc.index);
-          continue;
-        }
-        const dc = new Clipper.Clipper();
-        for (const s of subj) dc.AddPath(s, ptSubject, true);
-        for (const b of candidates) dc.AddPath(b, ptClip, true);
-        const remainder = new Clipper.Paths();
-        dc.Execute(ctDifference, remainder, NZ, NZ);
-        // Difference output can contain new holes. Clipper gives those the
-        // opposite winding, so use the signed sum for the net painted area;
-        // summing absolute contours would count a water/building hole as extra
-        // green and incorrectly classify a genuinely clipped element as raw.
-        let remArea = 0;
-        for (const p of remainder) remArea += Clipper.Clipper.Area(p);
-        remArea = Math.abs(remArea);
-        if (remArea < EMPTY) {
-          // Fully covered. A plain element is culled; a merged one ships empty
-          // rings so its grown green paints nothing where the cover already fills.
-          if (isMerged) mergedClipRings.set(lc.index, []);
-          else culledLandcover.push(lc.index);
-          continue;
-        }
-        // The cover partly hides this element: paint the clipped remainder (px,
-        // back from CULL_SCALE) so the layer is disjoint from what paints above
-        // it. A merged element always ships its clipped grown rings; a plain one
-        // only when the cover genuinely cut it (else it keeps its raw geometry).
-        if (isMerged) mergedClipRings.set(lc.index, cullPathsToRings(remainder));
-        else if (remArea < rawArea - EMPTY) {
-          const rings = cullPathsToRings(remainder);
-          if (rings.outer.length || rings.inner.length) clippedLandcover.push({ index: lc.index, rings });
-        }
-      }
+        if (benchmark) benchmarkTimings.occlusionElementDifferences = Date.now() - occlusionElementDifferencesStarted;
+        finish();
+      });
+      return;
     }
     if (benchmark) benchmarkTimings.occlusionElementDifferences = Date.now() - occlusionElementDifferencesStarted;
   } else if (benchmark) {
     benchmarkTimings.occlusionCoverBuild = Date.now() - occlusionCoverBuildStarted;
     benchmarkTimings.occlusionElementDifferences = 0;
   }
-  const greenGroundMerges = [...mergedLandcover].map(index => ({ index, rings: mergedClipRings.has(index) ? mergedClipRings.get(index) : landcoverElements[index].rings }));
-  return { culledLandcover, clippedLandcover, greenGroundMerges };
+  finish();
   } // end computeOcclusion
 
-  const occ = computeOcclusion(blocks, mergedLandcover);
-  if (benchmark) benchmarkTimings.totalWorker = Date.now() - benchmarkStarted;
-  self.postMessage({
-    type: 'done', blocks: blocks,
-    culledLandcover: occ.culledLandcover,
-    clippedLandcover: occ.clippedLandcover,
-    greenGroundMerges: occ.greenGroundMerges,
-    ...(benchmark ? { timings: benchmarkTimings } : {}),
+  function scaleRingCull(ring) {
+    const sp = [];
+    for (const p of ring) sp.push({ X: Math.round(p[0] * CULL_SCALE), Y: Math.round(p[1] * CULL_SCALE) });
+    return sp.length >= 3 ? sp : null;
+  }
+
+  // One landcover element against the finished cover: { culled }, { mergedRings }
+  // (a merged element's clipped grown rings, [] when fully covered),
+  // { clippedRings } (a plain element the cover genuinely cut), or null (keep
+  // the raw geometry). Pure in its inputs, so the inline loop and the
+  // occlusion sub-workers produce identical results.
+  function occludeLandcoverElement(lc, isMerged, coveringIndex) {
+    const sourceSubj = [];
+    const sourceRings = ringParts(lc.rings);
+    for (const ring of [...sourceRings.outer, ...sourceRings.inner]) { const sp = scaleRingCull(ring); if (sp) sourceSubj.push(sp); }
+    if (!sourceSubj.length) return null;
+    // Ink outside the frame is invisible (the viewBox is the frame), so the
+    // element is judged and clipped on its in-frame part alone. The cover was
+    // trimmed to the frame above; without trimming the element too, one whose
+    // off-frame ink sat under off-frame cover would flip from culled to
+    // painted (Nijmegen: 167 polder fields from the neighbouring cache tiles,
+    // all under the Waal). Nothing in frame → nothing to paint. A straddling
+    // element the cover never cuts still keeps its raw geometry below.
+    const subj = clipToFrame(sourceSubj, CULL_SCALE);
+    if (!subj.length) return isMerged ? { mergedRings: [] } : { culled: true };
+    // rawArea (naive sum of |ring area|, double-counting any self-overlap) is
+    // always >= the true normalized area, so it is both a safe cull floor
+    // (rawArea < EMPTY ⇒ normalized area is too) and a safe "was anything
+    // cut?" ceiling (remArea < rawArea - EMPTY ⇒ the cover genuinely removed
+    // ink; when it did not, keep the raw geometry rather than re-quantize).
+    let rawArea = 0;
+    for (const s of subj) rawArea += Math.abs(Clipper.Clipper.Area(s));
+    const subjectBounds = pathsBounds(subj);
+    const candidates = !coveringIndex
+      ? []
+      : runtimeOptimizations ? indexedCandidates(coveringIndex, subjectBounds) : coveringIndex.paths;
+    // Nothing covers this element, so it is never clipped — but it can still
+    // be a sub-EMPTY crumb to cull. rawArea over-counts, which settles the
+    // easy cases: below EMPTY culls, and a single ring cannot self-overlap
+    // so its rawArea is exact and it stays. A multi-ring element at or above
+    // EMPTY is ambiguous, so normalize it first and cull only if genuinely
+    // empty.
+    if (!candidates.length) {
+      if (isMerged) return null;
+      if (rawArea < EMPTY) return { culled: true };
+      if (subj.length <= 1) return null;
+      const nc = new Clipper.Clipper();
+      for (const s of subj) nc.AddPath(s, ptSubject, true);
+      const norm = new Clipper.Paths();
+      nc.Execute(ctUnion, norm, NZ, NZ);
+      let normArea = 0;
+      for (const p of norm) normArea += Math.abs(Clipper.Clipper.Area(p));
+      return normArea < EMPTY ? { culled: true } : null;
+    }
+    const dc = new Clipper.Clipper();
+    for (const s of subj) dc.AddPath(s, ptSubject, true);
+    for (const b of candidates) dc.AddPath(b, ptClip, true);
+    const remainder = new Clipper.Paths();
+    dc.Execute(ctDifference, remainder, NZ, NZ);
+    // Difference output can contain new holes. Clipper gives those the
+    // opposite winding, so use the signed sum for the net painted area;
+    // summing absolute contours would count a water/building hole as extra
+    // green and incorrectly classify a genuinely clipped element as raw.
+    let remArea = 0;
+    for (const p of remainder) remArea += Clipper.Clipper.Area(p);
+    remArea = Math.abs(remArea);
+    // Fully covered. A plain element is culled; a merged one ships empty
+    // rings so its grown green paints nothing where the cover already fills.
+    if (remArea < EMPTY) return isMerged ? { mergedRings: [] } : { culled: true };
+    // The cover partly hides this element: paint the clipped remainder (px,
+    // back from CULL_SCALE) so the layer is disjoint from what paints above
+    // it. A merged element always ships its clipped grown rings; a plain one
+    // only when the cover genuinely cut it (else it keeps its raw geometry).
+    if (isMerged) return { mergedRings: clipPathsToRingParts(remainder, CULL_SCALE) };
+    if (remArea < rawArea - EMPTY) {
+      const rings = clipPathsToRingParts(remainder, CULL_SCALE);
+      if (rings.outer.length || rings.inner.length) return { clippedRings: rings };
+    }
+    return null;
+  }
+
+  // Run occludeLandcoverElement over every element (PERF-07). The elements are
+  // independent and the cover is read-only, so on a large export they are dealt
+  // round-robin to sub-workers spawned from this same worker script, one per
+  // spare core: on a big area this pass was most of the remaining worker time.
+  // Each element's computation is unchanged, so the results are identical to
+  // the inline loop. Small exports, the reference route, and environments
+  // without nested workers (the Node harnesses) run inline; a sub-worker that
+  // fails to start or errors makes the whole pass rerun inline.
+  const OCCLUSION_ELEMENTS_PER_WORKER = 64;
+  const OCCLUSION_MAX_WORKERS = 8;
+  function occlusionWorkerCount(elementCount) {
+    if (!runtimeOptimizations || typeof Worker === 'undefined' || !self.location || !self.location.href) return 1;
+    const cores = (self.navigator && self.navigator.hardwareConcurrency) || 1;
+    return Math.max(1, Math.min(cores, OCCLUSION_MAX_WORKERS, Math.floor(elementCount / OCCLUSION_ELEMENTS_PER_WORKER)));
+  }
+  function runOcclusionElements(work, coveringIndex, covering, done) {
+    const runInline = () => work.map(item => occludeLandcoverElement(item.lc, item.isMerged, coveringIndex));
+    const workerCount = occlusionWorkerCount(work.length);
+    if (workerCount < 2) { done(runInline()); return; }
+    const results = new Array(work.length);
+    const subWorkers = [];
+    let pending = workerCount, settled = false;
+    const fallBackInline = () => {
+      if (settled) return;
+      settled = true;
+      for (const sub of subWorkers) sub.terminate();
+      done(runInline());
+    };
+    try {
+      for (let k = 0; k < workerCount; k++) {
+        const positions = [];
+        for (let i = k; i < work.length; i += workerCount) positions.push(i);
+        const sub = new Worker(self.location.href);
+        subWorkers.push(sub);
+        sub.onmessage = event => {
+          if (settled || !event.data || event.data.type !== 'occlusionChunkDone') return;
+          const chunkResults = event.data.results;
+          for (let j = 0; j < positions.length; j++) results[positions[j]] = chunkResults[j];
+          sub.terminate();
+          if (--pending === 0) { settled = true; done(results); }
+        };
+        sub.onerror = event => { if (event && event.preventDefault) event.preventDefault(); fallBackInline(); };
+        sub.postMessage({
+          occlusionChunk: true, W, H, runtimeOptimizations, covering,
+          elements: positions.map(i => work[i]),
+        });
+      }
+    } catch (cause) {
+      fallBackInline();
+    }
+  }
+
+  computeOcclusion(blocks, mergedLandcover, occ => {
+    if (benchmark) benchmarkTimings.totalWorker = Date.now() - benchmarkStarted;
+    self.postMessage({
+      type: 'done', blocks: blocks,
+      culledLandcover: occ.culledLandcover,
+      clippedLandcover: occ.clippedLandcover,
+      greenGroundMerges: occ.greenGroundMerges,
+      ...(benchmark ? { timings: benchmarkTimings } : {}),
+    });
   });
 };
 `

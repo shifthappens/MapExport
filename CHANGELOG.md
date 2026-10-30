@@ -11,6 +11,12 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-10-30 — Faster "Cut faces" on large areas
+- Water/green subtraction now only looks at voids near each block (spatial
+  index), and landcover clipping runs in parallel sub-workers. A large Oulu
+  export goes from ~163 s to ~14 s in this stage; small areas are unchanged.
+  Map content is the same; a few vertices may shift by a sub-pixel rounding.
+
 ### 2026-10-30 — Longer server cache, Tilburg never expires
 - The server cache now keeps Overpass tiles for 30 days instead of 7.
 - Cached Overpass tiles around Tilburg (incl. Berkel-Enschot and Udenhout) are
