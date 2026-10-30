@@ -31,7 +31,7 @@ function unexpectedFailure(name, error) {
   console.error(`FAIL ${name}: ${error?.stack || error}`);
 }
 
-async function expectStructuredRejection(name, phase, operation) {
+async function expectStructuredRejection(name, phase, operation, extraChecks = null) {
   try {
     const result = await Promise.race([
       operation(),
@@ -48,6 +48,7 @@ async function expectStructuredRejection(name, phase, operation) {
       assert.ok(error.source.length > 0);
       assert.equal(typeof error.userMessage, 'string');
       assert.ok(error.userMessage.length > 0);
+      if (extraChecks) extraChecks(error);
       ok(name);
     } catch (assertionError) {
       unexpectedFailure(name, assertionError);
@@ -148,6 +149,43 @@ await expectStructuredRejection('v1 computeBlocksAsync rejects Worker postMessag
   X.computeBlocksAsync(cutterResults, projector, 1000, 1000, null, { bbox }));
 await expectStructuredRejection('v2 computeFacesAsync rejects Worker postMessage throw', 'worker', () =>
   X.EngineV2.computeFacesAsync(cutterResults, [], classified, projector, 1000, 1000, null, { bbox, placeNodeElements: [] }));
+
+// Cancelling the export must stop a face worker that would otherwise run on
+// (it never answers here) and terminate it, which also ends its sub-workers.
+let silentTerminations = 0;
+class SilentWorker { postMessage() {} terminate() { silentTerminations++; } }
+context.Worker = SilentWorker;
+const cancelController = new AbortController();
+// A cancel reads as a cancel, not as a worker crash.
+const isCancelFailure = error => {
+  assert.equal(error.userMessage, 'Export cancelled.');
+  assert.equal(error.details?.operation, 'cancel');
+};
+await expectStructuredRejection('v2 computeFacesAsync rejects when the export is cancelled', 'worker', () => {
+  const pending = X.EngineV2.computeFacesAsync(cutterResults, [], classified, projector, 1000, 1000, null, {
+    bbox, placeNodeElements: [], signal: cancelController.signal,
+  });
+  setTimeout(() => cancelController.abort(new Error('Export cancelled by user')), 5);
+  return pending;
+}, isCancelFailure);
+try { assert.equal(silentTerminations, 1); ok('v2 cancel terminates the face worker'); }
+catch (error) { unexpectedFailure('v2 cancel terminates the face worker', error); }
+await expectStructuredRejection('v2 computeFacesAsync rejects an already-cancelled export without starting', 'worker', () =>
+  X.EngineV2.computeFacesAsync(cutterResults, [], classified, projector, 1000, 1000, null, {
+    bbox, placeNodeElements: [], signal: cancelController.signal,
+  }), isCancelFailure);
+try { assert.equal(silentTerminations, 1); ok('v2 already-cancelled export starts no face worker'); }
+catch (error) { unexpectedFailure('v2 already-cancelled export starts no face worker', error); }
+// The pipeline's own calls must hand over the running export's signal, or
+// the cancel handling above never sees a cancel. Both routes (city blocks and
+// countryside-only clipping) call computeFacesAsync from inside the engine.
+try {
+  const faceCalls = engineSrc.match(/await computeFacesAsync\([^\n]*/g) || [];
+  assert.equal(faceCalls.length, 2, `expected 2 pipeline calls, found ${faceCalls.length}`);
+  for (const call of faceCalls) assert.ok(call.includes('signal: currentExportSignal()'), `no export signal: ${call.slice(0, 80)}`);
+  assert.match(engineSrc, /function currentExportSignal\(\) \{\s*return typeof activeExportAbort !== 'undefined' && activeExportAbort \? activeExportAbort\.signal : null;/);
+  ok('v2 pipeline face cutting receives the running export\'s cancel signal');
+} catch (error) { unexpectedFailure('v2 pipeline face cutting receives the running export\'s cancel signal', error); }
 
 const lifecycleExpose = `
 ;globalThis.__exportLifecycle = {

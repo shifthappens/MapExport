@@ -1332,14 +1332,45 @@ self.onmessage = function(event) {
   const CULL_SCALE = 100;
   const EMPTY = CULL_SCALE * CULL_SCALE;
 
+  // Sizing for the occlusion sub-workers (runOcclusionElements below). They
+  // are declared up here because the clip-only route runs that pass before
+  // the rest of the pipeline is reached.
+  const OCCLUSION_ELEMENTS_PER_WORKER = 64;
+  const OCCLUSION_MAX_WORKERS = 8;
+  // A sub-worker can vanish without an error event (killed by the browser,
+  // its Clipper import stalled), which would leave the export stuck on
+  // "Cutting faces". So each one reports in at least every heartbeat, handing
+  // over the results it has so far, and one that stays silent for the silence
+  // limit is treated as lost: only its unreported elements are computed
+  // inline. A slow device that is still working keeps reporting, so it is
+  // never cut off. The limit covers loading Clipper and one very large element.
+  const OCCLUSION_HEARTBEAT_MS = 1000;
+  const OCCLUSION_SILENCE_MS = 60000;
+
   // Occlusion sub-worker (PERF-07). The face worker hands each sub-worker an
   // interleaved share of the landcover elements plus the finished cover; it runs
   // the same occludeLandcoverElement the inline loop does and returns one result
   // per element, in the order received. Nothing else of the pipeline runs here.
+  // Results go back in batches (from = index of the batch's first element in
+  // this share): a progress batch at least every heartbeatMs, the rest with
+  // 'occlusionChunkDone'. In benchmark mode each batch carries the frame-clip
+  // counters its elements added, so a threaded run reports the same totals as
+  // an inline one.
   if (data.occlusionChunk === true) {
     const chunkCoveringIndex = data.covering.length ? indexVoid(data.covering) : null;
-    const results = data.elements.map(item => occludeLandcoverElement(item.lc, item.isMerged, chunkCoveringIndex));
-    self.postMessage({ type: 'occlusionChunkDone', results });
+    const results = [];
+    let reported = 0, lastReport = Date.now();
+    const report = type => {
+      self.postMessage({ type, from: reported, results: results.slice(reported), counters: benchmarkTimings });
+      reported = results.length;
+      lastReport = Date.now();
+      if (benchmarkTimings) for (const key in benchmarkTimings) delete benchmarkTimings[key];
+    };
+    for (const item of data.elements) {
+      results.push(occludeLandcoverElement(item.lc, item.isMerged, chunkCoveringIndex));
+      if (Date.now() - lastReport >= data.heartbeatMs) report('occlusionChunkProgress');
+    }
+    report('occlusionChunkDone');
     return;
   }
 
@@ -1755,7 +1786,7 @@ self.onmessage = function(event) {
   // in the Parks & green band.
   if (clipOnly) {
     computeOcclusion([], new Set(), occ => {
-      self.postMessage({ type: 'done', blocks: [], culledLandcover: occ.culledLandcover, clippedLandcover: occ.clippedLandcover, greenGroundMerges: occ.greenGroundMerges });
+      self.postMessage({ type: 'done', blocks: [], culledLandcover: occ.culledLandcover, clippedLandcover: occ.clippedLandcover, greenGroundMerges: occ.greenGroundMerges, ...(benchmark ? { timings: benchmarkTimings } : {}) });
     });
     return;
   }
@@ -2579,9 +2610,8 @@ self.onmessage = function(event) {
   // Each element's computation is unchanged, so the results are identical to
   // the inline loop. Small exports, the reference route, and environments
   // without nested workers (the Node harnesses) run inline; a sub-worker that
-  // fails to start or errors makes the whole pass rerun inline.
-  const OCCLUSION_ELEMENTS_PER_WORKER = 64;
-  const OCCLUSION_MAX_WORKERS = 8;
+  // fails to start, errors, or goes silent has its unreported elements
+  // computed inline while the other sub-workers carry on.
   function occlusionWorkerCount(elementCount) {
     if (!runtimeOptimizations || typeof Worker === 'undefined' || !self.location || !self.location.href) return 1;
     const cores = (self.navigator && self.navigator.hardwareConcurrency) || 1;
@@ -2592,35 +2622,85 @@ self.onmessage = function(event) {
     const workerCount = occlusionWorkerCount(work.length);
     if (workerCount < 2) { done(runInline()); return; }
     const results = new Array(work.length);
-    const subWorkers = [];
-    let pending = workerCount, settled = false;
-    const fallBackInline = () => {
-      if (settled) return;
-      settled = true;
-      for (const sub of subWorkers) sub.terminate();
-      done(runInline());
+    const answered = new Uint8Array(work.length);
+    const shares = [];
+    for (let k = 0; k < workerCount; k++) {
+      const positions = [];
+      for (let i = k; i < work.length; i += workerCount) positions.push(i);
+      shares.push({ positions, sub: null, timer: 0, listen: null, finished: false });
+    }
+    let pending = workerCount;
+    const chunkCounters = [];
+    // Stops a share's sub-worker and silence timer once; false if the share
+    // was already settled (a late error after its last answer, for example).
+    const settleShare = share => {
+      if (share.finished) return false;
+      share.finished = true;
+      clearTimeout(share.timer);
+      if (share.sub) share.sub.terminate();
+      return true;
     };
+    // Benchmark frame-clip counters of the batches that arrived; elements
+    // computed inline below count for themselves, so the totals always match
+    // an all-inline run.
+    const shareDone = () => {
+      if (--pending > 0) return;
+      if (benchmark) {
+        for (const counters of chunkCounters) {
+          for (const key in counters) benchmarkTimings[key] = (benchmarkTimings[key] || 0) + counters[key];
+        }
+      }
+      done(results);
+    };
+    // A sub-worker that fails or goes silent is dropped on its own: the
+    // results it already reported are kept, only the rest of its share is
+    // computed here, and the other sub-workers carry on.
+    const abandonShare = share => {
+      if (!settleShare(share)) return;
+      for (const i of share.positions) {
+        if (!answered[i]) results[i] = occludeLandcoverElement(work[i].lc, work[i].isMerged, coveringIndex);
+      }
+      // The others' reports queued up unread while this ran; restart their
+      // silence timers so a long inline share cannot get them dropped too.
+      for (const other of shares) if (other.listen && !other.finished) other.listen();
+      shareDone();
+    };
+    let starting = 0;
     try {
-      for (let k = 0; k < workerCount; k++) {
-        const positions = [];
-        for (let i = k; i < work.length; i += workerCount) positions.push(i);
+      for (; starting < shares.length; starting++) {
+        const share = shares[starting];
         const sub = new Worker(self.location.href);
-        subWorkers.push(sub);
-        sub.onmessage = event => {
-          if (settled || !event.data || event.data.type !== 'occlusionChunkDone') return;
-          const chunkResults = event.data.results;
-          for (let j = 0; j < positions.length; j++) results[positions[j]] = chunkResults[j];
-          sub.terminate();
-          if (--pending === 0) { settled = true; done(results); }
+        share.sub = sub;
+        const listen = () => {
+          clearTimeout(share.timer);
+          share.timer = setTimeout(() => abandonShare(share), OCCLUSION_SILENCE_MS);
         };
-        sub.onerror = event => { if (event && event.preventDefault) event.preventDefault(); fallBackInline(); };
+        share.listen = listen;
+        listen();
+        sub.onmessage = event => {
+          const message = event.data;
+          if (share.finished || !message || (message.type !== 'occlusionChunkProgress' && message.type !== 'occlusionChunkDone')) return;
+          for (let j = 0; j < message.results.length; j++) {
+            const position = share.positions[message.from + j];
+            results[position] = message.results[j];
+            answered[position] = 1;
+          }
+          if (message.counters) chunkCounters.push(message.counters);
+          if (message.type === 'occlusionChunkProgress') listen();
+          else if (settleShare(share)) shareDone();
+        };
+        sub.onerror = event => { if (event && event.preventDefault) event.preventDefault(); abandonShare(share); };
+        // A result that cannot be deserialized never reaches onmessage.
+        sub.onmessageerror = () => abandonShare(share);
         sub.postMessage({
-          occlusionChunk: true, W, H, runtimeOptimizations, covering,
-          elements: positions.map(i => work[i]),
+          occlusionChunk: true, W, H, runtimeOptimizations, benchmark, covering,
+          heartbeatMs: OCCLUSION_HEARTBEAT_MS, elements: share.positions.map(i => work[i]),
         });
       }
     } catch (cause) {
-      fallBackInline();
+      // Shares already handed out keep their sub-worker; the one that failed
+      // to start and any not yet started are computed here.
+      for (let k = starting; k < shares.length; k++) abandonShare(shares[k]);
     }
   }
 
@@ -2882,6 +2962,12 @@ self.onmessage = function(event) {
     };
   }
 
+  // The running export's cancel signal (script.js owns the controller; see
+  // runExportLifecycle). Absent in harnesses that load the engine alone.
+  function currentExportSignal() {
+    return typeof activeExportAbort !== 'undefined' && activeExportAbort ? activeExportAbort.signal : null;
+  }
+
   // Run the face cutter in a Web Worker. Resolves { blocks }. Mirrors v1's
   // computeBlocksAsync lifecycle; the message protocol is shape-compatible
   // with v1's ({type:'progress'} / {type:'done', ...}).
@@ -2901,6 +2987,23 @@ self.onmessage = function(event) {
       // left that whole frame bare — the page showed through. The worker already
       // handles empty cutterLines (voidClean is empty → face = frame).
 
+      // Cancelling the export stops the worker at once. Terminating it also
+      // ends any occlusion sub-workers it started, so a cancelled large export
+      // stops burning every core instead of running to completion unseen.
+      const signal = opts.signal || null;
+      if (signal && signal.aborted) { reject(cancelledFailure()); return; }
+      const onAbort = () => { worker.terminate(); reject(cancelledFailure()); };
+      const stopListening = () => { if (signal) signal.removeEventListener('abort', onAbort); };
+      function cancelledFailure() {
+        return new ExportFailure({
+          source: 'engine-v2',
+          phase: 'worker',
+          userMessage: 'Export cancelled.',
+          cause: signal.reason,
+          details: { operation: 'cancel' },
+        });
+      }
+
       let worker;
       try {
         worker = new Worker(getFaceWorkerUrl());
@@ -2914,10 +3017,12 @@ self.onmessage = function(event) {
         }));
         return;
       }
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
       worker.onmessage = function(e) {
         if (e.data.type === 'progress' && onProgress) onProgress(e.data.msg, e.data.pct);
         if (e.data.type === 'done') {
           worker.terminate();
+          stopListening();
           // Resolve with the worker's whole payload (minus the message tag), not
           // a hand-listed subset: a field left out here would silently never
           // reach applyLandcoverOcclusion — that is exactly how the AF-07c P1
@@ -2929,6 +3034,7 @@ self.onmessage = function(event) {
       };
       worker.onerror = function(err) {
         worker.terminate();
+        stopListening();
         console.error('Face worker error:', err);
         reject(new ExportFailure({
           source: 'engine-v2',
@@ -2942,6 +3048,7 @@ self.onmessage = function(event) {
         worker.postMessage(data);
       } catch (cause) {
         worker.terminate();
+        stopListening();
         reject(new ExportFailure({
           source: 'engine-v2',
           phase: 'worker',
@@ -4160,7 +4267,7 @@ self.onmessage = function(event) {
         progress.setStage('faces', 'active', { detail: msg });
         progress.bar(55 + Math.round(pct * 0.25));
       };
-      faceResult = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements, coverPaints: layerPlan.coverPaints });
+      faceResult = await computeFacesAsync(cutterResults, buildingElements, classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements, coverPaints: layerPlan.coverPaints, signal: currentExportSignal() });
       blocks = faceResult.blocks || [];
     } else if (layerPlan.needsLandcoverClip) {
       // City blocks off, but Countryside still paints in the Parks & green band
@@ -4174,7 +4281,7 @@ self.onmessage = function(event) {
       // The whole result carries through, culledLandcover included: an element
       // the painted water fully hides is culled by the worker, not clipped, and
       // must still be dropped or it paints over the water (the AF-07c P1 bug).
-      faceResult = await computeFacesAsync([], [], classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements: [], coverPaints: layerPlan.coverPaints, clipOnly: true });
+      faceResult = await computeFacesAsync([], [], classified, pr, widthPx, H, onFaceProgress, { bbox, placeNodeElements: [], coverPaints: layerPlan.coverPaints, clipOnly: true, signal: currentExportSignal() });
       progress.setStage('faces', 'done', { meta: 'Countryside clipped', detail: '' });
     } else {
       progress.setStage('faces', 'done', { meta: 'City blocks off', detail: '' });

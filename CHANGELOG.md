@@ -11,6 +11,15 @@ All notable changes to MapExport are recorded here, **newest at the top**.
 
 ## Unreleased
 
+### 2026-10-30 — Fix countryside-only exports; parallel face cutting hardened
+- Fixed: with City blocks off, exports with Countryside on failed at "Cutting
+  faces" (introduced by the parallel face cutting earlier today).
+- A helper thread that goes silent no longer leaves the export stuck: after a
+  minute without news, the part it had not finished is redone on the main face
+  worker. A thread that is slow but still reporting is always waited for.
+- Cancelling during "Cutting faces" now stops the export; before, it ran on to
+  the end anyway.
+
 ### 2026-10-30 — Faster "Cut faces" on large areas
 - Water/green subtraction now only looks at voids near each block (spatial
   index), and landcover clipping runs in parallel sub-workers. A large Oulu

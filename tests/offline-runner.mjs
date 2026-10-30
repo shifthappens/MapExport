@@ -33,7 +33,7 @@ const offlineNames = [
   'technical-names', 'pipeline-equivalence', 'supersession', 'sea-sign',
   'hamlet-grounding', 'fetch-padding-sync', 'prefetch-cache-policy', 'v2-cutterless-coverage',
   'scenario-invariants',
-  'v2-cutterless-worker', 'landcover-clip', 'v2-face-runtime-benchmark',
+  'v2-cutterless-worker', 'landcover-clip', 'v2-face-runtime-benchmark', 'v2-occlusion-threads',
   'cache-php', 'pin-cache',
 ];
 export const MANIFEST = {
@@ -41,7 +41,7 @@ export const MANIFEST = {
     { name: 'offline-runner-selftest', file: 'offline-runner.mjs', args: ['--selftest'] },
     ...offlineNames.map(name => ({ name, file: `${name}.mjs`, requires: name === 'cache-php' ? ['php'] : [] })),
   ],
-  helpers: ['lib.mjs', 'face-worker-helper.mjs', 'offline-network-guard.cjs', 'svg-lint.mjs', 'coverage-lint.mjs', 'render-coverage.mjs'],
+  helpers: ['lib.mjs', 'face-worker-helper.mjs', 'face-worker-thread-host.mjs', 'offline-network-guard.cjs', 'svg-lint.mjs', 'coverage-lint.mjs', 'render-coverage.mjs'],
   runners: ['offline-runner.mjs', 'smoke.sh'],
   liveUtilities: ['capture-fixtures.mjs', 'capture-one.mjs', 'minified-cache-keys.mjs', 'query-equivalence.mjs', 'real-export.mjs', 'time-queries.mjs', 'visual-cities.sh'],
 };
